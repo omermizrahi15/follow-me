@@ -1,0 +1,17 @@
+{
+  "name": "follow-me",
+  "version": "0.1.0",
+  "scripts": {
+    "test": "jest --config jest.config.json",
+    "test:watch": "jest --config jest.config.json --watch",
+    "test:integration": "jest --testPathPattern=integration",
+    "test:e2e": "jest --testPathPattern=e2e",
+    "test:all": "jest --testPathPattern='\\.(test|integration\\.test|e2e)\\.ts$'"
+  },
+  "devDependencies": {
+    "@types/jest": "^29.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.0.0"
+  }
+}

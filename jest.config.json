@@ -1,0 +1,8 @@
+{
+  "preset": "ts-jest",
+  "testEnvironment": "node",
+  "testPathPattern": "\\.(test|spec)\\.ts$",
+  "testPathIgnorePatterns": ["\\.integration\\.test\\.ts$", "\\.e2e\\.ts$"],
+  "moduleFileExtensions": ["ts", "tsx", "js"],
+  "roots": ["<rootDir>/src"]
+}
