@@ -1,8 +1,13 @@
 {
-  "preset": "ts-jest",
   "testEnvironment": "node",
-  "testPathPattern": "\\.(test|spec)\\.ts$",
-  "testPathIgnorePatterns": ["\\.integration\\.test\\.ts$", "\\.e2e\\.ts$"],
-  "moduleFileExtensions": ["ts", "tsx", "js"],
-  "roots": ["<rootDir>/src"]
+  "transform": {
+    "^.+\\.ts$": ["ts-jest", { "tsconfig": { "jsx": "react-native" } }]
+  },
+  "moduleFileExtensions": ["ts", "js"],
+  "roots": ["<rootDir>/src"],
+  "testPathIgnorePatterns": [
+    "\\.integration\\.test\\.ts$",
+    "\\.e2e\\.ts$",
+    "src/ui/"
+  ]
 }

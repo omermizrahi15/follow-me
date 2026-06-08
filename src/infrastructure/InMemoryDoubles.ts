@@ -1,6 +1,6 @@
-import { Photo } from '../domain/entities/Photo';
-import { Subscriber } from '../domain/entities/Subscriber';
-import {
+import type { Photo } from '../domain/entities/Photo';
+import type { Subscriber } from '../domain/entities/Subscriber';
+import type {
   IPhotoRepository,
   ISubscriberRepository,
   INotifier,
@@ -12,17 +12,17 @@ export class InMemoryPhotoRepository implements IPhotoRepository {
 
   async save(photo: Photo): Promise<void> {
     this.store.set(photo.id, photo);
+    return Promise.resolve();
   }
 
   async findByOwner(ownerId: string): Promise<Photo[]> {
-    return [...this.store.values()].filter(p => p.ownerId === ownerId);
+    return Promise.resolve([...this.store.values()].filter(p => p.ownerId === ownerId));
   }
 
   async findById(id: string): Promise<Photo | null> {
-    return this.store.get(id) ?? null;
+    return Promise.resolve(this.store.get(id) ?? null);
   }
 
-  // test helper
   all(): Photo[] { return [...this.store.values()]; }
 }
 
@@ -31,16 +31,17 @@ export class InMemorySubscriberRepository implements ISubscriberRepository {
 
   async save(subscriber: Subscriber): Promise<void> {
     this.store.set(subscriber.id, subscriber);
+    return Promise.resolve();
   }
 
   async findActiveByPublisher(publisherId: string): Promise<Subscriber[]> {
-    return [...this.store.values()].filter(
-      s => s.publisherId === publisherId && s.isActive()
+    return Promise.resolve(
+      [...this.store.values()].filter(s => s.publisherId === publisherId && s.isActive())
     );
   }
 
   async findById(id: string): Promise<Subscriber | null> {
-    return this.store.get(id) ?? null;
+    return Promise.resolve(this.store.get(id) ?? null);
   }
 
   all(): Subscriber[] { return [...this.store.values()]; }
@@ -51,16 +52,16 @@ export class InMemoryNotifier implements INotifier {
 
   async notify(subscriber: Subscriber, photo: Photo): Promise<void> {
     this.sent.push({ subscriber, photo });
+    return Promise.resolve();
   }
 
-  // test helper — did we notify this subscriber?
   wasNotified(subscriberId: string): boolean {
     return this.sent.some(n => n.subscriber.id === subscriberId);
   }
 }
 
 export class InMemoryStorageService implements IStorageService {
-  async upload(localUri: string, filename: string): Promise<string> {
-    return `https://mock-cdn.test/${filename}`;
+  async upload(_localUri: string, filename: string): Promise<string> {
+    return Promise.resolve(`https://mock-cdn.test/${filename}`);
   }
 }

@@ -1,5 +1,5 @@
-import { Photo } from '../entities/Photo';
-import { Subscriber } from '../entities/Subscriber';
+import type { Photo } from '../entities/Photo';
+import type { Subscriber } from '../entities/Subscriber';
 
 export interface IPhotoRepository {
   save(photo: Photo): Promise<void>;
@@ -13,11 +13,10 @@ export interface ISubscriberRepository {
   findById(id: string): Promise<Subscriber | null>;
 }
 
-// The key abstraction — WhatsApp, push, email, all look the same to use cases
 export interface INotifier {
   notify(subscriber: Subscriber, photo: Photo): Promise<void>;
 }
 
 export interface IStorageService {
-  upload(localUri: string, filename: string): Promise<string>; // returns public url
+  upload(localUri: string, filename: string): Promise<string>;
 }

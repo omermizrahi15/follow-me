@@ -1,6 +1,6 @@
 import { Subscriber } from '../../domain/entities/Subscriber';
-import { ISubscriberRepository } from '../../domain/interfaces';
-import { SubscriberDto } from '../dtos';
+import type { ISubscriberRepository } from '../../domain/interfaces';
+import type { SubscriberDto } from '../dtos';
 
 interface SubscribeInput {
   subscriberId: string;
@@ -16,7 +16,7 @@ export class SubscribeUseCase {
       id: input.subscriberId,
       publisherId: input.publisherId,
       contactHandle: input.contactHandle,
-      status: 'active', // MVP: auto-approve; add approval flow later
+      status: 'active',
     });
 
     await this.subscriberRepo.save(subscriber);

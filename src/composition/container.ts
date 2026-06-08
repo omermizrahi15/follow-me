@@ -7,14 +7,12 @@ import {
   InMemoryStorageService,
 } from '../infrastructure/InMemoryDoubles';
 
-// Swap these for real implementations as you build them out:
-// import { SupabasePhotoRepository } from '../infrastructure/repositories/SupabasePhotoRepository';
-// import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
-
 const photoRepo = new InMemoryPhotoRepository();
 const subscriberRepo = new InMemorySubscriberRepository();
 const storage = new InMemoryStorageService();
-const notifier = new WhatsAppNotifier(process.env.WHATSAPP_API_TOKEN ?? 'dev-token');
+
+const apiToken = (process.env['WHATSAPP_API_TOKEN'] ?? 'dev-token') as string;
+const notifier = new WhatsAppNotifier(apiToken);
 
 export const sharePhoto = new SharePhotoUseCase(photoRepo, subscriberRepo, notifier, storage);
 export const subscribe = new SubscribeUseCase(subscriberRepo);

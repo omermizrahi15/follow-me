@@ -1,5 +1,5 @@
 import { Photo } from '../../domain/entities/Photo';
-import { PhotoDto } from '../dtos';
+import type { PhotoDto } from '../dtos';
 
 export class PhotoMapper {
   static toDto(photo: Photo): PhotoDto {

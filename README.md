@@ -129,6 +129,47 @@ The architecture is designed so that adding a new way to deliver photos to subsc
 
 That's it. If you find yourself touching a use case to support a new delivery method, stop — something is wrong with the approach.
 
+### Commit message standard
+
+This project follows [Conventional Commits](https://www.conventionalcommits.org). Every commit message must follow this format:
+
+```
+<type>(<scope>): <short description>
+
+[optional body — explain why, not what]
+
+[optional footer — e.g. Closes #12]
+```
+
+**Types:**
+
+| Type | When to use |
+|---|---|
+| `feat` | A new feature |
+| `fix` | A bug fix |
+| `chore` | Tooling, config, dependencies |
+| `docs` | Documentation only |
+| `test` | Adding or fixing tests |
+| `refactor` | Code change that isn't a fix or feature |
+| `ci` | CI/CD pipeline changes |
+
+**Rules:**
+- Subject line under 72 characters
+- Imperative mood — `add`, not `added` or `adds`
+- No period at the end of the subject line
+- Body explains *why*, not *what* — the diff already shows what changed
+
+**Examples:**
+```
+feat(notifier): add WhatsApp notifier implementation
+
+chore: add jest and ts-jest with initial configuration
+
+docs: add contributing guidelines and commit standard
+
+fix(subscriber): prevent notification of revoked subscribers
+```
+
 ### PR approval
 
 All pull requests require approval from at least one of the core maintainers before merging:

@@ -1,12 +1,12 @@
 import { Photo } from '../../domain/entities/Photo';
-import {
+import type {
   IPhotoRepository,
   ISubscriberRepository,
   INotifier,
   IStorageService,
 } from '../../domain/interfaces';
 import { PhotoMapper } from '../mappers/PhotoMapper';
-import { PhotoDto } from '../dtos';
+import type { PhotoDto } from '../dtos';
 
 interface SharePhotoInput {
   photoId: string;
@@ -36,7 +36,6 @@ export class SharePhotoUseCase {
     await this.photoRepo.save(photo);
 
     const subscribers = await this.subscriberRepo.findActiveByPublisher(input.ownerId);
-
     await Promise.all(subscribers.map(s => this.notifier.notify(s, photo)));
 
     return PhotoMapper.toDto(photo);
