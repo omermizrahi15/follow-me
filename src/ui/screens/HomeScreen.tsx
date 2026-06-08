@@ -7,10 +7,11 @@ import {
   SafeAreaView,
   Share,
 } from 'react-native';
+import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 type Props = {
-  navigation: NativeStackNavigationProp<any>;
+  navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
 const MOCK_PUBLISHER_ID = 'user-1';

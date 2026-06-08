@@ -10,13 +10,14 @@ import {
   SafeAreaView,
 } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 type Props = {
-  navigation: NativeStackNavigationProp<any>;
+  navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
-const MOCK_OWNER_ID = 'user-1';
+
 
 export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const [pickedUris, setPickedUris] = useState<string[]>([]);

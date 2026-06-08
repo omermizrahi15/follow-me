@@ -9,10 +9,11 @@ import {
   SafeAreaView,
   Share,
 } from 'react-native';
+import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 
 type Props = {
-  navigation: NativeStackNavigationProp<any>;
+  navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
 type Frequency = 'weekly' | 'biweekly' | 'monthly';
