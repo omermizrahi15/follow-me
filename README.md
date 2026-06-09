@@ -29,6 +29,10 @@ The composition root is the single place that wires interfaces to their implemen
 
 ---
 
+### Architecture enforcement
+
+The ESLint config enforces layer boundaries at lint time — domain cannot import from application or infrastructure, application cannot import from UI or infrastructure, and screens cannot import use cases directly. These rules run as part of `npm run validate` and will block commits via the pre-commit hook.
+
 ## Tech stack
 
 | Layer | Technology |
@@ -55,10 +59,12 @@ The composition root is the single place that wires interfaces to their implemen
 ### Install
 
 ```bash
-git clone https://github.com/your-username/follow-me.git
+git clone https://github.com/omermizrahi15/follow-me.git
 cd follow-me
 npm install
 ```
+
+`npm install` also sets up Husky, which installs a pre-commit hook that runs `npm run validate` automatically before every commit.
 
 ### Environment variables
 
@@ -101,7 +107,7 @@ Every piece of logic has a test that lives right next to the code it covers. The
 
 ## Contributing
 
-Contributions are welcome. Every pull request must meet the standards below before it will be reviewed.
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide. The key points are below.
 
 ### Before you open a PR
 
