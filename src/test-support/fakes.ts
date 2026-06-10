@@ -1,29 +1,30 @@
-import type { Photo } from '../domain/entities/Photo';
+import type { ITwilioClient } from '../infrastructure/notifiers/WhatsAppNotifier';
+import type { Media } from '../domain/entities/Media';
 import type { Subscriber } from '../domain/entities/Subscriber';
 import type {
-  IPhotoRepository,
+  IMediaRepository,
   ISubscriberRepository,
   INotifier,
   IStorageService,
 } from '../domain/interfaces';
 
-export class InMemoryPhotoRepository implements IPhotoRepository {
-  private store: Map<string, Photo> = new Map();
+export class InMemoryMediaRepository implements IMediaRepository {
+  private store: Map<string, Media> = new Map();
 
-  async save(photo: Photo): Promise<void> {
-    this.store.set(photo.id, photo);
+  async save(media: Media): Promise<void> {
+    this.store.set(media.id, media);
     return Promise.resolve();
   }
 
-  async findByOwner(ownerId: string): Promise<Photo[]> {
-    return Promise.resolve([...this.store.values()].filter(p => p.ownerId === ownerId));
+  async findByOwner(ownerId: string): Promise<Media[]> {
+    return Promise.resolve([...this.store.values()].filter(m => m.ownerId === ownerId));
   }
 
-  async findById(id: string): Promise<Photo | null> {
+  async findById(id: string): Promise<Media | null> {
     return Promise.resolve(this.store.get(id) ?? null);
   }
 
-  all(): Photo[] { return [...this.store.values()]; }
+  all(): Media[] { return [...this.store.values()]; }
 }
 
 export class InMemorySubscriberRepository implements ISubscriberRepository {
@@ -48,10 +49,10 @@ export class InMemorySubscriberRepository implements ISubscriberRepository {
 }
 
 export class InMemoryNotifier implements INotifier {
-  sent: Array<{ subscriber: Subscriber; photo: Photo }> = [];
+  sent: Array<{ subscriber: Subscriber; media: Media }> = [];
 
-  async notify(subscriber: Subscriber, photo: Photo): Promise<void> {
-    this.sent.push({ subscriber, photo });
+  notify(subscriber: Subscriber, media: Media): Promise<void> {
+    this.sent.push({ subscriber, media });
     return Promise.resolve();
   }
 
@@ -63,5 +64,46 @@ export class InMemoryNotifier implements INotifier {
 export class InMemoryStorageService implements IStorageService {
   async upload(_localUri: string, filename: string): Promise<string> {
     return Promise.resolve(`https://mock-cdn.test/${filename}`);
+  }
+}
+
+type FailureMode =
+  | { kind: 'api'; status: number }
+  | { kind: 'network' }
+  | null;
+
+export class FakeTwilioClient implements ITwilioClient {
+  sent: Array<{ to: string; body: string; mediaUrl?: string }> = [];
+  private nextFailure: FailureMode = null;
+
+  failOnNextCall(): void {
+    this.nextFailure = { kind: 'api', status: 500 };
+  }
+
+  failWithStatus(status: number): void {
+    this.nextFailure = { kind: 'api', status };
+  }
+
+  failWithNetworkError(): void {
+    this.nextFailure = { kind: 'network' };
+  }
+
+  sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<void> {
+    const failure = this.nextFailure;
+    this.nextFailure = null;
+
+    if (failure?.kind === 'network') {
+      return Promise.reject(new TypeError('fetch failed'));
+    }
+    if (failure?.kind === 'api') {
+      return Promise.reject(new Error(`Twilio error (${failure.status}): request failed`));
+    }
+
+    this.sent.push({ to, body, ...(mediaUrl != null ? { mediaUrl } : {}) });
+    return Promise.resolve();
+  }
+
+  wasSentTo(contactHandle: string): boolean {
+    return this.sent.some(s => s.to === contactHandle);
   }
 }

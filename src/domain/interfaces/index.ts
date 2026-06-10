@@ -1,10 +1,10 @@
-import type { Photo } from '../entities/Photo';
+import type { Media } from '../entities/Media';
 import type { Subscriber } from '../entities/Subscriber';
 
-export interface IPhotoRepository {
-  save(photo: Photo): Promise<void>;
-  findByOwner(ownerId: string): Promise<Photo[]>;
-  findById(id: string): Promise<Photo | null>;
+export interface IMediaRepository {
+  save(media: Media): Promise<void>;
+  findByOwner(ownerId: string): Promise<Media[]>;
+  findById(id: string): Promise<Media | null>;
 }
 
 export interface ISubscriberRepository {
@@ -14,7 +14,7 @@ export interface ISubscriberRepository {
 }
 
 export interface INotifier {
-  notify(subscriber: Subscriber, photo: Photo): Promise<void>;
+  notify(subscriber: Subscriber, media: Media): Promise<void>;
 }
 
 export interface IStorageService {

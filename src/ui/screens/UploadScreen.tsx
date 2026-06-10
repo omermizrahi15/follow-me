@@ -12,7 +12,7 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useSharePhoto } from '../hooks/useSharePhoto';
+import { useShareMedia } from '../hooks/useShareMedia';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
@@ -21,18 +21,18 @@ type Props = {
 const PUBLISHER_ID = 'user-1';
 
 export function UploadScreen({ navigation }: Props): React.JSX.Element {
-  const { share } = useSharePhoto();
+  const { share } = useShareMedia();
   const [pickedUris, setPickedUris] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function handlePickPhotos(): void {
+  function handlePickMedia(): void {
     void (async (): Promise<void> => {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) return;
       const picked = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        mediaTypes: ImagePicker.MediaTypeOptions.All,
         allowsMultipleSelection: true,
         quality: 0.8,
       });
@@ -48,7 +48,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
       setError(null);
       try {
         for (const uri of pickedUris) {
-          const filename = uri.split('/').pop() ?? `photo-${Date.now()}.jpg`;
+          const filename = uri.split('/').pop() ?? `media-${Date.now()}.jpg`;
           await share(uri, filename, PUBLISHER_ID);
         }
         setDone(true);
@@ -67,7 +67,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           <Text style={styles.successIcon}>✓</Text>
           <Text style={styles.successTitle}>Sent!</Text>
           <Text style={styles.successSubtitle}>
-            Your followers will receive the photos on WhatsApp shortly.
+            Your followers will receive the media on WhatsApp shortly.
           </Text>
           <TouchableOpacity
             style={styles.backButton}
@@ -90,18 +90,18 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
         <TouchableOpacity onPress={() => navigation.goBack()}>
           <Text style={styles.back}>← Back</Text>
         </TouchableOpacity>
-        <Text style={styles.title}>Share photos now</Text>
+        <Text style={styles.title}>Share media now</Text>
         <Text style={styles.subtitle}>
-          Pick photos to send to your followers immediately
+          Pick photos or videos to send to your followers immediately
         </Text>
       </View>
 
-      <TouchableOpacity style={styles.pickButton} onPress={handlePickPhotos}>
+      <TouchableOpacity style={styles.pickButton} onPress={handlePickMedia}>
         <Text style={styles.pickIcon}>+</Text>
         <Text style={styles.pickText}>
           {pickedUris.length > 0
-            ? `${pickedUris.length} photo${pickedUris.length > 1 ? 's' : ''} selected — tap to change`
-            : 'Select photos from library'}
+            ? `${pickedUris.length} item${pickedUris.length > 1 ? 's' : ''} selected — tap to change`
+            : 'Select photos or videos'}
         </Text>
       </TouchableOpacity>
 

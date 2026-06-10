@@ -1,15 +1,15 @@
 import { useState } from 'react';
-import { sharePhoto } from '../../composition/container';
-import type { PhotoDto } from '../../application/dtos';
+import { shareMedia } from '../../composition/container';
+import type { MediaDto } from '../../application/dtos';
 
-interface SharePhotoState {
+interface ShareMediaState {
   loading: boolean;
   error: string | null;
-  result: PhotoDto | null;
+  result: MediaDto | null;
 }
 
-export function useSharePhoto(): SharePhotoState & { share: (localUri: string, filename: string, ownerId: string) => Promise<void> } {
-  const [state, setState] = useState<SharePhotoState>({
+export function useShareMedia(): ShareMediaState & { share: (localUri: string, filename: string, ownerId: string) => Promise<void> } {
+  const [state, setState] = useState<ShareMediaState>({
     loading: false,
     error: null,
     result: null,
@@ -18,8 +18,8 @@ export function useSharePhoto(): SharePhotoState & { share: (localUri: string, f
   async function share(localUri: string, filename: string, ownerId: string): Promise<void> {
     setState({ loading: true, error: null, result: null });
     try {
-      const dto = await sharePhoto.share({
-        photoId: Date.now().toString(),
+      const dto = await shareMedia.share({
+        mediaId: Date.now().toString(),
         ownerId,
         localUri,
         filename,

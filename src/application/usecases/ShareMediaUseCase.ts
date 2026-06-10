@@ -1,43 +1,43 @@
-import { Photo } from '../../domain/entities/Photo';
+import { Media } from '../../domain/entities/Media';
 import type {
-  IPhotoRepository,
+  IMediaRepository,
   ISubscriberRepository,
   INotifier,
   IStorageService,
 } from '../../domain/interfaces';
-import { PhotoMapper } from '../mappers/PhotoMapper';
-import type { PhotoDto } from '../dtos';
+import { MediaMapper } from '../mappers/MediaMapper';
+import type { MediaDto } from '../dtos';
 
-interface SharePhotoInput {
-  photoId: string;
+interface ShareMediaInput {
+  mediaId: string;
   ownerId: string;
   localUri: string;
   filename: string;
 }
 
-export class SharePhotoUseCase {
+export class ShareMediaUseCase {
   constructor(
-    private readonly photoRepo: IPhotoRepository,
+    private readonly mediaRepo: IMediaRepository,
     private readonly subscriberRepo: ISubscriberRepository,
     private readonly notifier: INotifier,
     private readonly storage: IStorageService,
   ) {}
 
-  async share(input: SharePhotoInput): Promise<PhotoDto> {
+  async share(input: ShareMediaInput): Promise<MediaDto> {
     const url = await this.storage.upload(input.localUri, input.filename);
 
-    const photo = Photo.create({
-      id: input.photoId,
+    const media = Media.create({
+      id: input.mediaId,
       ownerId: input.ownerId,
       url,
       createdAt: new Date(),
     });
 
-    await this.photoRepo.save(photo);
+    await this.mediaRepo.save(media);
 
     const subscribers = await this.subscriberRepo.findActiveByPublisher(input.ownerId);
-    await Promise.all(subscribers.map(s => this.notifier.notify(s, photo)));
+    await Promise.all(subscribers.map(s => this.notifier.notify(s, media)));
 
-    return PhotoMapper.toDto(photo);
+    return MediaMapper.toDto(media);
   }
 }

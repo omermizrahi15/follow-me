@@ -1,11 +1,11 @@
 import { createClient } from '@supabase/supabase-js';
-import type { IPhotoRepository } from '../../domain/interfaces';
-import { Photo } from '../../domain/entities/Photo';
+import type { IMediaRepository } from '../../domain/interfaces';
+import { Media } from '../../domain/entities/Media';
 
 interface Database {
   public: {
     Tables: {
-      photos: {
+      media: {
         Row: { id: string; owner_id: string; url: string; created_at: string };
         Insert: { id: string; owner_id: string; url: string; created_at: string };
         Update: { id?: string; owner_id?: string; url?: string; created_at?: string };
@@ -19,46 +19,46 @@ interface Database {
   };
 }
 
-type PhotoRow = Database['public']['Tables']['photos']['Row'];
+type MediaRow = Database['public']['Tables']['media']['Row'];
 
-function rowToPhoto(row: PhotoRow): Photo {
-  return Photo.create({ id: row.id, ownerId: row.owner_id, url: row.url, createdAt: new Date(row.created_at) });
+function rowToMedia(row: MediaRow): Media {
+  return Media.create({ id: row.id, ownerId: row.owner_id, url: row.url, createdAt: new Date(row.created_at) });
 }
 
-export class SupabasePhotoRepository implements IPhotoRepository {
+export class SupabaseMediaRepository implements IMediaRepository {
   private client: ReturnType<typeof createClient<Database>>;
 
   constructor(url: string, anonKey: string) {
     this.client = createClient<Database>(url, anonKey, { auth: { persistSession: false } });
   }
 
-  async save(photo: Photo): Promise<void> {
-    const { error } = await this.client.from('photos').upsert({
-      id: photo.id,
-      owner_id: photo.ownerId,
-      url: photo.url,
-      created_at: photo.createdAt.toISOString(),
+  async save(media: Media): Promise<void> {
+    const { error } = await this.client.from('media').upsert({
+      id: media.id,
+      owner_id: media.ownerId,
+      url: media.url,
+      created_at: media.createdAt.toISOString(),
     });
     if (error != null) throw new Error(error.message);
   }
 
-  async findByOwner(ownerId: string): Promise<Photo[]> {
+  async findByOwner(ownerId: string): Promise<Media[]> {
     const { data, error } = await this.client
-      .from('photos')
+      .from('media')
       .select('*')
       .eq('owner_id', ownerId)
       .order('created_at', { ascending: false });
     if (error != null) throw new Error(error.message);
-    return data.map(rowToPhoto);
+    return data.map(rowToMedia);
   }
 
-  async findById(id: string): Promise<Photo | null> {
+  async findById(id: string): Promise<Media | null> {
     const { data, error } = await this.client
-      .from('photos')
+      .from('media')
       .select('*')
       .eq('id', id)
       .single();
     if (error != null) return null;
-    return rowToPhoto(data);
+    return rowToMedia(data);
   }
 }

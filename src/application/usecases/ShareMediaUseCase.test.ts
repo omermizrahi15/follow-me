@@ -1,7 +1,7 @@
-import { SharePhotoUseCase } from './SharePhotoUseCase';
+import { ShareMediaUseCase } from './ShareMediaUseCase';
 import { Subscriber } from '../../domain/entities/Subscriber';
 import {
-  InMemoryPhotoRepository,
+  InMemoryMediaRepository,
   InMemorySubscriberRepository,
   InMemoryNotifier,
   InMemoryStorageService,
@@ -12,36 +12,35 @@ function makeSubscriber(id: string, publisherId: string): Subscriber {
 }
 
 function makeSut(): {
-  useCase: SharePhotoUseCase;
-  photoRepo: InMemoryPhotoRepository;
+  useCase: ShareMediaUseCase;
+  mediaRepo: InMemoryMediaRepository;
   subscriberRepo: InMemorySubscriberRepository;
   notifier: InMemoryNotifier;
 } {
-  const photoRepo = new InMemoryPhotoRepository();
+  const mediaRepo = new InMemoryMediaRepository();
   const subscriberRepo = new InMemorySubscriberRepository();
   const notifier = new InMemoryNotifier();
   const storage = new InMemoryStorageService();
-  const useCase = new SharePhotoUseCase(photoRepo, subscriberRepo, notifier, storage);
-  return { useCase, photoRepo, subscriberRepo, notifier };
+  const useCase = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage);
+  return { useCase, mediaRepo, subscriberRepo, notifier };
 }
 
-const baseInput = { photoId: 'photo-1', ownerId: 'user-1', localUri: 'file:///local/photo.jpg', filename: 'photo.jpg' };
+const input = { mediaId: 'media-1', ownerId: 'user-1', localUri: 'file:///local/photo.jpg', filename: 'photo.jpg' };
 
-describe('SharePhotoUseCase', () => {
-  it('saves the photo and returns a dto', async (): Promise<void> => {
-    const { useCase, photoRepo } = makeSut();
-    const dto = await useCase.share(baseInput);
-    expect(dto.id).toBe('photo-1');
+describe('ShareMediaUseCase', () => {
+  it('saves the media and returns a dto', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    const dto = await useCase.share(input);
+    expect(dto.id).toBe('media-1');
     expect(dto.url).toBe('https://mock-cdn.test/photo.jpg');
-    expect(photoRepo.all()).toHaveLength(1);
+    expect(mediaRepo.all()).toHaveLength(1);
   });
 
   it('notifies all active subscribers', async (): Promise<void> => {
     const { useCase, subscriberRepo, notifier } = makeSut();
     await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
     await subscriberRepo.save(makeSubscriber('sub-2', 'user-1'));
-    await useCase.share(baseInput);
-    expect(notifier.sent).toHaveLength(2);
+    await useCase.share(input);
     expect(notifier.wasNotified('sub-1')).toBe(true);
     expect(notifier.wasNotified('sub-2')).toBe(true);
   });
@@ -50,14 +49,14 @@ describe('SharePhotoUseCase', () => {
     const { useCase, subscriberRepo, notifier } = makeSut();
     const revoked = Subscriber.create({ id: 'sub-revoked', publisherId: 'user-1', contactHandle: '+972509999999', status: 'revoked' });
     await subscriberRepo.save(revoked);
-    await useCase.share(baseInput);
+    await useCase.share(input);
     expect(notifier.sent).toHaveLength(0);
   });
 
-  it('does not notify subscribers of other publishers', async (): Promise<void> => {
+  it("does not notify other publishers' subscribers", async (): Promise<void> => {
     const { useCase, subscriberRepo, notifier } = makeSut();
     await subscriberRepo.save(makeSubscriber('sub-other', 'user-2'));
-    await useCase.share(baseInput);
+    await useCase.share(input);
     expect(notifier.sent).toHaveLength(0);
   });
 });

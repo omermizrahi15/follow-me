@@ -1,4 +1,4 @@
-export interface PhotoDto {
+export interface MediaDto {
   id: string;
   ownerId: string;
   url: string;
