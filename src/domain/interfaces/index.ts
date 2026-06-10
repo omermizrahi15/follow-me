@@ -14,7 +14,7 @@ export interface ISubscriberRepository {
 }
 
 export interface INotifier {
-  notify(subscriber: Subscriber, media: Media): Promise<void>;
+  notify(subscriber: Subscriber, media: Media[]): Promise<void>;
 }
 
 export interface IStorageService {

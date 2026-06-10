@@ -47,10 +47,12 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
       setLoading(true);
       setError(null);
       try {
-        for (const uri of pickedUris) {
-          const filename = uri.split('/').pop() ?? `media-${Date.now()}.jpg`;
-          await share(uri, filename, PUBLISHER_ID);
-        }
+        const items = pickedUris.map((uri, i) => ({
+          mediaId: `${Date.now()}-${i}`,
+          localUri: uri,
+          filename: uri.split('/').pop() ?? `media-${i}.jpg`,
+        }));
+        await share(items, PUBLISHER_ID);
         setDone(true);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Upload failed');

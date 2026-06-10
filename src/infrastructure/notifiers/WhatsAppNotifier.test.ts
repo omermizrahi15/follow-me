@@ -3,27 +3,20 @@ import { FakeTwilioClient } from '../../test-support/fakes';
 import { Media } from '../../domain/entities/Media';
 import { Subscriber } from '../../domain/entities/Subscriber';
 
-const PUBLISHER_NAME = 'Omer';
 const CONTACT = '+972501234567';
 const IMAGE_URL = 'https://cdn.test/photo.jpg';
+const IMAGE_URL_2 = 'https://cdn.test/photo2.jpg';
 const VIDEO_URL = 'https://cdn.test/video.mp4';
 
 function makeSubscriber(contactHandle = CONTACT): Subscriber {
   return Subscriber.create({ id: 'sub-1', publisherId: 'user-1', contactHandle, status: 'active' });
 }
 
-function makeMedia(overrides: Partial<{ url: string; location: string; mediaType: 'image' | 'video' }> = {}): Media {
-  return Media.create({
-    id: 'media-1',
-    ownerId: 'user-1',
-    url: overrides.url ?? IMAGE_URL,
-    createdAt: new Date(),
-    ...(overrides.location != null ? { location: overrides.location } : {}),
-    mediaType: overrides.mediaType ?? 'image',
-  });
+function makeMedia(url = IMAGE_URL): Media {
+  return Media.create({ id: 'media-1', ownerId: 'user-1', url, createdAt: new Date() });
 }
 
-function makeSut(publisherName = PUBLISHER_NAME): { notifier: WhatsAppNotifier; twilio: FakeTwilioClient } {
+function makeSut(publisherName = 'Omer'): { notifier: WhatsAppNotifier; twilio: FakeTwilioClient } {
   const twilio = new FakeTwilioClient();
   const notifier = new WhatsAppNotifier(twilio, publisherName);
   return { notifier, twilio };
@@ -32,73 +25,107 @@ function makeSut(publisherName = PUBLISHER_NAME): { notifier: WhatsAppNotifier; 
 describe('WhatsAppNotifier — routing', () => {
   it('sends to the subscriber contact handle', async (): Promise<void> => {
     const { notifier, twilio } = makeSut();
-    await notifier.notify(makeSubscriber('+972509999999'), makeMedia());
+    await notifier.notify(makeSubscriber('+972509999999'), [makeMedia()]);
     expect(twilio.sent[0]?.to).toBe('+972509999999');
+  });
+
+  it('routes all messages in a batch to the same subscriber', async (): Promise<void> => {
+    const { notifier, twilio } = makeSut();
+    await notifier.notify(makeSubscriber('+972509999999'), [
+      makeMedia(IMAGE_URL),
+      makeMedia(IMAGE_URL_2),
+      makeMedia(VIDEO_URL),
+    ]);
+    expect(twilio.sent.every(s => s.to === '+972509999999')).toBe(true);
   });
 });
 
-describe('WhatsAppNotifier — media', () => {
-  it('sends a photo as an embedded MediaUrl', async (): Promise<void> => {
+describe('WhatsAppNotifier — one message per media item (Twilio WhatsApp limit)', () => {
+  it('sends a single item as exactly one message', async (): Promise<void> => {
     const { notifier, twilio } = makeSut();
-    await notifier.notify(makeSubscriber(), makeMedia({ url: IMAGE_URL }));
+    await notifier.notify(makeSubscriber(), [makeMedia(IMAGE_URL)]);
+    expect(twilio.sent).toHaveLength(1);
     expect(twilio.sent[0]?.mediaUrl).toBe(IMAGE_URL);
   });
 
-  it('sends a video as an embedded MediaUrl', async (): Promise<void> => {
+  it('sends two items as two separate messages', async (): Promise<void> => {
     const { notifier, twilio } = makeSut();
-    await notifier.notify(makeSubscriber(), makeMedia({ url: VIDEO_URL, mediaType: 'video' }));
-    expect(twilio.sent[0]?.mediaUrl).toBe(VIDEO_URL);
+    await notifier.notify(makeSubscriber(), [makeMedia(IMAGE_URL), makeMedia(IMAGE_URL_2)]);
+    expect(twilio.sent).toHaveLength(2);
+    expect(twilio.sent[0]?.mediaUrl).toBe(IMAGE_URL);
+    expect(twilio.sent[1]?.mediaUrl).toBe(IMAGE_URL_2);
+  });
+
+  it('sends three items (photos + video) as three separate messages', async (): Promise<void> => {
+    const { notifier, twilio } = makeSut();
+    await notifier.notify(makeSubscriber(), [
+      makeMedia(IMAGE_URL),
+      makeMedia(IMAGE_URL_2),
+      makeMedia(VIDEO_URL),
+    ]);
+    expect(twilio.sent).toHaveLength(3);
+    expect(twilio.sent[0]?.mediaUrl).toBe(IMAGE_URL);
+    expect(twilio.sent[1]?.mediaUrl).toBe(IMAGE_URL_2);
+    expect(twilio.sent[2]?.mediaUrl).toBe(VIDEO_URL);
+  });
+
+  it('puts the caption only on the first message', async (): Promise<void> => {
+    const { notifier, twilio } = makeSut('Omer');
+    await notifier.notify(makeSubscriber(), [makeMedia(IMAGE_URL), makeMedia(IMAGE_URL_2)]);
+    expect(twilio.sent[0]?.body).toContain('Omer');
+    expect(twilio.sent[1]?.body).toBe('');
+  });
+
+  it('follow-up messages carry no caption regardless of batch size', async (): Promise<void> => {
+    const { notifier, twilio } = makeSut();
+    await notifier.notify(makeSubscriber(), [
+      makeMedia(IMAGE_URL),
+      makeMedia(IMAGE_URL_2),
+      makeMedia(VIDEO_URL),
+    ]);
+    expect(twilio.sent[1]?.body).toBe('');
+    expect(twilio.sent[2]?.body).toBe('');
   });
 });
 
-describe('WhatsAppNotifier — message body', () => {
-  it('includes the publisher name', async (): Promise<void> => {
+describe('WhatsAppNotifier — body', () => {
+  it('includes the publisher name in the first message body', async (): Promise<void> => {
     const { notifier, twilio } = makeSut('Omer');
-    await notifier.notify(makeSubscriber(), makeMedia());
+    await notifier.notify(makeSubscriber(), [makeMedia()]);
     expect(twilio.sent[0]?.body).toContain('Omer');
-  });
-
-  it('includes location when the media has a location', async (): Promise<void> => {
-    const { notifier, twilio } = makeSut();
-    await notifier.notify(makeSubscriber(), makeMedia({ location: 'Tel Aviv, Israel' }));
-    expect(twilio.sent[0]?.body).toContain('Tel Aviv, Israel');
-  });
-
-  it('omits location when the media has no location', async (): Promise<void> => {
-    const { notifier, twilio } = makeSut();
-    await notifier.notify(makeSubscriber(), makeMedia());
-    expect(twilio.sent[0]?.body).not.toContain('from');
-  });
-
-  it('uses "checkout" phrasing', async (): Promise<void> => {
-    const { notifier, twilio } = makeSut('Dana');
-    await notifier.notify(makeSubscriber(), makeMedia({ location: 'Paris, France' }));
-    expect(twilio.sent[0]?.body).toMatch(/checkout Dana.*latest.*Paris, France/i);
   });
 });
 
 describe('WhatsAppNotifier — error handling', () => {
-  it('propagates Twilio API errors', async (): Promise<void> => {
+  it('propagates Twilio API errors from the first message', async (): Promise<void> => {
     const { notifier, twilio } = makeSut();
     twilio.failOnNextCall();
-    await expect(notifier.notify(makeSubscriber(), makeMedia())).rejects.toThrow('Twilio error');
+    await expect(notifier.notify(makeSubscriber(), [makeMedia()])).rejects.toThrow('Twilio error');
   });
 
-  it('propagates network errors reaching Twilio', async (): Promise<void> => {
+  it('propagates Twilio API errors from a follow-up message', async (): Promise<void> => {
+    const { notifier, twilio } = makeSut();
+    twilio.failOnCallNumber(2);
+    await expect(
+      notifier.notify(makeSubscriber(), [makeMedia(IMAGE_URL), makeMedia(IMAGE_URL_2)]),
+    ).rejects.toThrow('Twilio error');
+  });
+
+  it('propagates network errors', async (): Promise<void> => {
     const { notifier, twilio } = makeSut();
     twilio.failWithNetworkError();
-    await expect(notifier.notify(makeSubscriber(), makeMedia())).rejects.toThrow('fetch failed');
+    await expect(notifier.notify(makeSubscriber(), [makeMedia()])).rejects.toThrow('fetch failed');
   });
 
   it('propagates rate limit errors (429)', async (): Promise<void> => {
     const { notifier, twilio } = makeSut();
     twilio.failWithStatus(429);
-    await expect(notifier.notify(makeSubscriber(), makeMedia())).rejects.toThrow('429');
+    await expect(notifier.notify(makeSubscriber(), [makeMedia()])).rejects.toThrow('429');
   });
 
   it('propagates invalid number errors (400)', async (): Promise<void> => {
     const { notifier, twilio } = makeSut();
     twilio.failWithStatus(400);
-    await expect(notifier.notify(makeSubscriber(), makeMedia())).rejects.toThrow('400');
+    await expect(notifier.notify(makeSubscriber(), [makeMedia()])).rejects.toThrow('400');
   });
 });

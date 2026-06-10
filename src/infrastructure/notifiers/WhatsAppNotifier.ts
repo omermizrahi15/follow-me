@@ -1,6 +1,7 @@
 import type { INotifier } from '../../domain/interfaces';
 import type { Media } from '../../domain/entities/Media';
 import type { Subscriber } from '../../domain/entities/Subscriber';
+import { composeNotificationBody } from '../../domain/services/notificationBody';
 
 export interface ITwilioClient {
   sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<void>;
@@ -12,9 +13,16 @@ export class WhatsAppNotifier implements INotifier {
     private readonly publisherName: string,
   ) {}
 
-  async notify(subscriber: Subscriber, media: Media): Promise<void> {
-    const locationPart = media.location != null ? ` from ${media.location}` : '';
-    const body = `Checkout ${this.publisherName} latest photos${locationPart} 📸`;
-    await this.client.sendWhatsApp(subscriber.contactHandle, body, media.url);
+  async notify(subscriber: Subscriber, media: Media[]): Promise<void> {
+    const body = composeNotificationBody(this.publisherName, media);
+    const [first, ...rest] = media;
+
+    // Twilio WhatsApp only supports one MediaUrl per request.
+    // First message carries the caption; follow-ups carry only the media.
+    await this.client.sendWhatsApp(subscriber.contactHandle, body, first?.url);
+
+    for (const item of rest) {
+      await this.client.sendWhatsApp(subscriber.contactHandle, '', item.url);
+    }
   }
 }

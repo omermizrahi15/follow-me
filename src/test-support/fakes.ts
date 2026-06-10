@@ -49,9 +49,9 @@ export class InMemorySubscriberRepository implements ISubscriberRepository {
 }
 
 export class InMemoryNotifier implements INotifier {
-  sent: Array<{ subscriber: Subscriber; media: Media }> = [];
+  sent: Array<{ subscriber: Subscriber; media: Media[] }> = [];
 
-  notify(subscriber: Subscriber, media: Media): Promise<void> {
+  notify(subscriber: Subscriber, media: Media[]): Promise<void> {
     this.sent.push({ subscriber, media });
     return Promise.resolve();
   }
@@ -75,6 +75,8 @@ type FailureMode =
 export class FakeTwilioClient implements ITwilioClient {
   sent: Array<{ to: string; body: string; mediaUrl?: string }> = [];
   private nextFailure: FailureMode = null;
+  private failOnCall: number | null = null;
+  private callCount = 0;
 
   failOnNextCall(): void {
     this.nextFailure = { kind: 'api', status: 500 };
@@ -88,15 +90,24 @@ export class FakeTwilioClient implements ITwilioClient {
     this.nextFailure = { kind: 'network' };
   }
 
-  sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<void> {
-    const failure = this.nextFailure;
-    this.nextFailure = null;
+  failOnCallNumber(n: number): void {
+    this.failOnCall = n;
+  }
 
-    if (failure?.kind === 'network') {
+  sendWhatsApp(to: string, body: string, mediaUrl?: string): Promise<void> {
+    this.callCount += 1;
+
+    const callFailure =
+      this.nextFailure ??
+      (this.failOnCall === this.callCount ? { kind: 'api' as const, status: 500 } : null);
+
+    if (this.nextFailure != null) this.nextFailure = null;
+
+    if (callFailure?.kind === 'network') {
       return Promise.reject(new TypeError('fetch failed'));
     }
-    if (failure?.kind === 'api') {
-      return Promise.reject(new Error(`Twilio error (${failure.status}): request failed`));
+    if (callFailure?.kind === 'api') {
+      return Promise.reject(new Error(`Twilio error (${callFailure.status}): request failed`));
     }
 
     this.sent.push({ to, body, ...(mediaUrl != null ? { mediaUrl } : {}) });

@@ -25,22 +25,62 @@ function makeSut(): {
   return { useCase, mediaRepo, subscriberRepo, notifier };
 }
 
-const input = { mediaId: 'media-1', ownerId: 'user-1', localUri: 'file:///local/photo.jpg', filename: 'photo.jpg' };
+const singleItem = [{ mediaId: 'media-1', localUri: 'file:///local/photo.jpg', filename: 'photo.jpg' }];
+const multipleItems = [
+  { mediaId: 'media-1', localUri: 'file:///local/a.jpg', filename: 'a.jpg' },
+  { mediaId: 'media-2', localUri: 'file:///local/b.jpg', filename: 'b.jpg' },
+  { mediaId: 'media-3', localUri: 'file:///local/c.mp4', filename: 'c.mp4' },
+];
 
-describe('ShareMediaUseCase', () => {
+describe('ShareMediaUseCase — single item', () => {
   it('saves the media and returns a dto', async (): Promise<void> => {
     const { useCase, mediaRepo } = makeSut();
-    const dto = await useCase.share(input);
-    expect(dto.id).toBe('media-1');
-    expect(dto.url).toBe('https://mock-cdn.test/photo.jpg');
+    const dtos = await useCase.share({ ownerId: 'user-1', items: singleItem });
+    expect(dtos).toHaveLength(1);
+    expect(dtos[0]?.id).toBe('media-1');
+    expect(dtos[0]?.url).toBe('https://mock-cdn.test/photo.jpg');
     expect(mediaRepo.all()).toHaveLength(1);
   });
+});
 
+describe('ShareMediaUseCase — multiple items', () => {
+  it('saves all media to the repository', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: multipleItems });
+    expect(mediaRepo.all()).toHaveLength(3);
+  });
+
+  it('returns a dto for every uploaded item', async (): Promise<void> => {
+    const { useCase } = makeSut();
+    const dtos = await useCase.share({ ownerId: 'user-1', items: multipleItems });
+    expect(dtos).toHaveLength(3);
+    expect(dtos.map(d => d.id)).toEqual(['media-1', 'media-2', 'media-3']);
+  });
+
+  it('sends ONE notification per subscriber containing all media', async (): Promise<void> => {
+    const { useCase, subscriberRepo, notifier } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+    await subscriberRepo.save(makeSubscriber('sub-2', 'user-1'));
+    await useCase.share({ ownerId: 'user-1', items: multipleItems });
+    expect(notifier.sent).toHaveLength(2);
+    expect(notifier.sent[0]?.media).toHaveLength(3);
+    expect(notifier.sent[1]?.media).toHaveLength(3);
+  });
+
+  it('does not send separate notifications for each media item', async (): Promise<void> => {
+    const { useCase, subscriberRepo, notifier } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+    await useCase.share({ ownerId: 'user-1', items: multipleItems });
+    expect(notifier.sent).toHaveLength(1);
+  });
+});
+
+describe('ShareMediaUseCase — subscriber filtering', () => {
   it('notifies all active subscribers', async (): Promise<void> => {
     const { useCase, subscriberRepo, notifier } = makeSut();
     await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
     await subscriberRepo.save(makeSubscriber('sub-2', 'user-1'));
-    await useCase.share(input);
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
     expect(notifier.wasNotified('sub-1')).toBe(true);
     expect(notifier.wasNotified('sub-2')).toBe(true);
   });
@@ -49,14 +89,14 @@ describe('ShareMediaUseCase', () => {
     const { useCase, subscriberRepo, notifier } = makeSut();
     const revoked = Subscriber.create({ id: 'sub-revoked', publisherId: 'user-1', contactHandle: '+972509999999', status: 'revoked' });
     await subscriberRepo.save(revoked);
-    await useCase.share(input);
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
     expect(notifier.sent).toHaveLength(0);
   });
 
-  it("does not notify other publishers' subscribers", async (): Promise<void> => {
+  it('does not notify subscribers of other publishers', async (): Promise<void> => {
     const { useCase, subscriberRepo, notifier } = makeSut();
     await subscriberRepo.save(makeSubscriber('sub-other', 'user-2'));
-    await useCase.share(input);
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
     expect(notifier.sent).toHaveLength(0);
   });
 });
