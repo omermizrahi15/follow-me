@@ -18,7 +18,7 @@ export function useSharePhoto(): SharePhotoState & { share: (localUri: string, f
   async function share(localUri: string, filename: string, ownerId: string): Promise<void> {
     setState({ loading: true, error: null, result: null });
     try {
-      const dto = await sharePhoto.execute({
+      const dto = await sharePhoto.share({
         photoId: Date.now().toString(),
         ownerId,
         localUri,
@@ -28,6 +28,7 @@ export function useSharePhoto(): SharePhotoState & { share: (localUri: string, f
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Something went wrong';
       setState({ loading: false, error: message, result: null });
+      throw e;
     }
   }
 

@@ -23,7 +23,7 @@ export class SharePhotoUseCase {
     private readonly storage: IStorageService,
   ) {}
 
-  async execute(input: SharePhotoInput): Promise<PhotoDto> {
+  async share(input: SharePhotoInput): Promise<PhotoDto> {
     const url = await this.storage.upload(input.localUri, input.filename);
 
     const photo = Photo.create({

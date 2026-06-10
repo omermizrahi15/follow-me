@@ -11,7 +11,7 @@ interface SubscribeInput {
 export class SubscribeUseCase {
   constructor(private readonly subscriberRepo: ISubscriberRepository) {}
 
-  async execute(input: SubscribeInput): Promise<SubscriberDto> {
+  async subscribe(input: SubscribeInput): Promise<SubscriberDto> {
     const subscriber = Subscriber.create({
       id: input.subscriberId,
       publisherId: input.publisherId,

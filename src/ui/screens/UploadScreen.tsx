@@ -12,17 +12,20 @@ import {
 import * as ImagePicker from 'expo-image-picker';
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useSharePhoto } from '../hooks/useSharePhoto';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
-
+const PUBLISHER_ID = 'user-1';
 
 export function UploadScreen({ navigation }: Props): React.JSX.Element {
+  const { share } = useSharePhoto();
   const [pickedUris, setPickedUris] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
   function handlePickPhotos(): void {
     void (async (): Promise<void> => {
@@ -40,12 +43,21 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   }
 
   function handleShare(): void {
-    setLoading(true);
-    // TODO: wire to SharePhotoUseCase for each picked photo
-    setTimeout(() => {
-      setLoading(false);
-      setDone(true);
-    }, 1500);
+    void (async (): Promise<void> => {
+      setLoading(true);
+      setError(null);
+      try {
+        for (const uri of pickedUris) {
+          const filename = uri.split('/').pop() ?? `photo-${Date.now()}.jpg`;
+          await share(uri, filename, PUBLISHER_ID);
+        }
+        setDone(true);
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Upload failed');
+      } finally {
+        setLoading(false);
+      }
+    })();
   }
 
   if (done) {
@@ -103,6 +115,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
 
       {pickedUris.length > 0 && (
         <View style={styles.footer}>
+          {error != null && <Text style={styles.errorNote}>{error}</Text>}
           <Text style={styles.followerNote}>
             Will be sent to all your active followers via WhatsApp
           </Text>
@@ -142,6 +155,7 @@ const styles = StyleSheet.create({
   preview: { marginTop: 16, flexGrow: 0 },
   thumb: { width: 80, height: 80, borderRadius: 8, marginRight: 8 },
   footer: { position: 'absolute', bottom: 40, left: 24, right: 24 },
+  errorNote: { color: '#f87171', fontSize: 13, textAlign: 'center', marginBottom: 8 },
   followerNote: { color: '#444', fontSize: 12, textAlign: 'center', marginBottom: 12 },
   shareButton: {
     backgroundColor: '#fff',
