@@ -4,7 +4,8 @@
       "slug": "follow-me",
       "version": "1.0.0",
       "orientation": "portrait",
-      "platforms": ["ios", "web"],
+      "platforms": ["ios"],
+      "scheme": "followme",
       "ios": {
         "supportsTablet": false,
         "bundleIdentifier": "com.followme.app"
