@@ -1,10 +1,9 @@
-jest.mock('expo-file-system/legacy', () => ({
+jest.mock('expo-file-system', () => ({
   readAsStringAsync: jest.fn(),
-  EncodingType: { Base64: 'base64' },
 }));
 
 import { CloudinaryStorageService } from './CloudinaryStorageService';
-import * as FileSystem from 'expo-file-system/legacy';
+import * as FileSystem from 'expo-file-system';
 
 const mockRead = FileSystem.readAsStringAsync as jest.Mock;
 const mockFetch = jest.fn();
