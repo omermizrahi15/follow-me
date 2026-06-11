@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Linking } from 'react-native';
+import * as ExpoLinking from 'expo-linking';
 import { authService } from '../../composition/container';
 
 interface AuthState {
@@ -11,7 +12,8 @@ interface AuthState {
 
 const AuthContext = createContext<AuthState | null>(null);
 
-const REDIRECT_URL = 'followme://auth';
+// Resolves to exp://... in Expo Go and followme://... in a standalone build
+const REDIRECT_URL = ExpoLinking.createURL('auth');
 
 function parseHashParams(url: string): Record<string, string> {
   const hash = url.split('#')[1] ?? '';
