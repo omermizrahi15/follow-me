@@ -1,6 +1,7 @@
 import { ShareMediaUseCase } from '../application/usecases/ShareMediaUseCase';
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
 import { WhatsAppNotifier } from '../infrastructure/notifiers/WhatsAppNotifier';
+import { WhatsAppConfirmationSender } from '../infrastructure/notifiers/WhatsAppConfirmationSender';
 import { TwilioClientAdapter } from '../infrastructure/notifiers/TwilioClientAdapter';
 import { SupabaseMediaRepository } from '../infrastructure/repositories/SupabaseMediaRepository';
 import { SupabaseSubscriberRepository } from '../infrastructure/repositories/SupabaseSubscriberRepository';
@@ -28,5 +29,7 @@ const twilioClient = new TwilioClientAdapter(
 );
 const notifier = new WhatsAppNotifier(twilioClient, 'Omer'); // replace with auth user display name once #2 is done
 
+const confirmationSender = new WhatsAppConfirmationSender(twilioClient);
+
 export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage);
-export const subscribe = new SubscribeUseCase(subscriberRepo);
+export const subscribe = new SubscribeUseCase(subscriberRepo, confirmationSender);
