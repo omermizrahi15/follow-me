@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { usePublisherId } from '../hooks/usePublisherId';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
@@ -19,7 +20,6 @@ type Props = {
 type Frequency = 'weekly' | 'biweekly' | 'monthly';
 type PhotoCount = 1 | 3 | 5;
 
-const MOCK_PUBLISHER_ID = 'user-1';
 const JOIN_BASE_URL = 'https://followme.app/join';
 
 export function ConfigScreen({ navigation }: Props): React.JSX.Element {
@@ -28,7 +28,8 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
   const [askBeforePost, setAskBeforePost] = useState(true);
   const [saved, setSaved] = useState(false);
 
-  const joinLink = `${JOIN_BASE_URL}/${MOCK_PUBLISHER_ID}`;
+  const publisherId = usePublisherId();
+  const joinLink = publisherId ? `${JOIN_BASE_URL}/${publisherId}` : null;
 
   function handleSave(): void {
     // TODO: persist config via use case
@@ -37,6 +38,7 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
   }
 
   function handleShareLink(): void {
+    if (!joinLink) return;
     void Share.share({
       message: `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`,
       url: joinLink,
@@ -122,9 +124,15 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
             Share this link with people you want to follow you. They'll register automatically and receive your photos on WhatsApp.
           </Text>
           <View style={styles.linkBox}>
-            <Text style={styles.linkText} numberOfLines={1}>{joinLink}</Text>
+            <Text style={styles.linkText} numberOfLines={1}>
+              {joinLink ?? 'Sign in to get your link'}
+            </Text>
           </View>
-          <TouchableOpacity style={styles.shareLink} onPress={handleShareLink}>
+          <TouchableOpacity
+            style={[styles.shareLink, !joinLink && styles.shareLinkDisabled]}
+            onPress={handleShareLink}
+            disabled={!joinLink}
+          >
             <Text style={styles.shareLinkText}>Share link via WhatsApp</Text>
           </TouchableOpacity>
         </View>
@@ -191,6 +199,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: 10,
   },
+  shareLinkDisabled: { backgroundColor: '#1a3d2a', opacity: 0.5 },
   shareLinkText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   saveButton: {
     backgroundColor: '#fff',

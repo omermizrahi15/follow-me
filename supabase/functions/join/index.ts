@@ -1,18 +1,18 @@
 /**
- * Supabase Edge Function: GET/POST /join/:publisherId
+ * Supabase Edge Function: GET /join/:publisherId
  *
- * GET  – renders the opt-in web page (publisher name + phone field)
- * POST – subscribes the phone number and sends a WhatsApp confirmation
+ * Renders a landing page with a WhatsApp deep-link button.
+ * The subscriber taps the button, WhatsApp opens with a pre-filled
+ * "JOIN {publisherId}" message addressed to the Twilio number.
+ * When they send it, the join-webhook function handles the subscription.
  *
  * Environment variables expected:
  *   SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY  (injected by Supabase automatically)
- *   TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM
+ *   TWILIO_WHATSAPP_FROM  (E.164 format, e.g. +14155238886)
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
-const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID') ?? '';
-const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN') ?? '';
 const TWILIO_FROM = Deno.env.get('TWILIO_WHATSAPP_FROM') ?? '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -39,12 +39,10 @@ function html(title: string, body: string): Response {
     .card{background:#fff;border-radius:1rem;box-shadow:0 2px 12px rgba(0,0,0,.1);padding:2rem;width:100%;max-width:380px;text-align:center}
     h1{font-size:1.4rem;margin-bottom:.5rem}
     p{color:#555;margin-bottom:1.5rem;line-height:1.5}
-    input{width:100%;padding:.75rem 1rem;border:1.5px solid #d0d0d0;border-radius:.5rem;font-size:1rem;margin-bottom:1rem}
-    input:focus{outline:none;border-color:#25D366}
-    button{width:100%;padding:.75rem;background:#25D366;color:#fff;border:none;border-radius:.5rem;font-size:1rem;cursor:pointer;font-weight:600}
-    button:hover{background:#1ebe5d}
-    .error{color:#c0392b;margin-bottom:1rem}
-    .success{color:#27ae60;font-size:1.1rem}
+    .logo{font-size:3rem;margin-bottom:1rem}
+    a.btn{display:block;padding:.85rem;background:#25D366;color:#fff;border-radius:.5rem;font-size:1rem;font-weight:600;text-decoration:none;margin-bottom:.75rem}
+    a.btn:hover{background:#1ebe5d}
+    .hint{font-size:.8rem;color:#aaa;margin-bottom:0}
   </style>
 </head>
 <body><div class="card">${body}</div></body>
@@ -63,26 +61,11 @@ async function lookupPublisher(publisherId: string): Promise<{ name: string } | 
   return { name };
 }
 
-async function sendWhatsAppConfirmation(to: string, publisherName: string): Promise<void> {
-  const body = `You're now following ${publisherName}. Reply STOP at any time to unsubscribe.`;
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
-  const params = new URLSearchParams({
-    From: `whatsapp:${TWILIO_FROM}`,
-    To: `whatsapp:${to}`,
-    Body: body,
-  });
-  const resp = await fetch(url, {
-    method: 'POST',
-    headers: {
-      Authorization: `Basic ${btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`)}`,
-      'Content-Type': 'application/x-www-form-urlencoded',
-    },
-    body: params.toString(),
-  });
-  if (!resp.ok) {
-    const text = await resp.text();
-    throw new Error(`Twilio error (${resp.status}): ${text}`);
-  }
+// wa.me expects the number without the leading '+'
+function waLink(publisherId: string): string {
+  const number = TWILIO_FROM.replace(/^\+/, '');
+  const text = encodeURIComponent(`JOIN ${publisherId}`);
+  return `https://wa.me/${number}?text=${text}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -98,6 +81,10 @@ Deno.serve(async (req: Request) => {
     return html('Error', '<h1>Invalid link</h1><p>This link is not valid.</p>');
   }
 
+  if (req.method !== 'GET') {
+    return new Response('Method not allowed', { status: 405 });
+  }
+
   const publisher = await lookupPublisher(publisherId);
   if (!publisher) {
     return html(
@@ -106,78 +93,12 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  // -------------------------------------------------------------------------
-  // GET – render the opt-in form
-  // -------------------------------------------------------------------------
-  if (req.method === 'GET') {
-    return html(
-      `Follow ${publisher.name} on WhatsApp`,
-      `<h1>Follow ${publisher.name}</h1>
-       <p>Enter your WhatsApp number to receive their photos directly in WhatsApp.</p>
-       <form method="POST">
-         <input
-           type="tel"
-           name="phone"
-           placeholder="+1 555 000 0000"
-           required
-           autocomplete="tel"
-         />
-         <button type="submit">Subscribe via WhatsApp</button>
-       </form>`,
-    );
-  }
-
-  // -------------------------------------------------------------------------
-  // POST – subscribe the phone number
-  // -------------------------------------------------------------------------
-  if (req.method === 'POST') {
-    const formData = await req.formData();
-    const phone = (formData.get('phone') as string | null)?.trim() ?? '';
-
-    if (!phone) {
-      return html(
-        `Follow ${publisher.name}`,
-        `<h1>Follow ${publisher.name}</h1>
-         <p class="error">Please enter a valid WhatsApp number.</p>
-         <form method="POST">
-           <input type="tel" name="phone" placeholder="+1 555 000 0000" required autocomplete="tel" />
-           <button type="submit">Subscribe via WhatsApp</button>
-         </form>`,
-      );
-    }
-
-    // Upsert subscriber (handles both new and revoked)
-    const { error } = await supabase.from('subscribers').upsert(
-      {
-        publisher_id: publisherId,
-        contact_handle: phone,
-        status: 'active',
-      },
-      { onConflict: 'publisher_id,contact_handle' },
-    );
-
-    if (error) {
-      console.error('DB upsert failed:', error.message);
-      return html(
-        'Error',
-        '<h1>Something went wrong</h1><p>Please try again later.</p>',
-      );
-    }
-
-    // Send WhatsApp confirmation (best-effort — don't fail the page on error)
-    try {
-      await sendWhatsAppConfirmation(phone, publisher.name);
-    } catch (err) {
-      console.error('WhatsApp confirmation failed:', err);
-    }
-
-    return html(
-      `You're subscribed!`,
-      `<h1>🎉 You're subscribed!</h1>
-       <p class="success">You'll now receive photos from <strong>${publisher.name}</strong> on WhatsApp.</p>
-       <p>Reply <strong>STOP</strong> at any time to unsubscribe.</p>`,
-    );
-  }
-
-  return new Response('Method not allowed', { status: 405 });
+  return html(
+    `Follow ${publisher.name} on WhatsApp`,
+    `<div class="logo">📲</div>
+     <h1>Follow ${publisher.name}</h1>
+     <p>Tap below to subscribe. WhatsApp will open with a message ready to send — just hit send and you're in.</p>
+     <a class="btn" href="${waLink(publisherId)}">Subscribe on WhatsApp</a>
+     <p class="hint">You'll receive photos directly in WhatsApp. Reply STOP at any time to unsubscribe.</p>`,
+  );
 });
