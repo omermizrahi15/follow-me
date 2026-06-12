@@ -9,16 +9,18 @@ import {
 } from 'react-native';
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { useAuth, usePublisherId } from '../context/AuthContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
-const MOCK_PUBLISHER_ID = 'user-1';
 const JOIN_BASE_URL = 'https://followme.app/join';
 
 export function HomeScreen({ navigation }: Props): React.JSX.Element {
-  const joinLink = `${JOIN_BASE_URL}/${MOCK_PUBLISHER_ID}`;
+  const { signOut } = useAuth();
+  const publisherId = usePublisherId();
+  const joinLink = `${JOIN_BASE_URL}/${publisherId}`;
 
   function handleShareLink(): void {
     void Share.share({
@@ -30,7 +32,12 @@ export function HomeScreen({ navigation }: Props): React.JSX.Element {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.title}>Follow Me</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>Follow Me</Text>
+          <TouchableOpacity onPress={() => void signOut()}>
+            <Text style={styles.signOut}>Sign out</Text>
+          </TouchableOpacity>
+        </View>
         <Text style={styles.subtitle}>Share your moments automatically</Text>
       </View>
 
@@ -80,7 +87,9 @@ export function HomeScreen({ navigation }: Props): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0d0d0d', paddingHorizontal: 24 },
   header: { paddingTop: 48, paddingBottom: 32 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
   title: { fontSize: 32, fontWeight: '700', color: '#fff', letterSpacing: -0.5 },
+  signOut: { fontSize: 13, color: '#555' },
   subtitle: { fontSize: 15, color: '#555', marginTop: 6 },
   actions: { gap: 16 },
   primaryCard: {
