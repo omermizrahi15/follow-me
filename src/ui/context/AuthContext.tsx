@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Linking } from 'react-native';
 import * as ExpoLinking from 'expo-linking';
 import { authService } from '../../composition/container';
+import { handleAuthUrl } from '../../application/authUrlHandler';
 
 interface AuthState {
   publisherId: string | null;
@@ -15,25 +16,6 @@ const AuthContext = createContext<AuthState | null>(null);
 // Resolves to exp://... in Expo Go and followme://... in a standalone build
 const REDIRECT_URL = ExpoLinking.createURL('auth');
 
-function parseHashParams(url: string): Record<string, string> {
-  const hash = url.split('#')[1] ?? '';
-  const result: Record<string, string> = {};
-  hash.split('&').forEach(pair => {
-    const [k, v] = pair.split('=');
-    if (k && v) result[k] = decodeURIComponent(v);
-  });
-  return result;
-}
-
-function parseQueryParams(url: string): Record<string, string> {
-  const query = url.split('?')[1]?.split('#')[0] ?? '';
-  const result: Record<string, string> = {};
-  query.split('&').forEach(pair => {
-    const [k, v] = pair.split('=');
-    if (k && v) result[k] = decodeURIComponent(v);
-  });
-  return result;
-}
 
 export function AuthProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [publisherId, setPublisherId] = useState<string | null>(null);
@@ -51,15 +33,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
     });
 
     function handleUrl({ url }: { url: string }): void {
-      const hash = parseHashParams(url);
-      if (hash.access_token != null && hash.refresh_token != null) {
-        void authService.setSession(hash.access_token, hash.refresh_token);
-        return;
-      }
-      const query = parseQueryParams(url);
-      if (query.code != null) {
-        void authService.exchangeCodeForSession(query.code);
-      }
+      handleAuthUrl(url, authService);
     }
 
     void Linking.getInitialURL().then(url => {
