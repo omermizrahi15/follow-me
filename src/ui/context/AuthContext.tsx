@@ -14,11 +14,22 @@ const AuthContext = createContext<AuthState | null>(null);
 
 // Resolves to exp://... in Expo Go and followme://... in a standalone build
 const REDIRECT_URL = ExpoLinking.createURL('auth');
+console.log('[Auth] REDIRECT_URL =', REDIRECT_URL);
 
 function parseHashParams(url: string): Record<string, string> {
   const hash = url.split('#')[1] ?? '';
   const result: Record<string, string> = {};
   hash.split('&').forEach(pair => {
+    const [k, v] = pair.split('=');
+    if (k && v) result[k] = decodeURIComponent(v);
+  });
+  return result;
+}
+
+function parseQueryParams(url: string): Record<string, string> {
+  const query = url.split('?')[1]?.split('#')[0] ?? '';
+  const result: Record<string, string> = {};
+  query.split('&').forEach(pair => {
     const [k, v] = pair.split('=');
     if (k && v) result[k] = decodeURIComponent(v);
   });
@@ -41,9 +52,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
     });
 
     function handleUrl({ url }: { url: string }): void {
-      const params = parseHashParams(url);
-      if (params.access_token != null && params.refresh_token != null) {
-        void authService.setSession(params.access_token, params.refresh_token);
+      const hash = parseHashParams(url);
+      if (hash.access_token != null && hash.refresh_token != null) {
+        void authService.setSession(hash.access_token, hash.refresh_token);
+        return;
+      }
+      const query = parseQueryParams(url);
+      if (query.code != null) {
+        void authService.exchangeCodeForSession(query.code);
       }
     }
 

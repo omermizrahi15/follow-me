@@ -11,6 +11,7 @@ export class SupabaseAuthService {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
+        flowType: 'implicit',
       },
     });
   }
@@ -38,6 +39,11 @@ export class SupabaseAuthService {
       access_token: accessToken,
       refresh_token: refreshToken,
     });
+    if (error != null) throw new Error(error.message);
+  }
+
+  async exchangeCodeForSession(code: string): Promise<void> {
+    const { error } = await this.client.auth.exchangeCodeForSession(code);
     if (error != null) throw new Error(error.message);
   }
 
