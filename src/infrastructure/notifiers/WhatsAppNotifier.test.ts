@@ -16,9 +16,9 @@ function makeMedia(url = IMAGE_URL): Media {
   return Media.create({ id: 'media-1', ownerId: 'user-1', url, createdAt: new Date() });
 }
 
-function makeSut(publisherName = 'Omer'): { notifier: WhatsAppNotifier; twilio: FakeTwilioClient } {
+function makeSut(publisherName = 'Omer', publisherPhone?: string): { notifier: WhatsAppNotifier; twilio: FakeTwilioClient } {
   const twilio = new FakeTwilioClient();
-  const notifier = new WhatsAppNotifier(twilio, publisherName);
+  const notifier = new WhatsAppNotifier(twilio, publisherName, publisherPhone);
   return { notifier, twilio };
 }
 
@@ -93,6 +93,18 @@ describe('WhatsAppNotifier — body', () => {
     const { notifier, twilio } = makeSut('Omer');
     await notifier.notify(makeSubscriber(), [makeMedia()]);
     expect(twilio.sent[0]?.body).toContain('Omer');
+  });
+
+  it('includes a wa.me chat link in the first message when publisher phone is set', async (): Promise<void> => {
+    const { notifier, twilio } = makeSut('Omer', '+972501234567');
+    await notifier.notify(makeSubscriber(), [makeMedia()]);
+    expect(twilio.sent[0]?.body).toContain('https://wa.me/972501234567');
+  });
+
+  it('omits the chat link when no publisher phone is set', async (): Promise<void> => {
+    const { notifier, twilio } = makeSut('Omer');
+    await notifier.notify(makeSubscriber(), [makeMedia()]);
+    expect(twilio.sent[0]?.body).not.toContain('wa.me');
   });
 });
 

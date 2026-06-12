@@ -11,10 +11,11 @@ export class WhatsAppNotifier implements INotifier {
   constructor(
     private readonly client: ITwilioClient,
     private readonly publisherName: string,
+    private readonly publisherPhone?: string,
   ) {}
 
   async notify(subscriber: Subscriber, media: Media[]): Promise<void> {
-    const body = composeNotificationBody(this.publisherName, media);
+    const body = composeNotificationBody(this.publisherName, media, this.publisherPhone);
     const [first, ...rest] = media;
 
     // Twilio WhatsApp only supports one MediaUrl per request.

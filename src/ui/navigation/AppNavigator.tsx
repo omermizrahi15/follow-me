@@ -6,13 +6,14 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { UploadScreen } from '../screens/UploadScreen';
 import { ConfigScreen } from '../screens/ConfigScreen';
 import { SignInScreen } from '../screens/SignInScreen';
+import { PhoneSetupScreen } from '../screens/PhoneSetupScreen';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import type { RootStackParamList } from './types';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function RootNavigator(): React.JSX.Element {
-  const { publisherId, loading } = useAuth();
+  const { publisherId, publisherPhone, loading } = useAuth();
 
   if (loading) {
     return (
@@ -27,6 +28,8 @@ function RootNavigator(): React.JSX.Element {
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {publisherId == null ? (
           <Stack.Screen name="SignIn" component={SignInScreen} />
+        ) : publisherPhone == null ? (
+          <Stack.Screen name="PhoneSetup" component={PhoneSetupScreen} />
         ) : (
           <>
             <Stack.Screen name="Home" component={HomeScreen} />

@@ -160,3 +160,29 @@ describe('composeNotificationBody — overall format', () => {
     expect(body).not.toMatch(/from/i);
   });
 });
+
+describe('composeNotificationBody — publisher phone / chat link', () => {
+  it('appends a wa.me chat link when publisherPhone is provided', () => {
+    const body = composeNotificationBody('Omer', [makeMedia()], '+972501234567');
+    expect(body).toContain('https://wa.me/972501234567');
+  });
+
+  it('strips the leading + from the phone number in the wa.me URL', () => {
+    const body = composeNotificationBody('Omer', [makeMedia()], '+12125550100');
+    expect(body).toContain('https://wa.me/12125550100');
+    expect(body).not.toContain('wa.me/+');
+  });
+
+  it('includes the publisher name in the chat link line', () => {
+    const body = composeNotificationBody('Dana', [makeMedia()], '+972501234567');
+    expect(body).toContain('Dana');
+    const lines = body.split('\n');
+    expect(lines[1]).toMatch(/Dana/);
+  });
+
+  it('omits the chat link when publisherPhone is not provided', () => {
+    const body = composeNotificationBody('Omer', [makeMedia()]);
+    expect(body).not.toContain('wa.me');
+    expect(body.split('\n')).toHaveLength(1);
+  });
+});

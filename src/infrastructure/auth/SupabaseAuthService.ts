@@ -47,6 +47,11 @@ export class SupabaseAuthService {
     if (error != null) throw new Error(error.message);
   }
 
+  async updateUserPhone(phone: string): Promise<void> {
+    const { error } = await this.client.auth.updateUser({ data: { whatsapp_phone: phone } });
+    if (error != null) throw new Error(error.message);
+  }
+
   onAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void): () => void {
     const { data: { subscription } } = this.client.auth.onAuthStateChange(callback);
     return () => subscription.unsubscribe();
