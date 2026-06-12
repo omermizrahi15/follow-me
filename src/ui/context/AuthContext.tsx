@@ -14,7 +14,6 @@ const AuthContext = createContext<AuthState | null>(null);
 
 // Resolves to exp://... in Expo Go and followme://... in a standalone build
 const REDIRECT_URL = ExpoLinking.createURL('auth');
-console.log('[Auth] REDIRECT_URL =', REDIRECT_URL);
 
 function parseHashParams(url: string): Record<string, string> {
   const hash = url.split('#')[1] ?? '';
