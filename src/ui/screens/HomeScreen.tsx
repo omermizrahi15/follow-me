@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, usePublisherId } from '../context/AuthContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
@@ -18,8 +18,9 @@ type Props = {
 const JOIN_BASE_URL = 'https://followme.app/join';
 
 export function HomeScreen({ navigation }: Props): React.JSX.Element {
-  const { publisherId, signOut } = useAuth();
-  const joinLink = `${JOIN_BASE_URL}/${publisherId ?? ''}`;
+  const { signOut } = useAuth();
+  const publisherId = usePublisherId();
+  const joinLink = `${JOIN_BASE_URL}/${publisherId}`;
 
   function handleShareLink(): void {
     void Share.share({

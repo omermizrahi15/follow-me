@@ -13,7 +13,7 @@ import * as ImagePicker from 'expo-image-picker';
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useShareMedia } from '../hooks/useShareMedia';
-import { useAuth } from '../context/AuthContext';
+import { usePublisherId } from '../context/AuthContext';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
@@ -21,7 +21,7 @@ type Props = {
 
 export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const { share } = useShareMedia();
-  const { publisherId } = useAuth();
+  const publisherId = usePublisherId();
   const [pickedUris, setPickedUris] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
@@ -52,7 +52,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           localUri: uri,
           filename: uri.split('/').pop() ?? `media-${i}.jpg`,
         }));
-        await share(items, publisherId ?? '');
+        await share(items, publisherId);
         setDone(true);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Upload failed');

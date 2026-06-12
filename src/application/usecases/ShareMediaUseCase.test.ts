@@ -100,3 +100,13 @@ describe('ShareMediaUseCase — subscriber filtering', () => {
     expect(notifier.sent).toHaveLength(0);
   });
 });
+
+describe('ShareMediaUseCase — input validation', () => {
+  it('throws before uploading when ownerId is empty', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await expect(
+      useCase.share({ ownerId: '', items: singleItem }),
+    ).rejects.toThrow('ownerId is required');
+    expect(mediaRepo.all()).toHaveLength(0);
+  });
+});

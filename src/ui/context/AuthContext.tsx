@@ -67,3 +67,9 @@ export function useAuth(): AuthState {
   if (ctx == null) throw new Error('useAuth must be used within AuthProvider');
   return ctx;
 }
+
+export function usePublisherId(): string {
+  const { publisherId } = useAuth();
+  if (publisherId == null) throw new Error('usePublisherId called before authentication');
+  return publisherId;
+}
