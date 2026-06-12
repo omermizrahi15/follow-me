@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -11,29 +11,48 @@ import {
 } from 'react-native';
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import { usePublisherId } from '../context/AuthContext';
+import { saveConfig, loadConfig } from '../../composition/container';
+import { PublisherConfig } from '../../domain/entities/PublisherConfig';
+import type { Frequency, PhotoCount } from '../../domain/entities/PublisherConfig';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
-type Frequency = 'weekly' | 'biweekly' | 'monthly';
-type PhotoCount = 1 | 3 | 5;
-
-const MOCK_PUBLISHER_ID = 'user-1';
 const JOIN_BASE_URL = 'https://followme.app/join';
 
 export function ConfigScreen({ navigation }: Props): React.JSX.Element {
+  const publisherId = usePublisherId();
   const [frequency, setFrequency] = useState<Frequency>('weekly');
   const [photoCount, setPhotoCount] = useState<PhotoCount>(3);
   const [askBeforePost, setAskBeforePost] = useState(true);
   const [saved, setSaved] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const joinLink = `${JOIN_BASE_URL}/${MOCK_PUBLISHER_ID}`;
+  const joinLink = `${JOIN_BASE_URL}/${publisherId}`;
+
+  useEffect(() => {
+    void loadConfig.execute(publisherId).then(config => {
+      setFrequency(config.frequency);
+      setPhotoCount(config.photosPerPost);
+      setAskBeforePost(config.requireApproval);
+      setIsLoading(false);
+    });
+  }, [publisherId]);
 
   function handleSave(): void {
-    // TODO: persist config via use case
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    void saveConfig.execute(
+      PublisherConfig.create({
+        publisherId,
+        frequency,
+        photosPerPost: photoCount,
+        requireApproval: askBeforePost,
+      }),
+    ).then(() => {
+      setSaved(true);
+      setTimeout(() => setSaved(false), 2000);
+    });
   }
 
   function handleShareLink(): void {
@@ -41,6 +60,14 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
       message: `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`,
       url: joinLink,
     });
+  }
+
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={styles.loadingText}>Loading...</Text>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -148,6 +175,7 @@ const styles = StyleSheet.create({
   back: { color: '#555', fontSize: 14, marginBottom: 20 },
   title: { fontSize: 24, fontWeight: '700', color: '#fff', letterSpacing: -0.5 },
   subtitle: { fontSize: 14, color: '#555', marginTop: 6 },
+  loadingText: { color: '#555', fontSize: 14, padding: 24 },
   section: {
     backgroundColor: '#111',
     borderRadius: 14,

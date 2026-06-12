@@ -2,7 +2,7 @@
   "testEnvironment": "node",
   "setupFiles": ["./jest.setup.ts"],
   "transform": {
-    "^.+\\.ts$": ["ts-jest", { "tsconfig": { "jsx": "react-native" } }]
+    "^.+\\.ts$": ["ts-jest", { "tsconfig": { "jsx": "react-native", "types": ["jest", "node"], "typeRoots": ["/Users/omermizrahi/follow-me/node_modules/@types"] } }]
   },
   "moduleFileExtensions": ["ts", "js"],
   "roots": ["<rootDir>/src"],
