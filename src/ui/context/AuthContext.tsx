@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Linking } from 'react-native';
 import * as ExpoLinking from 'expo-linking';
 import { authService } from '../../composition/container';
-import { handleAuthUrl } from '../../application/authUrlHandler';
+import { handleAuthUrl } from '../../infrastructure/auth/authUrlHandler';
 
 interface AuthState {
   publisherId: string | null;
