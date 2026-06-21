@@ -1,6 +1,7 @@
 import { ShareMediaUseCase } from '../application/usecases/ShareMediaUseCase';
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
 import { ConsoleNotifier, ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
+import { SupabaseAuthService } from '../infrastructure/auth/SupabaseAuthService';
 import { SupabaseMediaRepository } from '../infrastructure/repositories/SupabaseMediaRepository';
 import { SupabaseSubscriberRepository } from '../infrastructure/repositories/SupabaseSubscriberRepository';
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
@@ -26,3 +27,4 @@ const confirmationSender = new ConsoleConfirmationSender();
 
 export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage);
 export const subscribe = new SubscribeUseCase(subscriberRepo, confirmationSender);
+export const authService = new SupabaseAuthService(supabaseUrl, supabaseKey);
