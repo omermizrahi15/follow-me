@@ -2,10 +2,13 @@ import { ShareMediaUseCase } from '../application/usecases/ShareMediaUseCase';
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
 import { ListSubscribersUseCase } from '../application/usecases/ListSubscribersUseCase';
 import { RemoveSubscriberUseCase } from '../application/usecases/RemoveSubscriberUseCase';
+import { SaveConfigUseCase } from '../application/usecases/SaveConfigUseCase';
+import { LoadConfigUseCase } from '../application/usecases/LoadConfigUseCase';
 import { ConsoleNotifier, ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
 import { SupabaseAuthService } from '../infrastructure/auth/SupabaseAuthService';
 import { SupabaseMediaRepository } from '../infrastructure/repositories/SupabaseMediaRepository';
 import { SupabaseSubscriberRepository } from '../infrastructure/repositories/SupabaseSubscriberRepository';
+import { SupabasePublisherConfigRepository } from '../infrastructure/repositories/SupabasePublisherConfigRepository';
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
 
 function requireEnv(key: string): string {
@@ -19,6 +22,7 @@ const supabaseKey = requireEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY');
 
 const mediaRepo = new SupabaseMediaRepository(supabaseUrl, supabaseKey);
 const subscriberRepo = new SupabaseSubscriberRepository(supabaseUrl, supabaseKey);
+const configRepo = new SupabasePublisherConfigRepository(supabaseUrl, supabaseKey);
 const storage = new CloudinaryStorageService(
   requireEnv('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
   requireEnv('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
@@ -32,3 +36,5 @@ export const subscribe = new SubscribeUseCase(subscriberRepo, confirmationSender
 export const listSubscribers = new ListSubscribersUseCase(subscriberRepo);
 export const removeSubscriber = new RemoveSubscriberUseCase(subscriberRepo);
 export const authService = new SupabaseAuthService(supabaseUrl, supabaseKey);
+export const saveConfig = new SaveConfigUseCase(configRepo);
+export const loadConfig = new LoadConfigUseCase(configRepo);

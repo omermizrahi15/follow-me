@@ -1,5 +1,6 @@
 import type { Media } from '../entities/Media';
 import type { Subscriber } from '../entities/Subscriber';
+import type { PublisherConfig } from '../entities/PublisherConfig';
 
 export interface IMediaRepository {
   save(media: Media): Promise<void>;
@@ -24,4 +25,9 @@ export interface INotifier {
 
 export interface IStorageService {
   upload(localUri: string, filename: string): Promise<string>;
+}
+
+export interface IPublisherConfigRepository {
+  save(config: PublisherConfig): Promise<void>;
+  findByPublisher(publisherId: string): Promise<PublisherConfig | null>;
 }
