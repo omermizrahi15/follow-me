@@ -29,9 +29,11 @@ export function SubscribersScreen({ navigation }: Props): React.JSX.Element {
 
   function handleShareLink(): void {
     if (!joinLink) return;
+    // Note: only pass `message` (link inline). Passing `url` too makes iOS
+    // attach the link as a separate NSURL item, which targets like WhatsApp
+    // serialize as a binary plist (bplist00...) instead of plain text.
     void Share.share({
       message: `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`,
-      url: joinLink,
     });
   }
 
