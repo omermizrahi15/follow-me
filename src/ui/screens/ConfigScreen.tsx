@@ -25,7 +25,7 @@ const JOIN_BASE_URL = 'https://followme.app/join';
 export function ConfigScreen({ navigation }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const [frequency, setFrequency] = useState<Frequency>('weekly');
-  const [photoCount, setPhotoCount] = useState<PhotoCount>(5);
+  const [photoCount, setPhotoCount] = useState<PhotoCount>(10);
   const [askBeforePost, setAskBeforePost] = useState(true);
   const [saved, setSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);

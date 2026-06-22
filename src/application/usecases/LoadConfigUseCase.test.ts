@@ -29,7 +29,7 @@ describe('LoadConfigUseCase', () => {
     const config = await useCase.execute('user-1');
     expect(config.publisherId).toBe('user-1');
     expect(config.frequency).toBe('weekly');
-    expect(config.photosPerPost).toBe(5);
+    expect(config.photosPerPost).toBe(10);
     expect(config.requireApproval).toBe(true);
   });
 
