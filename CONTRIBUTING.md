@@ -55,28 +55,44 @@ The app should come to the foreground without crashing (a fake token still gets 
 
 If the *real* email magic link doesn't redirect into the app (but this manual check above passes), the cause is almost always the Supabase project's **Authentication → URL Configuration → Redirect URLs** allow-list missing `followme://auth` — Supabase silently falls back to the Site URL instead of erroring when the redirect target isn't allow-listed.
 
-## Running the web join page
+## The subscriber join flow (web → WhatsApp)
 
-The invite link (`followme.app/join/:publisherId`) is served by a small static
-web page in `web/`, separate from the React Native app. Its logic lives in
-`src/web/joinPage.ts` (framework-agnostic, unit-tested under `npm test`); the DOM
-wiring is `web/main.ts`, bundled by esbuild.
+The invite link (`followme.app/join/:publisherId`) is served by two **Supabase
+Edge Functions** (`supabase/functions/`), not the React Native app:
+
+1. **`join`** — `GET /join/:publisherId` renders a landing page with a "Subscribe
+   on WhatsApp" button that opens WhatsApp with `JOIN <publisherId>` pre-filled.
+2. **`join-webhook`** — Twilio calls `POST /join-webhook` when the follower sends
+   that message. It reads their number from WhatsApp's `From` field and upserts
+   the subscriber using the **service-role key** (which bypasses RLS — so no
+   public write policy on `subscribers` is needed, and contact numbers are never
+   exposed to the anon role).
+
+This is why the follower never types their number: it comes from the WhatsApp
+message they send.
+
+### Deploying
+
+These functions run on Supabase, not in this repo's test suite. Deploy with the
+[Supabase CLI](https://supabase.com/docs/guides/cli):
 
 ```bash
-npm run build:web   # bundle web/main.ts -> web/join.js (reads Supabase config from .env)
-npm run serve:web   # build, then serve web/ at http://localhost:4400
+supabase functions deploy join
+supabase functions deploy join-webhook
+
+# Secrets the functions read (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are
+# injected automatically; set the Twilio ones):
+supabase secrets set TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_WHATSAPP_FROM=+14155238886
 ```
 
-Open `http://localhost:4400` to see the subscribe form. To exercise the real
-publisher-id parsing, hit a `/join/<id>` path — note `http-server` doesn't
-rewrite, so for local path testing use a server that maps `/join/*` to
-`index.html` (the production host needs the same rewrite rule).
+Then, to make the public link work end to end:
 
-> **Heads up — RLS:** the `subscribers` table has Row-Level Security that
-> currently blocks anonymous inserts, so a real subscribe from this page fails
-> with `new row violates row-level security policy` until a public insert policy
-> is added (tracked in #9). The page UI, validation, and the `JoinController`
-> flow all work regardless; only the final Supabase write is gated.
+- Point `followme.app/join/*` at the deployed `join` function (a host redirect/
+  rewrite, or use the function URL directly in the share link).
+- In the Twilio console, set the WhatsApp sandbox/number's **"When a message
+  comes in"** webhook to the deployed `join-webhook` URL.
+- Apply the `subscribers` migration (`supabase/migrations/`) so the upsert's
+  `ON CONFLICT (publisher_id, contact_handle)` target exists.
 
 ## Environment variables
 
