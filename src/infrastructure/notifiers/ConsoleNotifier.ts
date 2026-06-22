@@ -4,10 +4,13 @@ import type { Subscriber } from '../../domain/entities/Subscriber';
 import { composeNotificationBody } from '../../domain/services/notificationBody';
 
 export class ConsoleNotifier implements INotifier {
-  constructor(private readonly publisherName: string) {}
+  constructor(
+    private readonly publisherName: string,
+    private readonly publisherPhone?: string,
+  ) {}
 
   notify(subscriber: Subscriber, media: Media[]): Promise<void> {
-    const body = composeNotificationBody(this.publisherName, media);
+    const body = composeNotificationBody(this.publisherName, media, this.publisherPhone);
     console.log(`[ConsoleNotifier] → ${subscriber.contactHandle}`);
     console.log(`  body: ${body}`);
     media.forEach((m, i) => console.log(`  [${i}] ${m.mediaType} ${m.url}`));

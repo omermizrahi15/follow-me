@@ -1,10 +1,13 @@
 import type { Media } from '../entities/Media';
 
-export function composeNotificationBody(publisherName: string, media: Media[]): string {
+export function composeNotificationBody(publisherName: string, media: Media[], publisherPhone?: string): string {
   const mediaDescription = describeMedia(media);
   const locationClause = formatLocationClause(selectTopLocations(media));
   const locationPart = locationClause != null ? ` from ${locationClause}` : '';
-  return `Checkout ${publisherName} latest ${mediaDescription}${locationPart} 📸`;
+  const headline = `Checkout ${publisherName} latest ${mediaDescription}${locationPart} 📸`;
+  if (publisherPhone == null) return headline;
+  const waPhone = publisherPhone.replace(/^\+/, '');
+  return `${headline}\nChat with ${publisherName}: https://wa.me/${waPhone}`;
 }
 
 export function selectTopLocations(media: Media[]): string[] {

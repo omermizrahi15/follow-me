@@ -11,16 +11,20 @@ export class SupabaseAuthService {
         autoRefreshToken: true,
         persistSession: true,
         detectSessionInUrl: false,
-        flowType: 'implicit',
       },
     });
   }
 
-  async signInWithOtp(email: string, redirectTo: string): Promise<void> {
+  async signInWithPhoneOtp(phone: string): Promise<void> {
     const { error } = await this.client.auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: redirectTo },
+      phone,
+      options: { channel: 'whatsapp' },
     });
+    if (error != null) throw new Error(error.message);
+  }
+
+  async verifyPhoneOtp(phone: string, token: string): Promise<void> {
+    const { error } = await this.client.auth.verifyOtp({ phone, token, type: 'sms' });
     if (error != null) throw new Error(error.message);
   }
 
@@ -32,19 +36,6 @@ export class SupabaseAuthService {
   async getSession(): Promise<Session | null> {
     const { data } = await this.client.auth.getSession();
     return data.session;
-  }
-
-  async setSession(accessToken: string, refreshToken: string): Promise<void> {
-    const { error } = await this.client.auth.setSession({
-      access_token: accessToken,
-      refresh_token: refreshToken,
-    });
-    if (error != null) throw new Error(error.message);
-  }
-
-  async exchangeCodeForSession(code: string): Promise<void> {
-    const { error } = await this.client.auth.exchangeCodeForSession(code);
-    if (error != null) throw new Error(error.message);
   }
 
   onAuthStateChange(callback: (event: AuthChangeEvent, session: Session | null) => void): () => void {

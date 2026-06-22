@@ -24,7 +24,10 @@ import { SupabaseAuthService } from './SupabaseAuthService';
 
 const supabaseUrl = process.env['EXPO_PUBLIC_SUPABASE_URL'] as string | undefined;
 const supabaseKey = process.env['EXPO_PUBLIC_SUPABASE_ANON_KEY'] as string | undefined;
-const testEmail = process.env['AUTH_TEST_EMAIL'] as string | undefined;
+const testPhone = process.env['AUTH_TEST_PHONE'] as string | undefined;
+// Fixed OTP for a Supabase "test phone number" — lets the verify flow run
+// without a real WhatsApp send. Configure both in Supabase → Auth → Phone.
+const testOtp = process.env['AUTH_TEST_OTP'] as string | undefined;
 const RUN = supabaseUrl && supabaseKey;
 
 const describeIf = (cond: unknown): jest.Describe => (cond ? describe : describe.skip);
@@ -44,45 +47,45 @@ describeIf(RUN)('SupabaseAuthService (integration)', () => {
     });
   });
 
-  describe('signInWithOtp', () => {
-    it('reaches the Supabase auth API for a valid email (SMTP delivery is a separate concern)', async (): Promise<void> => {
-      if (!testEmail) { console.warn('Skipping: AUTH_TEST_EMAIL not set'); return; }
+  describe('signInWithPhoneOtp', () => {
+    it('reaches the Supabase auth API for a valid phone number (WhatsApp delivery is a separate concern)', async (): Promise<void> => {
+      if (!testPhone) { console.warn('Skipping: AUTH_TEST_PHONE not set'); return; }
       const service = makeService();
-      try {
-        await service.signInWithOtp(testEmail, 'followme://auth');
-        // Email delivered — SMTP is fully configured
-      } catch (e: unknown) {
-        // Supabase accepted the OTP request but SMTP delivery failed (e.g. Resend
-        // free tier restrictions). This is still a valid passing state for the
-        // auth service — it proves the API call reached Supabase and was validated.
-        const msg = e instanceof Error ? e.message : String(e);
-        expect(msg).toMatch(/sending confirmation email/i);
-      }
+      await service.signInWithPhoneOtp(testPhone);
     });
 
-    it('throws for an invalid email format', async (): Promise<void> => {
+    it('throws for an invalid phone format', async (): Promise<void> => {
       const service = makeService();
       await expect(
-        service.signInWithOtp('not-an-email', 'followme://auth'),
+        service.signInWithPhoneOtp('not-a-phone'),
       ).rejects.toThrow();
     });
   });
 
-  describe('setSession', () => {
-    it('throws when given bogus tokens', async (): Promise<void> => {
-      const service = makeService();
-      await expect(
-        service.setSession('invalid-access-token', 'invalid-refresh-token'),
-      ).rejects.toThrow();
-    });
-  });
-
-  describe('exchangeCodeForSession', () => {
+  describe('verifyPhoneOtp', () => {
     it('throws when given a bogus code', async (): Promise<void> => {
       const service = makeService();
       await expect(
-        service.exchangeCodeForSession('bogus-code'),
+        service.verifyPhoneOtp('+15555550100', '000000'),
       ).rejects.toThrow();
+    });
+
+    it('verifies the OTP and establishes a phone session (Supabase test number)', async (): Promise<void> => {
+      if (!testPhone || !testOtp) {
+        console.warn('Skipping: AUTH_TEST_PHONE / AUTH_TEST_OTP not set');
+        return;
+      }
+      const service = makeService();
+
+      // For a Supabase test number the OTP is fixed, so verify directly —
+      // re-requesting here would hit Supabase's per-number rate limit.
+      await service.verifyPhoneOtp(testPhone, testOtp);
+
+      const session = await service.getSession();
+      expect(session).not.toBeNull();
+      expect(session?.user.phone).toBe(testPhone.replace('+', ''));
+
+      await service.signOut();
     });
   });
 
