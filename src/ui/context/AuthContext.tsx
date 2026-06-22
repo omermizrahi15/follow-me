@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react';
 import { Linking } from 'react-native';
 import * as ExpoLinking from 'expo-linking';
 import { authService } from '../../composition/container';
-import { handleAuthUrl } from '../../infrastructure/auth/authUrlHandler';
+import { subscribeToAuthDeepLinks } from '../../infrastructure/auth/deepLinkSubscription';
 
 interface AuthState {
   publisherId: string | null;
@@ -32,18 +32,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
       setLoading(false);
     });
 
-    function handleUrl({ url }: { url: string }): void {
-      handleAuthUrl(url, authService);
-    }
+    const unsubscribeDeepLinks = subscribeToAuthDeepLinks(Linking, authService);
 
-    void Linking.getInitialURL().then(url => {
-      if (url != null) handleUrl({ url });
-    });
-
-    const sub = Linking.addEventListener('url', handleUrl);
     return () => {
       unsubscribe();
-      sub.remove();
+      unsubscribeDeepLinks();
     };
   }, []);
 

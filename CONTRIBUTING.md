@@ -41,6 +41,20 @@ The ESLint config enforces these rules and will fail the build if violated:
 
 If you need to add a new delivery mechanism (email, push notifications, etc.), implement the `INotifier` interface in `infrastructure/notifiers/`. Do not modify any use case.
 
+## Verifying the auth deep link manually
+
+The magic-link redirect (`followme://auth#access_token=...`) can't be unit tested end-to-end — `subscribeToAuthDeepLinks` (`src/infrastructure/auth/deepLinkSubscription.ts`) has full unit coverage for the JS-side wiring, but whether iOS actually hands the URL to the app depends on native config that only a simulator/device can confirm.
+
+With the app running on a booted simulator (`npx expo run:ios`), fire a fake redirect at it:
+
+```bash
+xcrun simctl openurl booted "followme://auth#access_token=fake&refresh_token=fake&type=magiclink"
+```
+
+The app should come to the foreground without crashing (a fake token still gets rejected by Supabase, but the deep link itself must reach the JS layer). If nothing happens, check `ios/FollowMe/Info.plist` for `CFBundleURLSchemes` containing `followme` — `expo prebuild` regenerates this from `app.json`'s `scheme` field.
+
+If the *real* email magic link doesn't redirect into the app (but this manual check above passes), the cause is almost always the Supabase project's **Authentication → URL Configuration → Redirect URLs** allow-list missing `followme://auth` — Supabase silently falls back to the Site URL instead of erroring when the redirect target isn't allow-listed.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` and fill in the values you need for local development.

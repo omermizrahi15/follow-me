@@ -67,4 +67,15 @@ export class SupabaseSubscriberRepository implements ISubscriberRepository {
     if (error != null) return null;
     return rowToSubscriber(data);
   }
+
+  async findByPublisherAndContact(publisherId: string, contactHandle: string): Promise<Subscriber | null> {
+    const { data, error } = await this.client
+      .from('subscribers')
+      .select('*')
+      .eq('publisher_id', publisherId)
+      .eq('contact_handle', contactHandle)
+      .single();
+    if (error != null) return null;
+    return rowToSubscriber(data);
+  }
 }
