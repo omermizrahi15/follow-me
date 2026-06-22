@@ -33,3 +33,6 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Built web join page artifact
+web/join.js

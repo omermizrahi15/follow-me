@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0d0d" />
+    <title>Follow Me — Subscribe</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: #0d0d0d;
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      body {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        padding: 24px;
+      }
+      .card {
+        width: 100%;
+        max-width: 400px;
+        background: #111;
+        border: 1px solid #1e1e1e;
+        border-radius: 16px;
+        padding: 32px 24px;
+      }
+      h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; margin: 0 0 6px; }
+      .subtitle { color: #666; font-size: 14px; line-height: 20px; margin: 0 0 24px; }
+      label { display: block; font-size: 13px; color: #888; margin-bottom: 8px; }
+      input {
+        width: 100%;
+        background: #1a1a1a;
+        border: 1px solid #2a2a2a;
+        border-radius: 10px;
+        color: #fff;
+        font-size: 16px;
+        padding: 14px;
+        outline: none;
+      }
+      input:focus { border-color: #25D366; }
+      button {
+        width: 100%;
+        margin-top: 16px;
+        background: #25D366;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+        border: 0;
+        border-radius: 10px;
+        padding: 14px;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .message { font-size: 13px; line-height: 19px; margin-top: 14px; }
+      .message.error { color: #e0564f; }
+      .success { text-align: center; }
+      .success .check { font-size: 44px; margin-bottom: 8px; }
+      .success h1 { margin-bottom: 10px; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <!-- Subscribe form -->
+      <section id="form-view">
+        <h1>Follow along on WhatsApp</h1>
+        <p class="subtitle">
+          Enter your WhatsApp number to start receiving photos. You can unsubscribe any time by
+          replying STOP.
+        </p>
+        <form id="join-form" novalidate>
+          <label for="phone">Your WhatsApp number</label>
+          <input
+            id="phone"
+            name="phone"
+            type="tel"
+            inputmode="tel"
+            autocomplete="tel"
+            placeholder="+972 50 123 4567"
+            required
+          />
+          <button id="submit" type="submit">Subscribe</button>
+          <p class="message error" id="error" hidden></p>
+        </form>
+      </section>
+
+      <!-- Confirmation -->
+      <section id="success-view" class="success" hidden>
+        <div class="check">✓</div>
+        <h1>You're subscribed!</h1>
+        <p class="subtitle">You'll start receiving photos on WhatsApp at <span id="confirmed-number"></span>.</p>
+      </section>
+    </main>
+
+    <script type="module" src="./join.js"></script>
+  </body>
+</html>
