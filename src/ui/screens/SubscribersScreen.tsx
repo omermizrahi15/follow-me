@@ -20,7 +20,10 @@ type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
-const JOIN_BASE_URL = 'https://followme.app/join';
+// Points at the deployed Supabase `join` edge function — opening this link
+// shows the follower a "Subscribe on WhatsApp" page. Built from the project URL
+// so there's no separate domain to maintain.
+const JOIN_BASE_URL = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/join`;
 
 export function SubscribersScreen({ navigation }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
