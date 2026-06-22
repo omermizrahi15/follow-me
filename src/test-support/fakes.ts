@@ -1,11 +1,13 @@
 import type { ITwilioClient } from '../infrastructure/notifiers/WhatsAppNotifier';
 import type { Media } from '../domain/entities/Media';
 import type { Subscriber } from '../domain/entities/Subscriber';
+import type { PublisherConfig } from '../domain/entities/PublisherConfig';
 import type {
   IMediaRepository,
   ISubscriberRepository,
   INotifier,
   IStorageService,
+  IPublisherConfigRepository,
   IConfirmationSender,
 } from '../domain/interfaces';
 
@@ -85,6 +87,19 @@ export class InMemoryNotifier implements INotifier {
 export class InMemoryStorageService implements IStorageService {
   async upload(_localUri: string, filename: string): Promise<string> {
     return Promise.resolve(`https://mock-cdn.test/${filename}`);
+  }
+}
+
+export class InMemoryPublisherConfigRepository implements IPublisherConfigRepository {
+  private store: Map<string, PublisherConfig> = new Map();
+
+  async save(config: PublisherConfig): Promise<void> {
+    this.store.set(config.publisherId, config);
+    return Promise.resolve();
+  }
+
+  async findByPublisher(publisherId: string): Promise<PublisherConfig | null> {
+    return Promise.resolve(this.store.get(publisherId) ?? null);
   }
 }
 

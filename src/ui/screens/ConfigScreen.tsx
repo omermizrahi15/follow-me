@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,42 +7,53 @@ import {
   ScrollView,
   StyleSheet,
   SafeAreaView,
-  Share,
 } from 'react-native';
 import type { RootStackParamList } from '../navigation/types';
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { usePublisherId } from '../hooks/usePublisherId';
+import { usePublisherId } from '../context/AuthContext';
+import { saveConfig, loadConfig } from '../../composition/container';
+import { PublisherConfig } from '../../domain/entities/PublisherConfig';
+import type { Frequency, PhotoCount } from '../../domain/entities/PublisherConfig';
 
 type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
-type Frequency = 'weekly' | 'biweekly' | 'monthly';
-type PhotoCount = 1 | 3 | 5;
-
-const JOIN_BASE_URL = 'https://followme.app/join';
-
 export function ConfigScreen({ navigation }: Props): React.JSX.Element {
-  const [frequency, setFrequency] = useState<Frequency>('weekly');
-  const [photoCount, setPhotoCount] = useState<PhotoCount>(3);
-  const [askBeforePost, setAskBeforePost] = useState(true);
-  const [saved, setSaved] = useState(false);
-
   const publisherId = usePublisherId();
-  const joinLink = publisherId ? `${JOIN_BASE_URL}/${publisherId}` : null;
+  const [frequency, setFrequency] = useState<Frequency>('weekly');
+  const [photoCount, setPhotoCount] = useState<PhotoCount>(10);
+  const [askBeforePost, setAskBeforePost] = useState(true);
+  const [isLoading, setIsLoading] = useState(true);
+
+  useEffect(() => {
+    void loadConfig.execute(publisherId).then(config => {
+      setFrequency(config.frequency);
+      setPhotoCount(config.photosPerPost);
+      setAskBeforePost(config.requireApproval);
+      setIsLoading(false);
+    });
+  }, [publisherId]);
 
   function handleSave(): void {
-    // TODO: persist config via use case
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
+    void saveConfig.execute(
+      PublisherConfig.create({
+        publisherId,
+        frequency,
+        photosPerPost: photoCount,
+        requireApproval: askBeforePost,
+      }),
+    ).then(() => {
+      navigation.goBack();
+    });
   }
 
-  function handleShareLink(): void {
-    if (!joinLink) return;
-    void Share.share({
-      message: `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`,
-      url: joinLink,
-    });
+  if (isLoading) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <Text style={styles.loadingText}>Loading...</Text>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -80,7 +91,7 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Photos per post</Text>
           <View style={styles.options}>
-            {([1, 3, 5] as PhotoCount[]).map(n => (
+            {([5, 10, 15] as PhotoCount[]).map(n => (
               <TouchableOpacity
                 key={n}
                 style={[styles.option, styles.optionSmall, photoCount === n && styles.optionActive]}
@@ -111,37 +122,16 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
             <Switch
               value={askBeforePost}
               onValueChange={setAskBeforePost}
-              trackColor={{ false: '#2a2a2a', true: '#fff' }}
-              thumbColor={askBeforePost ? '#000' : '#555'}
+              trackColor={{ false: '#2a2a2a', true: '#34C759' }}
+              thumbColor="#ffffff"
+              ios_backgroundColor="#2a2a2a"
             />
           </View>
         </View>
 
-        {/* Follower link */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Invite followers</Text>
-          <Text style={styles.hint}>
-            Share this link with people you want to follow you. They'll register automatically and receive your photos on WhatsApp.
-          </Text>
-          <View style={styles.linkBox}>
-            <Text style={styles.linkText} numberOfLines={1}>
-              {joinLink ?? 'Sign in to get your link'}
-            </Text>
-          </View>
-          <TouchableOpacity
-            style={[styles.shareLink, !joinLink && styles.shareLinkDisabled]}
-            onPress={handleShareLink}
-            disabled={!joinLink}
-          >
-            <Text style={styles.shareLinkText}>Share link via WhatsApp</Text>
-          </TouchableOpacity>
-        </View>
-
         {/* Save */}
         <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveText}>
-            {saved ? '✓ Saved' : 'Save settings'}
-          </Text>
+          <Text style={styles.saveText}>Save settings</Text>
         </TouchableOpacity>
 
         <View style={{ height: 40 }} />
@@ -156,6 +146,7 @@ const styles = StyleSheet.create({
   back: { color: '#555', fontSize: 14, marginBottom: 20 },
   title: { fontSize: 24, fontWeight: '700', color: '#fff', letterSpacing: -0.5 },
   subtitle: { fontSize: 14, color: '#555', marginTop: 6 },
+  loadingText: { color: '#555', fontSize: 14, padding: 24 },
   section: {
     backgroundColor: '#111',
     borderRadius: 14,
@@ -183,24 +174,6 @@ const styles = StyleSheet.create({
   hint: { color: '#444', fontSize: 12, marginTop: 10, lineHeight: 18 },
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   toggleText: { flex: 1, marginRight: 16 },
-  linkBox: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 10,
-    padding: 14,
-    marginTop: 4,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  linkText: { color: '#888', fontSize: 13, fontFamily: 'monospace' },
-  shareLink: {
-    backgroundColor: '#25D366',
-    borderRadius: 10,
-    paddingVertical: 12,
-    alignItems: 'center',
-    marginTop: 10,
-  },
-  shareLinkDisabled: { backgroundColor: '#1a3d2a', opacity: 0.5 },
-  shareLinkText: { color: '#fff', fontWeight: '600', fontSize: 14 },
   saveButton: {
     backgroundColor: '#fff',
     paddingVertical: 16,
