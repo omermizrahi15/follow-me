@@ -1,54 +1,44 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
-import { Linking } from 'react-native';
-import * as ExpoLinking from 'expo-linking';
 import { authService } from '../../composition/container';
-import { handleAuthUrl } from '../../infrastructure/auth/authUrlHandler';
 
 interface AuthState {
   publisherId: string | null;
+  publisherPhone: string | null;
   loading: boolean;
-  signIn: (email: string) => Promise<void>;
+  sendOtp: (phone: string) => Promise<void>;
+  verifyOtp: (phone: string, token: string) => Promise<void>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthState | null>(null);
 
-// Resolves to exp://... in Expo Go and followme://... in a standalone build
-const REDIRECT_URL = ExpoLinking.createURL('auth');
-
-
 export function AuthProvider({ children }: { children: React.ReactNode }): React.JSX.Element {
   const [publisherId, setPublisherId] = useState<string | null>(null);
+  const [publisherPhone, setPublisherPhone] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     void authService.getSession().then(session => {
       setPublisherId(session?.user.id ?? null);
+      setPublisherPhone(session?.user.phone ?? null);
       setLoading(false);
     });
 
     const unsubscribe = authService.onAuthStateChange((_, session) => {
       setPublisherId(session?.user.id ?? null);
+      setPublisherPhone(session?.user.phone ?? null);
       setLoading(false);
     });
 
-    function handleUrl({ url }: { url: string }): void {
-      handleAuthUrl(url, authService);
-    }
-
-    void Linking.getInitialURL().then(url => {
-      if (url != null) handleUrl({ url });
-    });
-
-    const sub = Linking.addEventListener('url', handleUrl);
-    return () => {
-      unsubscribe();
-      sub.remove();
-    };
+    return unsubscribe;
   }, []);
 
-  async function signIn(email: string): Promise<void> {
-    await authService.signInWithOtp(email, REDIRECT_URL);
+  async function sendOtp(phone: string): Promise<void> {
+    await authService.signInWithPhoneOtp(phone);
+  }
+
+  async function verifyOtp(phone: string, token: string): Promise<void> {
+    await authService.verifyPhoneOtp(phone, token);
   }
 
   async function signOut(): Promise<void> {
@@ -56,7 +46,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   }
 
   return (
-    <AuthContext.Provider value={{ publisherId, loading, signIn, signOut }}>
+    <AuthContext.Provider value={{ publisherId, publisherPhone, loading, sendOtp, verifyOtp, signOut }}>
       {children}
     </AuthContext.Provider>
   );

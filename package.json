@@ -2,6 +2,9 @@
   "name": "follow-me",
   "version": "0.1.0",
   "main": "App.js",
+  "overrides": {
+    "react-test-renderer": "19.1.0"
+  },
   "scripts": {
     "test": "jest --config jest.config.json",
     "test:watch": "jest --config jest.config.json --watch",
@@ -12,7 +15,9 @@
     "lint:fix": "eslint 'src/**/*.{ts,tsx}' --fix",
     "typecheck": "tsc --noEmit",
     "validate": "npm run typecheck && npm run lint && npm test",
-    "prepare": "husky"
+    "prepare": "husky",
+    "android": "expo run:android",
+    "ios": "expo run:ios"
   },
   "devDependencies": {
     "@testing-library/jest-native": "^5.4.3",

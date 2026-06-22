@@ -55,6 +55,32 @@ npm run test:integration  # requires real credentials in .env
 
 ---
 
+## Running on iOS
+
+You'll need Xcode (from the App Store) and CocoaPods installed once per machine:
+
+```bash
+xcode-select -p   # should print .../Xcode.app/Contents/Developer
+# if it instead points at CommandLineTools, fix it:
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+brew install cocoapods   # if `pod --version` fails
+```
+
+Then, from the project root, with `.env` already filled in:
+
+```bash
+npx expo prebuild --platform ios   # generates the native ios/ project
+cd ios && pod install && cd ..
+npx expo run:ios                   # builds, boots a simulator, and launches the app
+```
+
+Re-run `expo prebuild --clean` (then `pod install` again) whenever `app.json` or a native dependency in `package.json` changes — the generated `ios/` folder doesn't auto-update otherwise.
+
+To work in Xcode directly, open `ios/FollowMe.xcworkspace` (not the `.xcodeproj`) after `pod install`, pick a simulator from the scheme toolbar, and hit Run. Metro needs to be running for this to work — `npx expo start` in another terminal, or just use `npx expo run:ios` instead, which starts it for you.
+
+---
+
 ## Contributing
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full guide including the branch/PR workflow, commit message standard, and code rules.

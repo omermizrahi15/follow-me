@@ -20,9 +20,10 @@ const JOIN_BASE_URL = 'https://followme.app/join';
 export function HomeScreen({ navigation }: Props): React.JSX.Element {
   const { signOut } = useAuth();
   const publisherId = usePublisherId();
-  const joinLink = `${JOIN_BASE_URL}/${publisherId}`;
+  const joinLink = publisherId ? `${JOIN_BASE_URL}/${publisherId}` : null;
 
   function handleShareLink(): void {
+    if (!joinLink) return;
     void Share.share({
       message: `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`,
       url: joinLink,
@@ -73,9 +74,15 @@ export function HomeScreen({ navigation }: Props): React.JSX.Element {
             Share this link — followers register automatically and receive your photos on WhatsApp
           </Text>
           <View style={styles.linkBox}>
-            <Text style={styles.linkText} numberOfLines={1}>{joinLink}</Text>
+            <Text style={styles.linkText} numberOfLines={1}>
+              {joinLink ?? 'Sign in to get your link'}
+            </Text>
           </View>
-          <TouchableOpacity style={styles.shareLink} onPress={handleShareLink}>
+          <TouchableOpacity
+            style={[styles.shareLink, !joinLink && styles.shareLinkDisabled]}
+            onPress={handleShareLink}
+            disabled={!joinLink}
+          >
             <Text style={styles.shareLinkText}>Share via WhatsApp</Text>
           </TouchableOpacity>
         </View>
@@ -132,5 +139,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     alignItems: 'center',
   },
+  shareLinkDisabled: { backgroundColor: '#1a3d2a', opacity: 0.5 },
   shareLinkText: { color: '#fff', fontWeight: '600', fontSize: 14 },
 });

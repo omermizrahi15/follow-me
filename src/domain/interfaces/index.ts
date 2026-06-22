@@ -12,6 +12,11 @@ export interface ISubscriberRepository {
   save(subscriber: Subscriber): Promise<void>;
   findActiveByPublisher(publisherId: string): Promise<Subscriber[]>;
   findById(id: string): Promise<Subscriber | null>;
+  findByPublisherAndContact(publisherId: string, contactHandle: string): Promise<Subscriber | null>;
+}
+
+export interface IConfirmationSender {
+  sendWelcome(contactHandle: string, publisherName: string): Promise<void>;
 }
 
 export interface INotifier {

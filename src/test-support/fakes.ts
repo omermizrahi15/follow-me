@@ -8,6 +8,7 @@ import type {
   INotifier,
   IStorageService,
   IPublisherConfigRepository,
+  IConfirmationSender,
 } from '../domain/interfaces';
 
 export class InMemoryMediaRepository implements IMediaRepository {
@@ -47,7 +48,27 @@ export class InMemorySubscriberRepository implements ISubscriberRepository {
     return Promise.resolve(this.store.get(id) ?? null);
   }
 
+  async findByPublisherAndContact(publisherId: string, contactHandle: string): Promise<Subscriber | null> {
+    const found = [...this.store.values()].find(
+      s => s.publisherId === publisherId && s.contactHandle === contactHandle,
+    );
+    return Promise.resolve(found ?? null);
+  }
+
   all(): Subscriber[] { return [...this.store.values()]; }
+}
+
+export class InMemoryConfirmationSender implements IConfirmationSender {
+  sent: Array<{ contactHandle: string; publisherName: string }> = [];
+
+  sendWelcome(contactHandle: string, publisherName: string): Promise<void> {
+    this.sent.push({ contactHandle, publisherName });
+    return Promise.resolve();
+  }
+
+  wasWelcomedAt(contactHandle: string): boolean {
+    return this.sent.some(s => s.contactHandle === contactHandle);
+  }
 }
 
 export class InMemoryNotifier implements INotifier {
