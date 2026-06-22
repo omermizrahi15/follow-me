@@ -47,16 +47,22 @@ function html(title: string, body: string): Response {
 </head>
 <body><div class="card">${body}</div></body>
 </html>`,
-    { headers: { 'content-type': 'text/html;charset=utf-8' } },
+    // Use a Headers object + explicit status so the runtime serves this as
+    // HTML. An object-literal content-type was coming back as text/plain, so
+    // browsers rendered the raw markup instead of the page.
+    { status: 200, headers: new Headers({ 'Content-Type': 'text/html; charset=utf-8' }) },
   );
 }
 
 async function lookupPublisher(publisherId: string): Promise<{ name: string } | null> {
   const { data } = await supabase.auth.admin.getUserById(publisherId);
   if (!data.user) return null;
+  // `||` (not `??`) so an empty display_name falls through. Phone-auth users
+  // have no email, so this lands on 'your publisher' — never the raw phone,
+  // which must not be shown on a public page.
   const name: string =
-    (data.user.user_metadata as Record<string, string>)?.display_name ??
-    data.user.email?.split('@')[0] ??
+    (data.user.user_metadata as Record<string, string>)?.display_name ||
+    data.user.email?.split('@')[0] ||
     'your publisher';
   return { name };
 }
