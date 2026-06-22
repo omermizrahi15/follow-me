@@ -20,15 +20,15 @@ type Props = {
   navigation: NativeStackNavigationProp<RootStackParamList>;
 };
 
-// Points at the deployed Supabase `join` edge function — opening this link
-// shows the follower a "Subscribe on WhatsApp" page. Built from the project URL
-// so there's no separate domain to maintain.
-const JOIN_BASE_URL = `${process.env.EXPO_PUBLIC_SUPABASE_URL}/functions/v1/join`;
+// The public subscribe page (hosted on GitHub Pages). Opening it lets a
+// follower enter their WhatsApp number and subscribe — the page posts to the
+// `subscribe` edge function. The publisher id travels as the `?p=` query param.
+const JOIN_BASE_URL = 'https://omermizrahi15.github.io/follow-me/join/';
 
 export function SubscribersScreen({ navigation }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const { subscribers, loading, error, remove } = useSubscribers(publisherId);
-  const joinLink = publisherId ? `${JOIN_BASE_URL}/${publisherId}` : null;
+  const joinLink = publisherId ? `${JOIN_BASE_URL}?p=${publisherId}` : null;
 
   function handleShareLink(): void {
     if (!joinLink) return;

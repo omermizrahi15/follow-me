@@ -55,67 +55,64 @@ The app should come to the foreground without crashing (a fake token still gets 
 
 If the *real* email magic link doesn't redirect into the app (but this manual check above passes), the cause is almost always the Supabase project's **Authentication → URL Configuration → Redirect URLs** allow-list missing `followme://auth` — Supabase silently falls back to the Site URL instead of erroring when the redirect target isn't allow-listed.
 
-## The subscriber join flow (web → WhatsApp)
+## The subscriber join flow (web page → DB)
 
-The invite link is served by two **Supabase Edge Functions**
-(`supabase/functions/`), not the React Native app. The app builds the link from
-`EXPO_PUBLIC_SUPABASE_URL` as `…/functions/v1/join/:publisherId` — no separate
-domain needed.
+A follower subscribes through a **static web page** plus one **Supabase Edge
+Function** — no Twilio, no WhatsApp round-trip:
 
-1. **`join`** — `GET /join/:publisherId` **302-redirects** straight to WhatsApp
-   (`wa.me/<twilio-number>?text=JOIN <publisherId>`). It does *not* render an HTML
-   page: Supabase Edge Functions force every response to `text/plain`, so a
-   browser would show raw markup — the redirect sidesteps that and is one tap
-   fewer for the follower.
-2. **`join-webhook`** — Twilio calls `POST /join-webhook` when the follower sends
-   that message. It reads their number from WhatsApp's `From` field and upserts
-   the subscriber using the **service-role key** (which bypasses RLS — so no
-   public write policy on `subscribers` is needed, and contact numbers are never
-   exposed to the anon role).
+1. **The page** — `docs/join/index.html`, hosted on **GitHub Pages**. The app's
+   invite link is `https://<user>.github.io/follow-me/join/?p=<publisherId>`. It
+   asks for the follower's WhatsApp number and POSTs it to the `subscribe`
+   function. (It's a static HTML file because Supabase Edge Functions can't serve
+   HTML — they force every response to `text/plain`.)
+2. **`subscribe`** (`supabase/functions/subscribe`) — `POST /subscribe` with
+   `{ publisherId, contactHandle }`. Validates both, then inserts/reactivates the
+   subscriber using the **service-role key** (bypasses RLS — no public write
+   policy needed, and numbers are never exposed to the anon role). Returns JSON.
 
-This is why the follower never types their number: it comes from the WhatsApp
-message they send.
+Twilio is only needed later, to *deliver* photos to subscribers (see #24/#31) —
+not to subscribe.
 
-### Deploying / redeploying
+> The `join` and `join-webhook` functions are an **alternative** WhatsApp-native
+> flow (tap → send a prefilled WhatsApp message → webhook subscribes you). It
+> avoids typing a number but requires an approved WhatsApp Business sender, so
+> it's parked behind #31 and not the active path.
 
-These functions run on Supabase, not in this repo's test suite. Deploy (and
-redeploy after any change to a function) with the
-[Supabase CLI](https://supabase.com/docs/guides/cli).
-
-> Run from a checkout that actually contains the functions — `ls
-> supabase/functions` must show `join` and `join-webhook`. A branch that predates
-> them (or the main checkout if it's on an old branch) will fail with
-> `Entrypoint path does not exist`.
+### Deploying
 
 ```bash
 # one-time
 supabase login
 supabase link --project-ref <your-project-ref>
 
-# deploy / redeploy — rerun the exact same command after editing a function.
-# --no-verify-jwt is REQUIRED: the callers (anonymous browsers, Twilio) have no
-# Supabase auth token, so without it every request 401s.
-supabase functions deploy join --no-verify-jwt
-supabase functions deploy join-webhook --no-verify-jwt
-
-# Secrets the functions read (SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY are
-# injected automatically; set the Twilio ones):
-supabase secrets set TWILIO_ACCOUNT_SID=... TWILIO_AUTH_TOKEN=... TWILIO_WHATSAPP_FROM=+14155238886
+# deploy / redeploy — rerun after editing the function.
+# --no-verify-jwt is REQUIRED: the page calls this anonymously (no auth token),
+# so without it every request 401s. Run from a checkout where
+# `ls supabase/functions` shows `subscribe`, or you'll get "Entrypoint path does
+# not exist".
+supabase functions deploy subscribe --no-verify-jwt
 ```
 
-A redeploy takes effect within a few seconds. Verify it picked up your change:
+Verify it's live (a bad number should come back as a JSON validation error, which
+proves it deployed and runs):
 
 ```bash
-curl -sI "https://<your-project-ref>.supabase.co/functions/v1/join/<a-real-publisher-id>"
-# expect: HTTP/2 302  +  location: https://wa.me/...JOIN...
+curl -s -X POST "https://<your-project-ref>.supabase.co/functions/v1/subscribe" \
+  -H 'content-type: application/json' -d '{"publisherId":"x","contactHandle":"nope"}'
+# expect JSON like: {"ok":false,"error":"This invite link is invalid or has expired."}
 ```
 
-Then, to make the flow work end to end:
+### Hosting the page (GitHub Pages)
 
-- In the Twilio console, set the WhatsApp sandbox/number's **"When a message
-  comes in"** webhook to the deployed `join-webhook` URL.
-- Apply the `subscribers` migration (`supabase/migrations/`) so the upsert's
-  `ON CONFLICT (publisher_id, contact_handle)` target exists.
+The page lives in `docs/join/` so GitHub Pages can serve it from the default
+branch. Enable it once: **repo Settings → Pages → Build and deployment → Deploy
+from a branch → `main` / `/docs`**. (It must be on `main`, so this goes live when
+the change merges.)
+
+- Apply the `subscribers` migration (`supabase/migrations/`) if you haven't.
+- If you fork/rename the repo, update `JOIN_BASE_URL` in
+  `src/ui/screens/SubscribersScreen.tsx` and `SUBSCRIBE_URL` in
+  `docs/join/index.html`.
 
 ## Environment variables
 
