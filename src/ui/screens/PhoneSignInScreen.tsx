@@ -16,13 +16,15 @@ function isValidE164(phone: string): boolean {
   return /^\+[1-9]\d{7,14}$/.test(phone);
 }
 
-export function PhoneSetupScreen(): React.JSX.Element {
-  const { savePhone } = useAuth();
+export function PhoneSignInScreen(): React.JSX.Element {
+  const { sendOtp, verifyOtp } = useAuth();
   const [phone, setPhone] = useState('');
+  const [code, setCode] = useState('');
+  const [sent, setSent] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  function handleSave(): void {
+  function handleSendOtp(): void {
     void (async (): Promise<void> => {
       const trimmed = phone.trim();
       if (!isValidE164(trimmed)) {
@@ -32,13 +34,75 @@ export function PhoneSetupScreen(): React.JSX.Element {
       setLoading(true);
       setError(null);
       try {
-        await savePhone(trimmed);
+        await sendOtp(trimmed);
+        setSent(true);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Something went wrong');
       } finally {
         setLoading(false);
       }
     })();
+  }
+
+  function handleVerifyOtp(): void {
+    void (async (): Promise<void> => {
+      if (!code.trim()) return;
+      setLoading(true);
+      setError(null);
+      try {
+        await verifyOtp(phone.trim(), code.trim());
+      } catch (e: unknown) {
+        setError(e instanceof Error ? e.message : 'Something went wrong');
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }
+
+  if (sent) {
+    return (
+      <SafeAreaView style={styles.container}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.inner}
+        >
+          <View style={styles.header}>
+            <Text style={styles.appName}>FOLLOW ME</Text>
+            <Text style={styles.title}>Enter the code</Text>
+            <Text style={styles.subtitle}>We sent a code to {phone} on WhatsApp</Text>
+          </View>
+
+          <TextInput
+            style={styles.input}
+            placeholder="123456"
+            placeholderTextColor="#444"
+            value={code}
+            onChangeText={setCode}
+            keyboardType="number-pad"
+            autoCorrect={false}
+            onSubmitEditing={handleVerifyOtp}
+            returnKeyType="done"
+          />
+
+          {error != null && <Text style={styles.error}>{error}</Text>}
+
+          <TouchableOpacity
+            style={[styles.button, (loading || !code.trim()) && styles.disabled]}
+            onPress={handleVerifyOtp}
+            disabled={loading || !code.trim()}
+          >
+            {loading
+              ? <ActivityIndicator color="#000" />
+              : <Text style={styles.buttonText}>Verify</Text>
+            }
+          </TouchableOpacity>
+
+          <TouchableOpacity onPress={() => setSent(false)}>
+            <Text style={styles.changeNumber}>Use a different number</Text>
+          </TouchableOpacity>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
+    );
   }
 
   return (
@@ -50,9 +114,7 @@ export function PhoneSetupScreen(): React.JSX.Element {
         <View style={styles.header}>
           <Text style={styles.appName}>FOLLOW ME</Text>
           <Text style={styles.title}>Your WhatsApp number</Text>
-          <Text style={styles.subtitle}>
-            Followers will see a link to reach you on WhatsApp every time you share photos
-          </Text>
+          <Text style={styles.subtitle}>We'll send you a code on WhatsApp to sign in</Text>
         </View>
 
         <TextInput
@@ -63,7 +125,7 @@ export function PhoneSetupScreen(): React.JSX.Element {
           onChangeText={setPhone}
           keyboardType="phone-pad"
           autoCorrect={false}
-          onSubmitEditing={handleSave}
+          onSubmitEditing={handleSendOtp}
           returnKeyType="done"
         />
 
@@ -71,12 +133,12 @@ export function PhoneSetupScreen(): React.JSX.Element {
 
         <TouchableOpacity
           style={[styles.button, (loading || !phone.trim()) && styles.disabled]}
-          onPress={handleSave}
+          onPress={handleSendOtp}
           disabled={loading || !phone.trim()}
         >
           {loading
             ? <ActivityIndicator color="#000" />
-            : <Text style={styles.buttonText}>Continue</Text>
+            : <Text style={styles.buttonText}>Send code</Text>
           }
         </TouchableOpacity>
       </KeyboardAvoidingView>
@@ -111,4 +173,5 @@ const styles = StyleSheet.create({
   },
   disabled: { opacity: 0.4 },
   buttonText: { color: '#000', fontWeight: '600', fontSize: 15 },
+  changeNumber: { color: '#555', fontSize: 13, marginTop: 24, textDecorationLine: 'underline', textAlign: 'center' },
 });

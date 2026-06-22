@@ -1,6 +1,5 @@
 export type RootStackParamList = {
-  SignIn: undefined;
-  PhoneSetup: undefined;
+  PhoneSignIn: undefined;
   Home: undefined;
   Upload: undefined;
   Config: undefined;
