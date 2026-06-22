@@ -56,6 +56,17 @@ export function HomeScreen({ navigation }: Props): React.JSX.Element {
 
         <TouchableOpacity
           style={styles.secondaryCard}
+          onPress={() => navigation.navigate('Subscribers')}
+        >
+          <Text style={styles.cardIcon}>👥</Text>
+          <Text style={styles.cardTitle}>Your followers</Text>
+          <Text style={styles.cardDescription}>
+            See who's following you and remove anyone who should no longer receive your photos
+          </Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          style={styles.secondaryCard}
           onPress={() => navigation.navigate('Config')}
         >
           <Text style={styles.cardIcon}>⚙️</Text>
