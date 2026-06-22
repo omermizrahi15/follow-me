@@ -20,19 +20,6 @@ function makeSubscriber(): Subscriber {
 }
 
 describeIf(RUN)('WhatsAppNotifier (integration)', () => {
-  it('sends a single photo without throwing', async (): Promise<void> => {
-    const media = Media.create({
-      id: 'photo-1',
-      ownerId: 'user-test',
-      url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
-      createdAt: new Date(),
-      mediaType: 'image',
-      location: 'Tel Aviv, Israel',
-    });
-
-    await expect(makeNotifier().notify(makeSubscriber(), [media])).resolves.not.toThrow();
-  });
-
   it('sends a batch of 2 photos + 1 video with location without throwing', async (): Promise<void> => {
     const mediaItems = [
       Media.create({

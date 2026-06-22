@@ -25,6 +25,9 @@ import { SupabaseAuthService } from './SupabaseAuthService';
 const supabaseUrl = process.env['EXPO_PUBLIC_SUPABASE_URL'] as string | undefined;
 const supabaseKey = process.env['EXPO_PUBLIC_SUPABASE_ANON_KEY'] as string | undefined;
 const testPhone = process.env['AUTH_TEST_PHONE'] as string | undefined;
+// Fixed OTP for a Supabase "test phone number" — lets the verify flow run
+// without a real WhatsApp send. Configure both in Supabase → Auth → Phone.
+const testOtp = process.env['AUTH_TEST_OTP'] as string | undefined;
 const RUN = supabaseUrl && supabaseKey;
 
 const describeIf = (cond: unknown): jest.Describe => (cond ? describe : describe.skip);
@@ -65,6 +68,24 @@ describeIf(RUN)('SupabaseAuthService (integration)', () => {
       await expect(
         service.verifyPhoneOtp('+15555550100', '000000'),
       ).rejects.toThrow();
+    });
+
+    it('verifies the OTP and establishes a phone session (Supabase test number)', async (): Promise<void> => {
+      if (!testPhone || !testOtp) {
+        console.warn('Skipping: AUTH_TEST_PHONE / AUTH_TEST_OTP not set');
+        return;
+      }
+      const service = makeService();
+
+      // For a Supabase test number the OTP is fixed, so verify directly —
+      // re-requesting here would hit Supabase's per-number rate limit.
+      await service.verifyPhoneOtp(testPhone, testOtp);
+
+      const session = await service.getSession();
+      expect(session).not.toBeNull();
+      expect(session?.user.phone).toBe(testPhone.replace('+', ''));
+
+      await service.signOut();
     });
   });
 
