@@ -14,7 +14,7 @@ describe('SaveConfigUseCase', () => {
     const config = PublisherConfig.create({
       publisherId: 'user-1',
       frequency: 'weekly',
-      photosPerPost: 3,
+      photosPerPost: 5,
       requireApproval: true,
     });
     await useCase.execute(config);
@@ -26,7 +26,7 @@ describe('SaveConfigUseCase', () => {
 
   it('overwrites an existing config for the same publisher', async (): Promise<void> => {
     const { useCase, repo } = makeSut();
-    const first = PublisherConfig.create({ publisherId: 'user-1', frequency: 'weekly', photosPerPost: 1, requireApproval: true });
+    const first = PublisherConfig.create({ publisherId: 'user-1', frequency: 'weekly', photosPerPost: 10, requireApproval: true });
     const second = PublisherConfig.create({ publisherId: 'user-1', frequency: 'monthly', photosPerPost: 5, requireApproval: false });
     await useCase.execute(first);
     await useCase.execute(second);

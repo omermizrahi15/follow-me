@@ -25,7 +25,7 @@ const JOIN_BASE_URL = 'https://followme.app/join';
 export function ConfigScreen({ navigation }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const [frequency, setFrequency] = useState<Frequency>('weekly');
-  const [photoCount, setPhotoCount] = useState<PhotoCount>(3);
+  const [photoCount, setPhotoCount] = useState<PhotoCount>(5);
   const [askBeforePost, setAskBeforePost] = useState(true);
   const [saved, setSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
@@ -105,7 +105,7 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Photos per post</Text>
           <View style={styles.options}>
-            {([1, 3, 5] as PhotoCount[]).map(n => (
+            {([5, 10, 15] as PhotoCount[]).map(n => (
               <TouchableOpacity
                 key={n}
                 style={[styles.option, styles.optionSmall, photoCount === n && styles.optionActive]}

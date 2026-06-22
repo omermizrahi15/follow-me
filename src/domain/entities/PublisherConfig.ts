@@ -1,5 +1,5 @@
 export type Frequency = 'weekly' | 'biweekly' | 'monthly';
-export type PhotoCount = 1 | 3 | 5;
+export type PhotoCount = 5 | 10 | 15;
 
 export interface PublisherConfigProps {
   publisherId: string;

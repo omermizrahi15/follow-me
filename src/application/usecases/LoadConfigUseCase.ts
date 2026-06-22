@@ -10,7 +10,7 @@ export class LoadConfigUseCase {
     return PublisherConfig.create({
       publisherId,
       frequency: 'weekly',
-      photosPerPost: 3,
+      photosPerPost: 5,
       requireApproval: true,
     });
   }

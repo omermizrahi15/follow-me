@@ -29,13 +29,13 @@ describe('LoadConfigUseCase', () => {
     const config = await useCase.execute('user-1');
     expect(config.publisherId).toBe('user-1');
     expect(config.frequency).toBe('weekly');
-    expect(config.photosPerPost).toBe(3);
+    expect(config.photosPerPost).toBe(5);
     expect(config.requireApproval).toBe(true);
   });
 
   it('returns defaults for a different publisher than one stored', async (): Promise<void> => {
     const { useCase, repo } = makeSut();
-    await repo.save(PublisherConfig.create({ publisherId: 'user-1', frequency: 'monthly', photosPerPost: 1, requireApproval: false }));
+    await repo.save(PublisherConfig.create({ publisherId: 'user-1', frequency: 'monthly', photosPerPost: 10, requireApproval: false }));
     const config = await useCase.execute('user-2');
     expect(config.publisherId).toBe('user-2');
     expect(config.frequency).toBe('weekly');

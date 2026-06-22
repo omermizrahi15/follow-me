@@ -3,7 +3,7 @@ import { PublisherConfig } from './PublisherConfig';
 const validProps = {
   publisherId: 'user-1',
   frequency: 'weekly' as const,
-  photosPerPost: 3 as const,
+  photosPerPost: 5 as const,
   requireApproval: true,
 };
 
@@ -12,7 +12,7 @@ describe('PublisherConfig', () => {
     const config = PublisherConfig.create(validProps);
     expect(config.publisherId).toBe('user-1');
     expect(config.frequency).toBe('weekly');
-    expect(config.photosPerPost).toBe(3);
+    expect(config.photosPerPost).toBe(5);
     expect(config.requireApproval).toBe(true);
   });
 
