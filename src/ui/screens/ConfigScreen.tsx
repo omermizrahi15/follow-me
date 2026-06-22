@@ -24,7 +24,6 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
   const [frequency, setFrequency] = useState<Frequency>('weekly');
   const [photoCount, setPhotoCount] = useState<PhotoCount>(10);
   const [askBeforePost, setAskBeforePost] = useState(true);
-  const [saved, setSaved] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -45,8 +44,7 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
         requireApproval: askBeforePost,
       }),
     ).then(() => {
-      setSaved(true);
-      setTimeout(() => setSaved(false), 2000);
+      navigation.goBack();
     });
   }
 
@@ -124,17 +122,16 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
             <Switch
               value={askBeforePost}
               onValueChange={setAskBeforePost}
-              trackColor={{ false: '#2a2a2a', true: '#fff' }}
-              thumbColor={askBeforePost ? '#000' : '#555'}
+              trackColor={{ false: '#2a2a2a', true: '#34C759' }}
+              thumbColor="#ffffff"
+              ios_backgroundColor="#2a2a2a"
             />
           </View>
         </View>
 
         {/* Save */}
         <TouchableOpacity style={styles.saveButton} onPress={handleSave}>
-          <Text style={styles.saveText}>
-            {saved ? '✓ Saved' : 'Save settings'}
-          </Text>
+          <Text style={styles.saveText}>Save settings</Text>
         </TouchableOpacity>
 
         <View style={{ height: 40 }} />
