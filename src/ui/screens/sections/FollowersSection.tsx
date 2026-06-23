@@ -1,13 +1,11 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert, Share } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { usePublisherId } from '../../context/AuthContext';
 import { useSubscribers } from '../../hooks/useSubscribers';
+import { useInviteLink } from '../../hooks/useInviteLink';
 import type { SubscriberDto } from '../../../application/dtos';
 import { colors, radius, spacing, typography } from '../../theme/theme';
-
-// Public subscribe page (GitHub Pages); publisher id travels as the `?p=` param.
-const JOIN_BASE_URL = 'https://omermizrahi15.github.io/follow-me/join/';
 
 interface Props {
   /** Bottom padding so content clears the floating nav. */
@@ -18,13 +16,7 @@ interface Props {
 export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const { subscribers, loading, error, remove } = useSubscribers(publisherId);
-  const joinLink = `${JOIN_BASE_URL}?p=${publisherId}`;
-
-  function handleShareLink(): void {
-    void Share.share({
-      message: `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`,
-    });
-  }
+  const { shareInvite } = useInviteLink();
 
   function confirmRemove(subscriber: SubscriberDto): void {
     Alert.alert(
@@ -75,7 +67,7 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
         ))
       )}
 
-      <TouchableOpacity style={styles.inviteButton} onPress={handleShareLink} activeOpacity={0.85}>
+      <TouchableOpacity style={styles.inviteButton} onPress={shareInvite} activeOpacity={0.85}>
         <Ionicons name="share-social" size={16} color={colors.onAccent} />
         <Text style={styles.inviteText}>Share invite link</Text>
       </TouchableOpacity>

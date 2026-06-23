@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   Image,
-  Share,
   Dimensions,
   Animated,
   PanResponder,
@@ -14,8 +13,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import type { RootNavigationProp } from '../navigation/types';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { SectionNav, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
 import { PhotoFeed } from '../components/PhotoFeed';
@@ -23,7 +22,7 @@ import { AutoPostingSection } from './sections/AutoPostingSection';
 import { FollowersSection } from './sections/FollowersSection';
 import { feedStubs } from '../data/feedStubs';
 import { profileStub } from '../data/profileStub';
-import { usePublisherId } from '../context/AuthContext';
+import { useInviteLink } from '../hooks/useInviteLink';
 import { colors, radius, spacing, shadow, typography } from '../theme/theme';
 
 const SCREEN_H = Dimensions.get('window').height;
@@ -34,8 +33,6 @@ const FULL_H = Math.round(SCREEN_H * 0.84);
 const SNAPS = [SMALL_H, MEDIUM_H, FULL_H];
 /** Height of the floating nav bar — the sheet's lowest band stays glassy so the nav reads as glass. */
 const NAV_BAR_H = 56;
-// Public subscribe page (GitHub Pages); publisher id travels as the `?p=` param.
-const JOIN_BASE_URL = 'https://omermizrahi15.github.io/follow-me/join/';
 
 /**
  * The "Me" page. The photo feed scrolls behind as the immersive background; a
@@ -46,7 +43,9 @@ const JOIN_BASE_URL = 'https://omermizrahi15.github.io/follow-me/join/';
 export function HomeScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<RootNavigationProp>();
-  const publisherId = usePublisherId();
+  const route = useRoute<RouteProp<RootStackParamList, 'Home'>>();
+  const requestedSection = route.params?.section;
+  const { shareInvite } = useInviteLink();
   const [section, setSection] = useState<HomeSection>('me');
   const [bioExpanded, setBioExpanded] = useState(false);
   const bioIsLong = profileStub.bio.length > 70;
@@ -59,6 +58,11 @@ export function HomeScreen(): React.JSX.Element {
     const id = heightAnim.addListener(({ value }) => { heightRef.current = value; });
     return () => heightAnim.removeListener(id);
   }, [heightAnim]);
+
+  // Honour a deep-linked section (e.g. "Manage followers" from the post-share prompt).
+  useEffect(() => {
+    if (requestedSection != null) setSection(requestedSection);
+  }, [requestedSection]);
 
   function snapTo(h: number): void {
     Animated.spring(heightAnim, { toValue: h, useNativeDriver: false, bounciness: 2, speed: 14 }).start();
@@ -88,13 +92,6 @@ export function HomeScreen(): React.JSX.Element {
     setSection(next);
     // Open every section at the medium anchor; the user can drag to full for long content.
     snapTo(MEDIUM_H);
-  }
-
-  function handleInvite(): void {
-    const joinLink = `${JOIN_BASE_URL}?p=${publisherId}`;
-    void Share.share({
-      message: `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`,
-    });
   }
 
   // The sheet stays docked to the bottom; its lowest band (behind the nav) is left
@@ -194,7 +191,7 @@ export function HomeScreen(): React.JSX.Element {
                   <Ionicons name="add" size={16} color="#fff" />
                   <Text style={styles.addButtonText}>Add post</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.inviteButton} activeOpacity={0.85} onPress={handleInvite}>
+                <TouchableOpacity style={styles.inviteButton} activeOpacity={0.85} onPress={shareInvite}>
                   <Ionicons name="person-add-outline" size={15} color={colors.ink} />
                   <Text style={styles.inviteButtonText}>Invite</Text>
                 </TouchableOpacity>
