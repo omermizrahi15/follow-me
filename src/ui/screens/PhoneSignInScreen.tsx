@@ -9,8 +9,11 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Image,
 } from 'react-native';
+import { logoSource } from '../assets';
 import { useAuth } from '../context/AuthContext';
+import { colors, radius, spacing, typography } from '../theme/theme';
 
 function isValidE164(phone: string): boolean {
   return /^\+[1-9]\d{7,14}$/.test(phone);
@@ -67,7 +70,10 @@ export function PhoneSignInScreen(): React.JSX.Element {
           style={styles.inner}
         >
           <View style={styles.header}>
-            <Text style={styles.appName}>FOLLOW ME</Text>
+            <View style={styles.brand}>
+            <Image source={logoSource} style={styles.brandLogo} resizeMode="contain" />
+            <Text style={styles.brandText}>Follow Me</Text>
+          </View>
             <Text style={styles.title}>Enter the code</Text>
             <Text style={styles.subtitle}>We sent a code to {phone} on WhatsApp</Text>
           </View>
@@ -75,7 +81,7 @@ export function PhoneSignInScreen(): React.JSX.Element {
           <TextInput
             style={styles.input}
             placeholder="123456"
-            placeholderTextColor="#444"
+            placeholderTextColor={colors.textMuted}
             value={code}
             onChangeText={setCode}
             keyboardType="number-pad"
@@ -92,7 +98,7 @@ export function PhoneSignInScreen(): React.JSX.Element {
             disabled={loading || !code.trim()}
           >
             {loading
-              ? <ActivityIndicator color="#000" />
+              ? <ActivityIndicator color={colors.onAccent} />
               : <Text style={styles.buttonText}>Verify</Text>
             }
           </TouchableOpacity>
@@ -112,7 +118,10 @@ export function PhoneSignInScreen(): React.JSX.Element {
         style={styles.inner}
       >
         <View style={styles.header}>
-          <Text style={styles.appName}>FOLLOW ME</Text>
+          <View style={styles.brand}>
+            <Image source={logoSource} style={styles.brandLogo} resizeMode="contain" />
+            <Text style={styles.brandText}>Follow Me</Text>
+          </View>
           <Text style={styles.title}>Your WhatsApp number</Text>
           <Text style={styles.subtitle}>We'll send you a code on WhatsApp to sign in</Text>
         </View>
@@ -120,7 +129,7 @@ export function PhoneSignInScreen(): React.JSX.Element {
         <TextInput
           style={styles.input}
           placeholder="+972501234567"
-          placeholderTextColor="#444"
+          placeholderTextColor={colors.textMuted}
           value={phone}
           onChangeText={setPhone}
           keyboardType="phone-pad"
@@ -137,7 +146,7 @@ export function PhoneSignInScreen(): React.JSX.Element {
           disabled={loading || !phone.trim()}
         >
           {loading
-            ? <ActivityIndicator color="#000" />
+            ? <ActivityIndicator color={colors.onAccent} />
             : <Text style={styles.buttonText}>Send code</Text>
           }
         </TouchableOpacity>
@@ -147,31 +156,33 @@ export function PhoneSignInScreen(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d0d0d' },
-  inner: { flex: 1, paddingHorizontal: 24, justifyContent: 'center' },
-  header: { marginBottom: 40 },
-  appName: { fontSize: 11, color: '#444', letterSpacing: 3, marginBottom: 20 },
-  title: { fontSize: 32, fontWeight: '700', color: '#fff', letterSpacing: -0.5, marginBottom: 8 },
-  subtitle: { fontSize: 15, color: '#555' },
+  container: { flex: 1, backgroundColor: colors.background },
+  inner: { flex: 1, paddingHorizontal: spacing.xl, justifyContent: 'center' },
+  header: { marginBottom: spacing.xxl },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.xxl },
+  brandLogo: { width: 52, height: 39 },
+  brandText: { fontSize: 18, fontWeight: '700', color: colors.text, letterSpacing: -0.3 },
+  title: { ...typography.title, fontSize: 26, color: colors.text, marginBottom: spacing.sm },
+  subtitle: { ...typography.body, color: colors.textSecondary },
   input: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 12,
+    backgroundColor: colors.surface,
+    borderRadius: radius.md,
     borderWidth: 1,
-    borderColor: '#2a2a2a',
-    paddingHorizontal: 16,
-    paddingVertical: 14,
-    color: '#fff',
+    borderColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.lg,
+    color: colors.text,
     fontSize: 16,
-    marginBottom: 12,
+    marginBottom: spacing.md,
   },
-  error: { color: '#f87171', fontSize: 13, marginBottom: 12 },
+  error: { color: colors.danger, fontSize: 13, marginBottom: spacing.md },
   button: {
-    backgroundColor: '#fff',
-    paddingVertical: 16,
-    borderRadius: 12,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.md,
     alignItems: 'center',
   },
   disabled: { opacity: 0.4 },
-  buttonText: { color: '#000', fontWeight: '600', fontSize: 15 },
-  changeNumber: { color: '#555', fontSize: 13, marginTop: 24, textDecorationLine: 'underline', textAlign: 'center' },
+  buttonText: { color: colors.onAccent, fontWeight: '600', fontSize: 15 },
+  changeNumber: { color: colors.textSecondary, fontSize: 13, marginTop: spacing.xl, textDecorationLine: 'underline', textAlign: 'center' },
 });

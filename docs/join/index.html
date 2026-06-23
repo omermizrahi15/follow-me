@@ -3,64 +3,82 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#0d0d0d" />
+    <meta name="theme-color" content="#0E3A53" />
     <title>Follow Me — Subscribe</title>
     <style>
-      :root { color-scheme: dark; }
+      :root { color-scheme: light; }
       * { box-sizing: border-box; }
       html, body {
         margin: 0;
         min-height: 100%;
-        background: #0d0d0d;
-        color: #fff;
+        background: #F4F6F9;
+        color: #13212B;
         font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
       }
       body { display: flex; align-items: center; justify-content: center; padding: 24px; }
       .card {
         width: 100%;
         max-width: 400px;
-        background: #111;
-        border: 1px solid #1e1e1e;
-        border-radius: 16px;
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 20px;
         padding: 32px 24px;
+        box-shadow: 0 12px 40px rgba(19, 33, 43, 0.08);
       }
-      h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; margin: 0 0 6px; }
-      .subtitle { color: #888; font-size: 14px; line-height: 20px; margin: 0 0 24px; }
-      label { display: block; font-size: 13px; color: #888; margin-bottom: 8px; }
+      .brand { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+      .brand img { width: 46px; height: auto; display: block; }
+      .brand span { font-size: 18px; font-weight: 700; letter-spacing: -0.3px; }
+      h1 { font-size: 24px; font-weight: 700; letter-spacing: -0.4px; margin: 0 0 6px; }
+      .subtitle { color: #5A6672; font-size: 14px; line-height: 20px; margin: 0 0 24px; }
+      label { display: block; font-size: 13px; color: #5A6672; margin-bottom: 8px; }
       input {
         width: 100%;
-        background: #1a1a1a;
-        border: 1px solid #2a2a2a;
-        border-radius: 10px;
-        color: #fff;
+        background: #EEF2F6;
+        border: 1px solid #E2E8F0;
+        border-radius: 12px;
+        color: #13212B;
         font-size: 16px;
         padding: 14px;
         outline: none;
+        transition: border-color 0.15s ease;
       }
-      input:focus { border-color: #25d366; }
+      input::placeholder { color: #9AA5AE; }
+      input:focus { border-color: #0E3A53; background: #fff; }
       button {
         width: 100%;
         margin-top: 16px;
-        background: #25d366;
+        background: #0E3A53;
         color: #fff;
         font-size: 15px;
         font-weight: 600;
         border: 0;
-        border-radius: 10px;
-        padding: 14px;
+        border-radius: 12px;
+        padding: 15px;
         cursor: pointer;
+        transition: background 0.15s ease;
       }
+      button:hover { background: #0A2B40; }
       button:disabled { opacity: 0.5; cursor: default; }
       .msg { font-size: 13px; line-height: 19px; margin: 14px 0 0; }
-      .msg.error { color: #e0564f; }
+      .msg.error { color: #E5484D; }
       .success { text-align: center; }
-      .success .check { font-size: 44px; margin-bottom: 8px; }
+      .success .check {
+        width: 64px; height: 64px; margin: 0 auto 16px;
+        border-radius: 999px; background: #2BA84A;
+        display: flex; align-items: center; justify-content: center;
+        color: #fff; font-size: 34px;
+      }
       [hidden] { display: none !important; }
     </style>
   </head>
   <body>
     <main class="card">
       <section id="form-view">
+        <div class="brand">
+          <img src="./logo.png" alt="" />
+          <span>Follow Me</span>
+        </div>
         <h1>Follow along on WhatsApp</h1>
         <p class="subtitle">
           Enter your WhatsApp number to start receiving photos. Reply STOP at any time to unsubscribe.
