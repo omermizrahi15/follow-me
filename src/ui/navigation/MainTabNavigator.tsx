@@ -2,7 +2,7 @@ import React from 'react';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { HomeScreen } from '../screens/HomeScreen';
 import { ConfigScreen } from '../screens/ConfigScreen';
-import { ManageFollowersScreen } from '../screens/ManageFollowersScreen';
+import { SubscribersScreen } from '../screens/SubscribersScreen';
 import { FloatingTabBar } from './FloatingTabBar';
 import type { MainTabParamList } from './types';
 
@@ -22,7 +22,7 @@ export function MainTabNavigator(): React.JSX.Element {
     >
       <Tab.Screen name="Home" component={HomeScreen} />
       <Tab.Screen name="Config" component={ConfigScreen} />
-      <Tab.Screen name="Followers" component={ManageFollowersScreen} />
+      <Tab.Screen name="Followers" component={SubscribersScreen} />
     </Tab.Navigator>
   );
 }

@@ -1,0 +1,126 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0d0d0d" />
+    <title>Follow Me — Subscribe</title>
+    <style>
+      :root { color-scheme: dark; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: #0d0d0d;
+        color: #fff;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      }
+      body { display: flex; align-items: center; justify-content: center; padding: 24px; }
+      .card {
+        width: 100%;
+        max-width: 400px;
+        background: #111;
+        border: 1px solid #1e1e1e;
+        border-radius: 16px;
+        padding: 32px 24px;
+      }
+      h1 { font-size: 26px; font-weight: 700; letter-spacing: -0.5px; margin: 0 0 6px; }
+      .subtitle { color: #888; font-size: 14px; line-height: 20px; margin: 0 0 24px; }
+      label { display: block; font-size: 13px; color: #888; margin-bottom: 8px; }
+      input {
+        width: 100%;
+        background: #1a1a1a;
+        border: 1px solid #2a2a2a;
+        border-radius: 10px;
+        color: #fff;
+        font-size: 16px;
+        padding: 14px;
+        outline: none;
+      }
+      input:focus { border-color: #25d366; }
+      button {
+        width: 100%;
+        margin-top: 16px;
+        background: #25d366;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+        border: 0;
+        border-radius: 10px;
+        padding: 14px;
+        cursor: pointer;
+      }
+      button:disabled { opacity: 0.5; cursor: default; }
+      .msg { font-size: 13px; line-height: 19px; margin: 14px 0 0; }
+      .msg.error { color: #e0564f; }
+      .success { text-align: center; }
+      .success .check { font-size: 44px; margin-bottom: 8px; }
+      [hidden] { display: none !important; }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <section id="form-view">
+        <h1>Follow along on WhatsApp</h1>
+        <p class="subtitle">
+          Enter your WhatsApp number to start receiving photos. Reply STOP at any time to unsubscribe.
+        </p>
+        <form id="join-form" novalidate>
+          <label for="phone">Your WhatsApp number</label>
+          <input id="phone" name="phone" type="tel" inputmode="tel" autocomplete="tel"
+                 placeholder="+972 50 123 4567" required />
+          <button id="submit" type="submit">Subscribe</button>
+          <p class="msg error" id="error" hidden></p>
+        </form>
+      </section>
+
+      <section id="success-view" class="success" hidden>
+        <div class="check">✓</div>
+        <h1>You're subscribed!</h1>
+        <p class="subtitle">You'll start receiving photos on WhatsApp at <span id="confirmed"></span>.</p>
+      </section>
+    </main>
+
+    <script>
+      // The subscribe edge function (service-role write, no Twilio).
+      var SUBSCRIBE_URL = 'https://eigvoazyrimzbzcjlscp.supabase.co/functions/v1/subscribe';
+      var publisherId = new URLSearchParams(location.search).get('p') || '';
+
+      var form = document.getElementById('join-form');
+      var phone = document.getElementById('phone');
+      var submit = document.getElementById('submit');
+      var errorEl = document.getElementById('error');
+
+      function showError(message) {
+        errorEl.textContent = message;
+        errorEl.hidden = false;
+        submit.disabled = false;
+        submit.textContent = 'Subscribe';
+      }
+
+      form.addEventListener('submit', function (e) {
+        e.preventDefault();
+        errorEl.hidden = true;
+        submit.disabled = true;
+        submit.textContent = 'Subscribing…';
+
+        fetch(SUBSCRIBE_URL, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ publisherId: publisherId, contactHandle: phone.value }),
+        })
+          .then(function (resp) { return resp.json().catch(function () { return {}; }).then(function (d) { return { ok: resp.ok, data: d }; }); })
+          .then(function (r) {
+            if (r.ok && r.data && r.data.ok) {
+              document.getElementById('confirmed').textContent = phone.value.trim();
+              document.getElementById('form-view').hidden = true;
+              document.getElementById('success-view').hidden = false;
+              return;
+            }
+            showError((r.data && r.data.error) || 'Something went wrong. Please try again.');
+          })
+          .catch(function () { showError('Network error. Please try again.'); });
+      });
+    </script>
+  </body>
+</html>

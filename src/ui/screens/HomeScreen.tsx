@@ -21,7 +21,8 @@ import { colors, radius, spacing, shadow, typography } from '../theme/theme';
 
 /** Vertical footprint reserved for the floating nav (pill). */
 const NAV_SPACE = 64;
-const JOIN_BASE_URL = 'https://followme.app/join';
+// Public subscribe page (GitHub Pages); publisher id travels as the `?p=` param.
+const JOIN_BASE_URL = 'https://omermizrahi15.github.io/follow-me/join/';
 
 /**
  * The "Me" page — Polarsteps-style. The full-bleed photo feed scrolls behind
@@ -38,10 +39,10 @@ export function HomeScreen(): React.JSX.Element {
   const [sheetHeight, setSheetHeight] = useState(280);
 
   function handleInvite(): void {
-    const joinLink = `${JOIN_BASE_URL}/${publisherId}`;
+    const joinLink = `${JOIN_BASE_URL}?p=${publisherId}`;
+    // message only (no `url`) so WhatsApp gets plain text, not a bplist.
     void Share.share({
       message: `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`,
-      url: joinLink,
     });
   }
 
