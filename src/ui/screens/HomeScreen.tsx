@@ -23,6 +23,8 @@ import { FollowersSection } from './sections/FollowersSection';
 import { feedStubs } from '../data/feedStubs';
 import { profileStub } from '../data/profileStub';
 import { useInviteLink } from '../hooks/useInviteLink';
+import { useProfile } from '../hooks/useProfile';
+import { usePublisherId } from '../context/AuthContext';
 import { colors, radius, spacing, shadow, typography } from '../theme/theme';
 
 const SCREEN_H = Dimensions.get('window').height;
@@ -46,9 +48,16 @@ export function HomeScreen(): React.JSX.Element {
   const route = useRoute<RouteProp<RootStackParamList, 'Home'>>();
   const requestedSection = route.params?.section;
   const { shareInvite } = useInviteLink();
+  const publisherId = usePublisherId();
+  const { profile } = useProfile(publisherId);
   const [section, setSection] = useState<HomeSection>('me');
   const [bioExpanded, setBioExpanded] = useState(false);
-  const bioIsLong = profileStub.bio.length > 70;
+
+  // Real profile when set up; gracefully fall back when name/photo/bio are missing.
+  const displayName = profile?.displayName ?? 'Your name';
+  const bio = profile?.bio ?? null;
+  const avatarUrl = profile?.avatarUrl ?? null;
+  const bioIsLong = (bio?.length ?? 0) > 70;
 
   const heightAnim = useRef(new Animated.Value(MEDIUM_H)).current;
   const heightRef = useRef(MEDIUM_H);
@@ -142,18 +151,20 @@ export function HomeScreen(): React.JSX.Element {
             >
               <View style={styles.profile}>
                 <View style={styles.avatar}>
-                  {profileStub.avatarUri ? (
-                    <Image source={{ uri: profileStub.avatarUri }} style={styles.avatarImage} />
+                  {avatarUrl != null ? (
+                    <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
                   ) : (
                     <Ionicons name="camera" size={26} color={colors.accent} />
                   )}
                 </View>
                 <View style={styles.profileText}>
-                  <Text style={styles.name} numberOfLines={1}>{profileStub.name}</Text>
-                  <Text style={styles.bio} numberOfLines={bioExpanded ? undefined : 2}>
-                    {profileStub.bio}
-                  </Text>
-                  {bioIsLong && (
+                  <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
+                  {bio != null && (
+                    <Text style={styles.bio} numberOfLines={bioExpanded ? undefined : 2}>
+                      {bio}
+                    </Text>
+                  )}
+                  {bio != null && bioIsLong && (
                     <TouchableOpacity
                       style={styles.seeMore}
                       onPress={() => setBioExpanded(v => !v)}
