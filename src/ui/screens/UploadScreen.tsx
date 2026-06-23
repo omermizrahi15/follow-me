@@ -9,14 +9,15 @@ import {
   StyleSheet,
   SafeAreaView,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
-import type { RootStackParamList } from '../navigation/types';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { RootNavigationProp } from '../navigation/types';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { usePublisherId } from '../context/AuthContext';
+import { colors, radius, spacing, typography } from '../theme/theme';
 
 type Props = {
-  navigation: NativeStackNavigationProp<RootStackParamList>;
+  navigation: RootNavigationProp;
 };
 
 export function UploadScreen({ navigation }: Props): React.JSX.Element {
@@ -66,7 +67,9 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
     return (
       <SafeAreaView style={styles.container}>
         <View style={styles.successContainer}>
-          <Text style={styles.successIcon}>✓</Text>
+          <View style={styles.successBadge}>
+            <Ionicons name="checkmark" size={40} color={colors.onAccent} />
+          </View>
           <Text style={styles.successTitle}>Sent!</Text>
           <Text style={styles.successSubtitle}>
             Your followers will receive the media on WhatsApp shortly.
@@ -79,7 +82,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
               navigation.goBack();
             }}
           >
-            <Text style={styles.backButtonText}>Back to home</Text>
+            <Text style={styles.backButtonText}>Done</Text>
           </TouchableOpacity>
         </View>
       </SafeAreaView>
@@ -89,17 +92,24 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   return (
     <SafeAreaView style={styles.container}>
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Text style={styles.back}>← Back</Text>
-        </TouchableOpacity>
-        <Text style={styles.title}>Share media now</Text>
+        <View style={styles.headerTop}>
+          <Text style={styles.title}>New post</Text>
+          <TouchableOpacity
+            onPress={() => navigation.goBack()}
+            accessibilityLabel="Close"
+            hitSlop={8}
+            style={styles.closeButton}
+          >
+            <Ionicons name="close" size={22} color={colors.textSecondary} />
+          </TouchableOpacity>
+        </View>
         <Text style={styles.subtitle}>
           Pick photos or videos to send to your followers immediately
         </Text>
       </View>
 
-      <TouchableOpacity style={styles.pickButton} onPress={handlePickMedia}>
-        <Text style={styles.pickIcon}>+</Text>
+      <TouchableOpacity style={styles.pickButton} onPress={handlePickMedia} activeOpacity={0.8}>
+        <Ionicons name="add" size={28} color={colors.accent} />
         <Text style={styles.pickText}>
           {pickedUris.length > 0
             ? `${pickedUris.length} item${pickedUris.length > 1 ? 's' : ''} selected — tap to change`
@@ -127,7 +137,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
             disabled={loading}
           >
             {loading
-              ? <ActivityIndicator color="#000" />
+              ? <ActivityIndicator color={colors.onAccent} />
               : <Text style={styles.shareText}>Send to followers</Text>
             }
           </TouchableOpacity>
@@ -138,39 +148,62 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d0d0d', paddingHorizontal: 24 },
-  header: { paddingTop: 24, paddingBottom: 32 },
-  back: { color: '#555', fontSize: 14, marginBottom: 20 },
-  title: { fontSize: 24, fontWeight: '700', color: '#fff', letterSpacing: -0.5 },
-  subtitle: { fontSize: 14, color: '#555', marginTop: 6 },
-  pickButton: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 14,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    borderStyle: 'dashed',
-    padding: 32,
+  container: { flex: 1, backgroundColor: colors.background, paddingHorizontal: spacing.xl },
+  header: { paddingTop: spacing.lg, paddingBottom: spacing.xxl },
+  headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  closeButton: {
+    width: 36,
+    height: 36,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceAlt,
     alignItems: 'center',
+    justifyContent: 'center',
   },
-  pickIcon: { fontSize: 28, color: '#444', marginBottom: 8 },
-  pickText: { color: '#555', fontSize: 14, textAlign: 'center' },
-  preview: { marginTop: 16, flexGrow: 0 },
-  thumb: { width: 80, height: 80, borderRadius: 8, marginRight: 8 },
-  footer: { position: 'absolute', bottom: 40, left: 24, right: 24 },
-  errorNote: { color: '#f87171', fontSize: 13, textAlign: 'center', marginBottom: 8 },
-  followerNote: { color: '#444', fontSize: 12, textAlign: 'center', marginBottom: 12 },
+  title: { ...typography.title, color: colors.text },
+  subtitle: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
+  pickButton: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    padding: spacing.xxl,
+    alignItems: 'center',
+    gap: spacing.sm,
+  },
+  pickText: { color: colors.textSecondary, fontSize: 14, textAlign: 'center' },
+  preview: { marginTop: spacing.lg, flexGrow: 0 },
+  thumb: { width: 80, height: 80, borderRadius: radius.sm, marginRight: spacing.sm },
+  footer: { position: 'absolute', bottom: 120, left: spacing.xl, right: spacing.xl },
+  errorNote: { color: colors.danger, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm },
+  followerNote: { color: colors.textMuted, fontSize: 12, textAlign: 'center', marginBottom: spacing.md },
   shareButton: {
-    backgroundColor: '#fff',
-    paddingVertical: 16,
-    borderRadius: 12,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.md,
     alignItems: 'center',
   },
   disabled: { opacity: 0.5 },
-  shareText: { color: '#000', fontWeight: '600', fontSize: 15 },
+  shareText: { color: colors.onAccent, fontWeight: '600', fontSize: 15 },
   successContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
-  successIcon: { fontSize: 48, color: '#4ade80', marginBottom: 16 },
-  successTitle: { fontSize: 28, fontWeight: '700', color: '#fff', marginBottom: 8 },
-  successSubtitle: { fontSize: 14, color: '#555', textAlign: 'center', marginBottom: 40, paddingHorizontal: 32 },
-  backButton: { backgroundColor: '#1a1a1a', paddingVertical: 14, paddingHorizontal: 32, borderRadius: 12 },
-  backButtonText: { color: '#fff', fontWeight: '600' },
+  successBadge: {
+    width: 80,
+    height: 80,
+    borderRadius: radius.pill,
+    backgroundColor: colors.success,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.lg,
+  },
+  successTitle: { ...typography.title, fontSize: 28, color: colors.text, marginBottom: spacing.sm },
+  successSubtitle: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginBottom: 40, paddingHorizontal: spacing.xxl },
+  backButton: {
+    backgroundColor: colors.surface,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xxl,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  backButtonText: { color: colors.text, fontWeight: '600' },
 });

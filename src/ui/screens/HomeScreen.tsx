@@ -1,29 +1,44 @@
-import React from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
   StyleSheet,
-  SafeAreaView,
+  ScrollView,
+  Image,
   Share,
 } from 'react-native';
-import type { RootStackParamList } from '../navigation/types';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
-import { useAuth, usePublisherId } from '../context/AuthContext';
+import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
+import type { TabNavigationProp, RootNavigationProp } from '../navigation/types';
+import { PhotoFeed } from '../components/PhotoFeed';
+import { feedStubs } from '../data/feedStubs';
+import { profileStub } from '../data/profileStub';
+import { usePublisherId } from '../context/AuthContext';
+import { colors, radius, spacing, shadow, typography } from '../theme/theme';
 
-type Props = {
-  navigation: NativeStackNavigationProp<RootStackParamList>;
-};
-
+/** Vertical footprint reserved for the floating nav (pill). */
+const NAV_SPACE = 64;
 const JOIN_BASE_URL = 'https://followme.app/join';
 
-export function HomeScreen({ navigation }: Props): React.JSX.Element {
-  const { signOut } = useAuth();
+/**
+ * The "Me" page — Polarsteps-style. The full-bleed photo feed scrolls behind
+ * everything as the immersive background (where Polarsteps shows the globe). A
+ * full-width white sheet is docked to the bottom holding the profile, the
+ * Countries/Followers stats and the Add post / Invite actions; the app logo +
+ * settings gear float on top and the nav floats over the sheet.
+ */
+export function HomeScreen(): React.JSX.Element {
+  const insets = useSafeAreaInsets();
+  const navigation = useNavigation<TabNavigationProp>();
+  const rootNavigation = navigation.getParent<RootNavigationProp>();
   const publisherId = usePublisherId();
-  const joinLink = publisherId ? `${JOIN_BASE_URL}/${publisherId}` : null;
+  const [sheetHeight, setSheetHeight] = useState(280);
 
-  function handleShareLink(): void {
-    if (!joinLink) return;
+  function handleInvite(): void {
+    const joinLink = `${JOIN_BASE_URL}/${publisherId}`;
     void Share.share({
       message: `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`,
       url: joinLink,
@@ -31,114 +46,191 @@ export function HomeScreen({ navigation }: Props): React.JSX.Element {
   }
 
   return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.titleRow}>
-          <Text style={styles.title}>Follow Me</Text>
-          <TouchableOpacity onPress={() => void signOut()}>
-            <Text style={styles.signOut}>Sign out</Text>
-          </TouchableOpacity>
+    <View style={styles.container}>
+      {/* Feed = full-screen scrolling background */}
+      <ScrollView
+        showsVerticalScrollIndicator={false}
+        contentContainerStyle={{ paddingBottom: sheetHeight + spacing.lg }}
+      >
+        <PhotoFeed postings={feedStubs} />
+      </ScrollView>
+
+      {/* Top scrim keeps the white logo + gear legible over the photos */}
+      <LinearGradient
+        colors={['rgba(8,12,18,0.55)', 'transparent']}
+        style={[styles.topScrim, { height: insets.top + 64 }]}
+        pointerEvents="none"
+      />
+      <View style={[styles.appHeader, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
+        <View style={styles.logoRow}>
+          <View style={styles.logoMark}>
+            <Ionicons name="navigate" size={16} color={colors.ink} />
+          </View>
+          <Text style={styles.logoText}>Follow Me</Text>
         </View>
-        <Text style={styles.subtitle}>Share your moments automatically</Text>
+        <TouchableOpacity
+          style={styles.gearButton}
+          accessibilityLabel="Settings"
+          onPress={() => rootNavigation.navigate('Settings')}
+        >
+          <Ionicons name="settings-sharp" size={20} color="#fff" />
+        </TouchableOpacity>
       </View>
 
-      <View style={styles.actions}>
-        <TouchableOpacity
-          style={styles.primaryCard}
-          onPress={() => navigation.navigate('Upload')}
-        >
-          <Text style={styles.cardIcon}>📷</Text>
-          <Text style={styles.cardTitle}>Share photos now</Text>
-          <Text style={styles.cardDescription}>
-            Pick photos from your library and send them to your followers immediately
-          </Text>
-        </TouchableOpacity>
+      {/* Full-width profile sheet docked to the bottom */}
+      <View
+        style={[styles.sheet, { paddingBottom: insets.bottom + NAV_SPACE + spacing.md }]}
+        onLayout={e => setSheetHeight(e.nativeEvent.layout.height)}
+      >
+        <View style={styles.handle} />
 
-        <TouchableOpacity
-          style={styles.secondaryCard}
-          onPress={() => navigation.navigate('Config')}
-        >
-          <Text style={styles.cardIcon}>⚙️</Text>
-          <Text style={styles.cardTitle}>Auto-posting settings</Text>
-          <Text style={styles.cardDescription}>
-            Configure automatic sharing — timing, quantity, and preferences
-          </Text>
-        </TouchableOpacity>
+        <View style={styles.profile}>
+          <View style={styles.avatar}>
+            {profileStub.avatarUri ? (
+              <Image source={{ uri: profileStub.avatarUri }} style={styles.avatarImage} />
+            ) : (
+              <Ionicons name="camera" size={28} color={colors.accent} />
+            )}
+          </View>
+          <View style={styles.profileText}>
+            <Text style={styles.name} numberOfLines={1}>{profileStub.name}</Text>
+            <View style={styles.bioRow}>
+              <Text style={styles.bio} numberOfLines={2}>{profileStub.bio}</Text>
+              <Ionicons name="chevron-down" size={18} color={colors.textMuted} />
+            </View>
+          </View>
+        </View>
 
-        <View style={styles.inviteCard}>
-          <View style={styles.inviteHeader}>
-            <Text style={styles.cardIcon}>🔗</Text>
-            <Text style={styles.cardTitle}>Invite followers</Text>
+        <View style={styles.stats}>
+          <View style={styles.statCol}>
+            <Text style={styles.statNumber}>{profileStub.countries}</Text>
+            <Text style={styles.statLabel}>Countries</Text>
           </View>
-          <Text style={styles.cardDescription}>
-            Share this link — followers register automatically and receive your photos on WhatsApp
-          </Text>
-          <View style={styles.linkBox}>
-            <Text style={styles.linkText} numberOfLines={1}>
-              {joinLink ?? 'Sign in to get your link'}
-            </Text>
+          <View style={styles.statDivider} />
+          <View style={styles.statCol}>
+            <Text style={styles.statNumber}>{profileStub.followers}</Text>
+            <Text style={styles.statLabel}>Followers</Text>
           </View>
+        </View>
+
+        <View style={styles.actions}>
           <TouchableOpacity
-            style={[styles.shareLink, !joinLink && styles.shareLinkDisabled]}
-            onPress={handleShareLink}
-            disabled={!joinLink}
+            style={styles.addButton}
+            activeOpacity={0.85}
+            onPress={() => rootNavigation.navigate('Upload')}
           >
-            <Text style={styles.shareLinkText}>Share via WhatsApp</Text>
+            <Ionicons name="add" size={16} color="#fff" />
+            <Text style={styles.addButtonText}>Add post</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.inviteButton} activeOpacity={0.85} onPress={handleInvite}>
+            <Ionicons name="person-add-outline" size={15} color={colors.ink} />
+            <Text style={styles.inviteButtonText}>Invite</Text>
           </TouchableOpacity>
         </View>
       </View>
-    </SafeAreaView>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d0d0d', paddingHorizontal: 24 },
-  header: { paddingTop: 48, paddingBottom: 32 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
-  title: { fontSize: 32, fontWeight: '700', color: '#fff', letterSpacing: -0.5 },
-  signOut: { fontSize: 13, color: '#555' },
-  subtitle: { fontSize: 15, color: '#555', marginTop: 6 },
-  actions: { gap: 16 },
-  primaryCard: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 16,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-  },
-  secondaryCard: {
-    backgroundColor: '#141414',
-    borderRadius: 16,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#222',
-  },
-  inviteCard: {
-    backgroundColor: '#111',
-    borderRadius: 16,
-    padding: 24,
-    borderWidth: 1,
-    borderColor: '#1e1e1e',
-  },
-  inviteHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 0 },
-  cardIcon: { fontSize: 24, marginBottom: 10 },
-  cardTitle: { fontSize: 17, fontWeight: '600', color: '#fff', marginBottom: 6 },
-  cardDescription: { fontSize: 13, color: '#666', lineHeight: 20, marginBottom: 14 },
-  linkBox: {
-    backgroundColor: '#1a1a1a',
-    borderRadius: 10,
-    padding: 12,
-    borderWidth: 1,
-    borderColor: '#2a2a2a',
-    marginBottom: 10,
-  },
-  linkText: { color: '#888', fontSize: 12, fontFamily: 'monospace' },
-  shareLink: {
-    backgroundColor: '#25D366',
-    borderRadius: 10,
-    paddingVertical: 12,
+  container: { flex: 1, backgroundColor: '#0E141C' },
+  topScrim: { position: 'absolute', top: 0, left: 0, right: 0 },
+  appHeader: {
+    position: 'absolute',
+    left: spacing.xl,
+    right: spacing.xl,
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'space-between',
   },
-  shareLinkDisabled: { backgroundColor: '#1a3d2a', opacity: 0.5 },
-  shareLinkText: { color: '#fff', fontWeight: '600', fontSize: 14 },
+  logoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  logoMark: {
+    width: 30,
+    height: 30,
+    borderRadius: radius.pill,
+    backgroundColor: '#fff',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  logoText: { color: '#fff', fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
+  gearButton: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.md,
+    backgroundColor: 'rgba(0,0,0,0.35)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  sheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.xl,
+    borderTopRightRadius: radius.xl,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.sm,
+    ...shadow.raised,
+  },
+  handle: {
+    alignSelf: 'center',
+    width: 36,
+    height: 5,
+    borderRadius: radius.pill,
+    backgroundColor: colors.border,
+    marginBottom: spacing.lg,
+  },
+  profile: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  avatar: {
+    width: 72,
+    height: 72,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accentSoft,
+    borderWidth: 2,
+    borderColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    overflow: 'hidden',
+  },
+  avatarImage: { width: '100%', height: '100%' },
+  profileText: { flex: 1 },
+  name: { ...typography.heading, fontSize: 17, color: colors.text, marginBottom: 1 },
+  bioRow: { flexDirection: 'row', alignItems: 'flex-end', gap: spacing.xs },
+  bio: { ...typography.caption, fontSize: 12, color: colors.textSecondary, lineHeight: 16, flex: 1 },
+  stats: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: spacing.lg,
+    marginBottom: spacing.lg,
+  },
+  statCol: { flex: 1 },
+  statNumber: { ...typography.heading, fontSize: 19, color: colors.text },
+  statLabel: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
+  statDivider: { width: 1, alignSelf: 'stretch', backgroundColor: colors.border, marginHorizontal: spacing.lg },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  addButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.ink,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+  },
+  addButtonText: { color: '#fff', fontWeight: '600', fontSize: 12 },
+  inviteButton: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: spacing.sm,
+    borderRadius: radius.md,
+  },
+  inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 12 },
 });

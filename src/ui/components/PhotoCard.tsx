@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Image, Text, StyleSheet } from 'react-native';
 import type { MediaDto } from '../../application/dtos';
+import { colors, radius, spacing, shadow } from '../theme/theme';
 
 interface Props {
   photo: MediaDto;
@@ -17,7 +18,15 @@ export function PhotoCard({ photo }: Props): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  card: { borderRadius: 12, overflow: 'hidden', backgroundColor: '#1a1a1a', marginBottom: 16 },
+  card: {
+    borderRadius: radius.lg,
+    overflow: 'hidden',
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: spacing.lg,
+    ...shadow.card,
+  },
   image: { width: '100%', height: 280 },
-  date: { color: '#888', fontSize: 12, padding: 10 },
+  date: { color: colors.textSecondary, fontSize: 12, padding: spacing.md },
 });

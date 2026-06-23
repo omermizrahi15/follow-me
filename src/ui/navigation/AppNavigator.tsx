@@ -2,12 +2,13 @@ import React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { HomeScreen } from '../screens/HomeScreen';
-import { UploadScreen } from '../screens/UploadScreen';
-import { ConfigScreen } from '../screens/ConfigScreen';
+import { MainTabNavigator } from './MainTabNavigator';
 import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
+import { SettingsScreen } from '../screens/SettingsScreen';
+import { UploadScreen } from '../screens/UploadScreen';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import type { RootStackParamList } from './types';
+import { colors } from '../theme/theme';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -17,7 +18,7 @@ function RootNavigator(): React.JSX.Element {
   if (loading) {
     return (
       <View style={styles.splash}>
-        <ActivityIndicator color="#fff" />
+        <ActivityIndicator color={colors.accent} />
       </View>
     );
   }
@@ -29,9 +30,9 @@ function RootNavigator(): React.JSX.Element {
           <Stack.Screen name="PhoneSignIn" component={PhoneSignInScreen} />
         ) : (
           <>
-            <Stack.Screen name="Home" component={HomeScreen} />
-            <Stack.Screen name="Upload" component={UploadScreen} />
-            <Stack.Screen name="Config" component={ConfigScreen} />
+            <Stack.Screen name="Main" component={MainTabNavigator} />
+            <Stack.Screen name="Settings" component={SettingsScreen} />
+            <Stack.Screen name="Upload" component={UploadScreen} options={{ presentation: 'modal' }} />
           </>
         )}
       </Stack.Navigator>
@@ -48,5 +49,5 @@ export function AppNavigator(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  splash: { flex: 1, backgroundColor: '#0d0d0d', alignItems: 'center', justifyContent: 'center' },
+  splash: { flex: 1, backgroundColor: colors.background, alignItems: 'center', justifyContent: 'center' },
 });

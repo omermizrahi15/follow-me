@@ -8,15 +8,15 @@ import {
   StyleSheet,
   SafeAreaView,
 } from 'react-native';
-import type { RootStackParamList } from '../navigation/types';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
+import type { TabNavigationProp } from '../navigation/types';
 import { usePublisherId } from '../context/AuthContext';
 import { saveConfig, loadConfig } from '../../composition/container';
 import { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../domain/entities/PublisherConfig';
+import { colors, radius, spacing, typography } from '../theme/theme';
 
 type Props = {
-  navigation: NativeStackNavigationProp<RootStackParamList>;
+  navigation: TabNavigationProp;
 };
 
 export function ConfigScreen({ navigation }: Props): React.JSX.Element {
@@ -44,7 +44,7 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
         requireApproval: askBeforePost,
       }),
     ).then(() => {
-      navigation.goBack();
+      navigation.navigate('Home');
     });
   }
 
@@ -58,11 +58,8 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
 
   return (
     <SafeAreaView style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false}>
+      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.scroll}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => navigation.goBack()}>
-            <Text style={styles.back}>← Back</Text>
-          </TouchableOpacity>
           <Text style={styles.title}>Auto-posting settings</Text>
           <Text style={styles.subtitle}>
             Configure how and when photos are shared with your followers
@@ -122,9 +119,9 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
             <Switch
               value={askBeforePost}
               onValueChange={setAskBeforePost}
-              trackColor={{ false: '#2a2a2a', true: '#34C759' }}
-              thumbColor="#ffffff"
-              ios_backgroundColor="#2a2a2a"
+              trackColor={{ false: colors.border, true: colors.success }}
+              thumbColor={colors.surface}
+              ios_backgroundColor={colors.border}
             />
           </View>
         </View>
@@ -134,52 +131,52 @@ export function ConfigScreen({ navigation }: Props): React.JSX.Element {
           <Text style={styles.saveText}>Save settings</Text>
         </TouchableOpacity>
 
-        <View style={{ height: 40 }} />
+        <View style={{ height: spacing.xxl }} />
       </ScrollView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0d0d0d', paddingHorizontal: 24 },
-  header: { paddingTop: 24, paddingBottom: 32 },
-  back: { color: '#555', fontSize: 14, marginBottom: 20 },
-  title: { fontSize: 24, fontWeight: '700', color: '#fff', letterSpacing: -0.5 },
-  subtitle: { fontSize: 14, color: '#555', marginTop: 6 },
-  loadingText: { color: '#555', fontSize: 14, padding: 24 },
+  container: { flex: 1, backgroundColor: colors.background, paddingHorizontal: spacing.xl },
+  scroll: { paddingBottom: 120 },
+  header: { paddingTop: spacing.xl, paddingBottom: spacing.xxl },
+  title: { ...typography.title, color: colors.text },
+  subtitle: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
+  loadingText: { color: colors.textSecondary, fontSize: 14, padding: spacing.xl },
   section: {
-    backgroundColor: '#111',
-    borderRadius: 14,
-    padding: 20,
-    marginBottom: 16,
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    padding: spacing.xl,
+    marginBottom: spacing.lg,
     borderWidth: 1,
-    borderColor: '#1e1e1e',
+    borderColor: colors.border,
   },
-  sectionTitle: { fontSize: 15, fontWeight: '600', color: '#fff', marginBottom: 12 },
-  options: { flexDirection: 'row', gap: 8 },
+  sectionTitle: { ...typography.heading, fontSize: 15, color: colors.text, marginBottom: spacing.md },
+  options: { flexDirection: 'row', gap: spacing.sm },
   option: {
     flex: 1,
-    backgroundColor: '#1a1a1a',
-    borderRadius: 10,
-    paddingVertical: 10,
-    paddingHorizontal: 8,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.sm,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.sm,
     alignItems: 'center',
     borderWidth: 1,
-    borderColor: '#2a2a2a',
+    borderColor: colors.border,
   },
-  optionSmall: { flex: 0, paddingHorizontal: 20 },
-  optionActive: { backgroundColor: '#fff', borderColor: '#fff' },
-  optionText: { color: '#666', fontSize: 13, fontWeight: '500', textAlign: 'center' },
-  optionTextActive: { color: '#000' },
-  hint: { color: '#444', fontSize: 12, marginTop: 10, lineHeight: 18 },
+  optionSmall: { flex: 0, paddingHorizontal: spacing.xl },
+  optionActive: { backgroundColor: colors.accent, borderColor: colors.accent },
+  optionText: { color: colors.textSecondary, fontSize: 13, fontWeight: '500', textAlign: 'center' },
+  optionTextActive: { color: colors.onAccent },
+  hint: { color: colors.textMuted, fontSize: 12, marginTop: spacing.md, lineHeight: 18 },
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  toggleText: { flex: 1, marginRight: 16 },
+  toggleText: { flex: 1, marginRight: spacing.lg },
   saveButton: {
-    backgroundColor: '#fff',
-    paddingVertical: 16,
-    borderRadius: 12,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.lg,
+    borderRadius: radius.md,
     alignItems: 'center',
-    marginTop: 8,
+    marginTop: spacing.xs,
   },
-  saveText: { color: '#000', fontWeight: '600', fontSize: 15 },
+  saveText: { color: colors.onAccent, fontWeight: '600', fontSize: 15 },
 });
