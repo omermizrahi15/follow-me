@@ -35,9 +35,10 @@ function twiml(message: string): Response {
 async function lookupPublisher(publisherId: string): Promise<{ name: string } | null> {
   const { data } = await supabase.auth.admin.getUserById(publisherId);
   if (!data.user) return null;
+  // `||` (not `??`) so an empty display_name falls through to a real fallback.
   const name: string =
-    (data.user.user_metadata as Record<string, string>)?.display_name ??
-    data.user.email?.split('@')[0] ??
+    (data.user.user_metadata as Record<string, string>)?.display_name ||
+    data.user.email?.split('@')[0] ||
     'your publisher';
   return { name };
 }

@@ -5,6 +5,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { HomeScreen } from '../screens/HomeScreen';
 import { UploadScreen } from '../screens/UploadScreen';
 import { ConfigScreen } from '../screens/ConfigScreen';
+import { SubscribersScreen } from '../screens/SubscribersScreen';
 import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import type { RootStackParamList } from './types';
@@ -32,6 +33,7 @@ function RootNavigator(): React.JSX.Element {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Upload" component={UploadScreen} />
             <Stack.Screen name="Config" component={ConfigScreen} />
+            <Stack.Screen name="Subscribers" component={SubscribersScreen} />
           </>
         )}
       </Stack.Navigator>

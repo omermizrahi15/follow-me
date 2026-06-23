@@ -55,6 +55,65 @@ The app should come to the foreground without crashing (a fake token still gets 
 
 If the *real* email magic link doesn't redirect into the app (but this manual check above passes), the cause is almost always the Supabase project's **Authentication → URL Configuration → Redirect URLs** allow-list missing `followme://auth` — Supabase silently falls back to the Site URL instead of erroring when the redirect target isn't allow-listed.
 
+## The subscriber join flow (web page → DB)
+
+A follower subscribes through a **static web page** plus one **Supabase Edge
+Function** — no Twilio, no WhatsApp round-trip:
+
+1. **The page** — `docs/join/index.html`, hosted on **GitHub Pages**. The app's
+   invite link is `https://<user>.github.io/follow-me/join/?p=<publisherId>`. It
+   asks for the follower's WhatsApp number and POSTs it to the `subscribe`
+   function. (It's a static HTML file because Supabase Edge Functions can't serve
+   HTML — they force every response to `text/plain`.)
+2. **`subscribe`** (`supabase/functions/subscribe`) — `POST /subscribe` with
+   `{ publisherId, contactHandle }`. Validates both, then inserts/reactivates the
+   subscriber using the **service-role key** (bypasses RLS — no public write
+   policy needed, and numbers are never exposed to the anon role). Returns JSON.
+
+Twilio is only needed later, to *deliver* photos to subscribers (see #24/#31) —
+not to subscribe.
+
+> The `join` and `join-webhook` functions are an **alternative** WhatsApp-native
+> flow (tap → send a prefilled WhatsApp message → webhook subscribes you). It
+> avoids typing a number but requires an approved WhatsApp Business sender, so
+> it's parked behind #31 and not the active path.
+
+### Deploying
+
+```bash
+# one-time
+supabase login
+supabase link --project-ref <your-project-ref>
+
+# deploy / redeploy — rerun after editing the function.
+# --no-verify-jwt is REQUIRED: the page calls this anonymously (no auth token),
+# so without it every request 401s. Run from a checkout where
+# `ls supabase/functions` shows `subscribe`, or you'll get "Entrypoint path does
+# not exist".
+supabase functions deploy subscribe --no-verify-jwt
+```
+
+Verify it's live (a bad number should come back as a JSON validation error, which
+proves it deployed and runs):
+
+```bash
+curl -s -X POST "https://<your-project-ref>.supabase.co/functions/v1/subscribe" \
+  -H 'content-type: application/json' -d '{"publisherId":"x","contactHandle":"nope"}'
+# expect JSON like: {"ok":false,"error":"This invite link is invalid or has expired."}
+```
+
+### Hosting the page (GitHub Pages)
+
+The page lives in `docs/join/` so GitHub Pages can serve it from the default
+branch. Enable it once: **repo Settings → Pages → Build and deployment → Deploy
+from a branch → `main` / `/docs`**. (It must be on `main`, so this goes live when
+the change merges.)
+
+- Apply the `subscribers` migration (`supabase/migrations/`) if you haven't.
+- If you fork/rename the repo, update `JOIN_BASE_URL` in
+  `src/ui/screens/SubscribersScreen.tsx` and `SUBSCRIBE_URL` in
+  `docs/join/index.html`.
+
 ## Environment variables
 
 Copy `.env.example` to `.env` and fill in the values you need for local development.
