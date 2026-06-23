@@ -9,7 +9,9 @@ import {
   KeyboardAvoidingView,
   Platform,
   ActivityIndicator,
+  Image,
 } from 'react-native';
+import { logoSource } from '../assets';
 import { useAuth } from '../context/AuthContext';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -68,7 +70,10 @@ export function PhoneSignInScreen(): React.JSX.Element {
           style={styles.inner}
         >
           <View style={styles.header}>
-            <Text style={styles.appName}>FOLLOW ME</Text>
+            <View style={styles.brand}>
+            <Image source={logoSource} style={styles.brandLogo} resizeMode="contain" />
+            <Text style={styles.brandText}>Follow Me</Text>
+          </View>
             <Text style={styles.title}>Enter the code</Text>
             <Text style={styles.subtitle}>We sent a code to {phone} on WhatsApp</Text>
           </View>
@@ -113,7 +118,10 @@ export function PhoneSignInScreen(): React.JSX.Element {
         style={styles.inner}
       >
         <View style={styles.header}>
-          <Text style={styles.appName}>FOLLOW ME</Text>
+          <View style={styles.brand}>
+            <Image source={logoSource} style={styles.brandLogo} resizeMode="contain" />
+            <Text style={styles.brandText}>Follow Me</Text>
+          </View>
           <Text style={styles.title}>Your WhatsApp number</Text>
           <Text style={styles.subtitle}>We'll send you a code on WhatsApp to sign in</Text>
         </View>
@@ -150,9 +158,11 @@ export function PhoneSignInScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   inner: { flex: 1, paddingHorizontal: spacing.xl, justifyContent: 'center' },
-  header: { marginBottom: 40 },
-  appName: { fontSize: 11, color: colors.accent, letterSpacing: 3, marginBottom: spacing.xl, fontWeight: '700' },
-  title: { ...typography.largeTitle, color: colors.text, marginBottom: spacing.sm },
+  header: { marginBottom: spacing.xxl },
+  brand: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginBottom: spacing.xxl },
+  brandLogo: { width: 52, height: 39 },
+  brandText: { fontSize: 18, fontWeight: '700', color: colors.text, letterSpacing: -0.3 },
+  title: { ...typography.title, fontSize: 26, color: colors.text, marginBottom: spacing.sm },
   subtitle: { ...typography.body, color: colors.textSecondary },
   input: {
     backgroundColor: colors.surface,

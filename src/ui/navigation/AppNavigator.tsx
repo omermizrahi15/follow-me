@@ -2,7 +2,7 @@ import React from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { MainTabNavigator } from './MainTabNavigator';
+import { HomeScreen } from '../screens/HomeScreen';
 import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { UploadScreen } from '../screens/UploadScreen';
@@ -30,7 +30,7 @@ function RootNavigator(): React.JSX.Element {
           <Stack.Screen name="PhoneSignIn" component={PhoneSignInScreen} />
         ) : (
           <>
-            <Stack.Screen name="Main" component={MainTabNavigator} />
+            <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="Upload" component={UploadScreen} options={{ presentation: 'modal' }} />
           </>

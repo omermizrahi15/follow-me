@@ -10,35 +10,35 @@
  */
 
 export const colors = {
-  /** App background — warm off-white. */
-  background: '#FBFAF8',
+  /** App background — white. */
+  background: '#FFFFFF',
   /** Card / elevated surface. */
   surface: '#FFFFFF',
   /** Subtle alternate surface (inputs, pressed states, chips). */
-  surfaceAlt: '#F2EFEA',
+  surfaceAlt: '#EEF2F6',
   /** Hairline borders and dividers. */
-  border: '#EBE7E0',
+  border: '#E2E8F0',
 
-  /** Primary text — charcoal, not pure black. */
-  text: '#1C1B19',
+  /** Primary text — near-black slate. */
+  text: '#13212B',
   /** Secondary text. */
-  textSecondary: '#6E6A63',
+  textSecondary: '#5A6672',
   /** Muted captions / hints. */
-  textMuted: '#A29D94',
+  textMuted: '#9AA5AE',
 
-  /** Brand accent — warm coral. */
-  accent: '#F1543F',
+  /** Brand accent — strong deep blue (the "Add post" colour). */
+  accent: '#0E3A53',
   /** Accent pressed / darker. */
-  accentDark: '#D8412E',
+  accentDark: '#0A2B40',
   /** Tint used behind accent icons / soft highlights. */
-  accentSoft: '#FDECE8',
+  accentSoft: '#E6EEF3',
   /** Text/icon colour to use on top of the accent. */
   onAccent: '#FFFFFF',
 
-  /** Dark navy/teal ink — used for the floating nav icons & labels (Polarsteps style). */
+  /** Same deep blue, used for the floating nav icons & labels. */
   ink: '#0E3A53',
-  /** Frosted floating-bar surface (slightly translucent off-white). */
-  frosted: 'rgba(245,243,239,0.94)',
+  /** Frosted floating-bar surface (slightly translucent cool white). */
+  frosted: 'rgba(244,247,250,0.92)',
 
   /** WhatsApp brand green (share action). */
   whatsapp: '#25D366',
