@@ -120,9 +120,7 @@ export function HomeScreen(): React.JSX.Element {
       />
       <View style={[styles.appHeader, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
         <View style={styles.logoRow}>
-          <View style={styles.logoBadge}>
-            <Image source={logoSource} style={styles.logoImg} resizeMode="contain" />
-          </View>
+          <Image source={logoSource} style={styles.logoImg} resizeMode="contain" />
           <Text style={styles.logoText}>Follow Me</Text>
         </View>
         <TouchableOpacity
@@ -230,12 +228,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   logoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  logoBadge: {
-    borderRadius: radius.sm,
-    backgroundColor: '#fff',
-    padding: 3,
-  },
-  logoImg: { width: 34, height: 25 },
+  logoImg: { width: 40, height: 30, tintColor: '#fff' },
   logoText: { color: '#fff', fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
   gearButton: {
     width: 40,
@@ -260,7 +253,7 @@ const styles = StyleSheet.create({
   handle: { width: 40, height: 5, borderRadius: radius.pill, backgroundColor: colors.border },
   sheetBody: { flex: 1 },
   meContent: { paddingHorizontal: spacing.xl },
-  profile: { flexDirection: 'row', alignItems: 'center', gap: spacing.lg },
+  profile: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.lg },
   avatar: {
     width: 72,
     height: 72,
