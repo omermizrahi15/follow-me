@@ -21,9 +21,9 @@ import { PhotoFeed } from '../components/PhotoFeed';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { FollowersSection } from './sections/FollowersSection';
 import { feedStubs } from '../data/feedStubs';
-import { profileStub } from '../data/profileStub';
 import { useInviteLink } from '../hooks/useInviteLink';
 import { useProfile } from '../hooks/useProfile';
+import { useSubscribers } from '../hooks/useSubscribers';
 import { usePublisherId } from '../context/AuthContext';
 import { colors, radius, spacing, shadow, typography } from '../theme/theme';
 
@@ -50,6 +50,7 @@ export function HomeScreen(): React.JSX.Element {
   const { shareInvite } = useInviteLink();
   const publisherId = usePublisherId();
   const { profile } = useProfile(publisherId);
+  const { subscribers, loading: followersLoading } = useSubscribers(publisherId);
   const [section, setSection] = useState<HomeSection>('me');
   const [bioExpanded, setBioExpanded] = useState(false);
 
@@ -183,13 +184,10 @@ export function HomeScreen(): React.JSX.Element {
 
               <View style={styles.stats}>
                 <View style={styles.statCol}>
-                  <Text style={styles.statNumber}>{profileStub.countries}</Text>
-                  <Text style={styles.statLabel}>Countries</Text>
-                </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statCol}>
-                  <Text style={styles.statNumber}>{profileStub.followers}</Text>
-                  <Text style={styles.statLabel}>Followers</Text>
+                  <Text style={styles.statNumber}>{followersLoading ? '—' : subscribers.length}</Text>
+                  <Text style={styles.statLabel}>
+                    {subscribers.length === 1 ? 'Follower' : 'Followers'}
+                  </Text>
                 </View>
               </View>
 
@@ -283,7 +281,6 @@ const styles = StyleSheet.create({
   statCol: { flex: 1 },
   statNumber: { ...typography.heading, fontSize: 19, color: colors.text },
   statLabel: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-  statDivider: { width: 1, alignSelf: 'stretch', backgroundColor: colors.border, marginHorizontal: spacing.lg },
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   addButton: {
     flex: 1,
