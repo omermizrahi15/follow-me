@@ -5,19 +5,75 @@
  * Called by the static join page (GitHub Pages). Validates the publisher and
  * the WhatsApp number, then inserts/reactivates the subscriber using the
  * SERVICE-ROLE key — so it bypasses RLS and the number is never exposed to the
- * anon role. No Twilio involved: subscribing is just a database write.
+ * anon role.
+ *
+ * After a successful subscribe it sends a WhatsApp confirmation via Twilio.
+ * This is BEST-EFFORT: WhatsApp only delivers free-form messages inside the
+ * 24-hour window after the user last messaged our number (in the Twilio sandbox,
+ * after they've sent the "join <code>" opt-in). If that window is closed the
+ * send fails — we log it but still report the subscribe as successful, since the
+ * DB row is what actually matters.
  *
  * Env (injected automatically by Supabase): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
+ * Env (Twilio): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID') ?? '';
+const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN') ?? '';
+const TWILIO_FROM = Deno.env.get('TWILIO_WHATSAPP_FROM') ?? '';
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
 });
+
+// Resolve the publisher's display name for the confirmation copy.
+async function lookupPublisherName(publisherId: string): Promise<string> {
+  try {
+    const { data } = await supabase.auth.admin.getUserById(publisherId);
+    if (!data.user) return 'your publisher';
+    // `||` (not `??`) so an empty display_name falls through to a real fallback.
+    return (
+      (data.user.user_metadata as Record<string, string>)?.display_name ||
+      data.user.email?.split('@')[0] ||
+      'your publisher'
+    );
+  } catch {
+    return 'your publisher';
+  }
+}
+
+// Best-effort WhatsApp send; never throws (the caller must not fail on it).
+async function sendWelcome(contactHandle: string, publisherName: string): Promise<void> {
+  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM) {
+    console.warn('Twilio not configured — skipping subscribe confirmation');
+    return;
+  }
+  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
+  const params = new URLSearchParams({
+    From: `whatsapp:${TWILIO_FROM}`,
+    To: `whatsapp:${contactHandle}`,
+    Body: `You're now following ${publisherName}. You'll receive their photos here on WhatsApp. Reply STOP at any time to unsubscribe.`,
+  });
+  try {
+    const resp = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`)}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: params.toString(),
+    });
+    if (!resp.ok) {
+      console.error(`Subscribe confirmation failed (${resp.status}):`, await resp.text());
+    }
+  } catch (err) {
+    console.error('Subscribe confirmation send threw:', err);
+  }
+}
 
 // The page is served from a different origin (GitHub Pages), so allow CORS.
 const cors: Record<string, string> = {
@@ -98,6 +154,9 @@ Deno.serve(async (req: Request) => {
 
   const { error } = await write;
   if (error) return json({ ok: false, error: 'Something went wrong. Please try again.' }, 500);
+
+  const publisherName = await lookupPublisherName(publisherId);
+  await sendWelcome(contactHandle, publisherName);
 
   return json({ ok: true });
 });
