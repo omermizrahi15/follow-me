@@ -202,7 +202,11 @@ export function HomeScreen(): React.JSX.Element {
             </ScrollView>
           )}
           {section === 'auto' && (
-            <AutoPostingSection bottomInset={bottomInset} onSaved={() => selectSection('me')} />
+            <AutoPostingSection
+              bottomInset={bottomInset}
+              onSaved={() => selectSection('me')}
+              onPreview={() => navigation.navigate('ReviewSuggestion')}
+            />
           )}
           {section === 'followers' && <FollowersSection bottomInset={bottomInset} />}
         </View>

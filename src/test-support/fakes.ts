@@ -2,6 +2,9 @@ import type { ITwilioClient } from '../infrastructure/notifiers/WhatsAppNotifier
 import type { Media } from '../domain/entities/Media';
 import type { Subscriber } from '../domain/entities/Subscriber';
 import type { PublisherConfig } from '../domain/entities/PublisherConfig';
+import type { PhotoCandidate } from '../domain/entities/PhotoCandidate';
+import type { PhotoClassification } from '../domain/entities/PhotoClassification';
+import type { CandidatePhoto } from '../domain/entities/CandidatePhoto';
 import type {
   IMediaRepository,
   ISubscriberRepository,
@@ -9,6 +12,12 @@ import type {
   IStorageService,
   IPublisherConfigRepository,
   IConfirmationSender,
+  IMediaLibrary,
+  IPhotoClassifier,
+  ISentPhotoTracker,
+  INotificationScheduler,
+  ReminderSchedule,
+  ICandidatePhotoRepository,
 } from '../domain/interfaces';
 
 export class InMemoryMediaRepository implements IMediaRepository {
@@ -152,5 +161,90 @@ export class FakeTwilioClient implements ITwilioClient {
 
   wasSentTo(contactHandle: string): boolean {
     return this.sent.some(s => s.to === contactHandle);
+  }
+}
+
+export class FakeMediaLibrary implements IMediaLibrary {
+  lastLookbackDays: number | null = null;
+  constructor(private readonly photos: PhotoCandidate[] = []) {}
+
+  recentPhotos(lookbackDays: number): Promise<PhotoCandidate[]> {
+    this.lastLookbackDays = lookbackDays;
+    return Promise.resolve(this.photos);
+  }
+}
+
+/**
+ * Returns preset classifications. Maps each input candidate to a classification
+ * provided at construction (keyed by candidate id); candidates without an entry
+ * are dropped, mirroring a classifier that returns one result per known photo.
+ */
+export class FakePhotoClassifier implements IPhotoClassifier {
+  receivedCandidateIds: string[] = [];
+  constructor(private readonly byId: Map<string, PhotoClassification> = new Map()) {}
+
+  classify(candidates: PhotoCandidate[]): Promise<PhotoClassification[]> {
+    this.receivedCandidateIds = candidates.map(c => c.id);
+    return Promise.resolve(
+      candidates
+        .map(c => this.byId.get(c.id))
+        .filter((c): c is PhotoClassification => c !== undefined),
+    );
+  }
+}
+
+export class FakeSentPhotoTracker implements ISentPhotoTracker {
+  constructor(private readonly ids: Set<string> = new Set()) {}
+  sentCandidateIds(): Promise<Set<string>> {
+    return Promise.resolve(this.ids);
+  }
+}
+
+export class FakeNotificationScheduler implements INotificationScheduler {
+  scheduled: ReminderSchedule | null = null;
+  cancelCount = 0;
+
+  scheduleWeeklyReminder(schedule: ReminderSchedule): Promise<void> {
+    this.scheduled = schedule;
+    return Promise.resolve();
+  }
+
+  cancelReminder(): Promise<void> {
+    this.cancelCount += 1;
+    this.scheduled = null;
+    return Promise.resolve();
+  }
+}
+
+export class FakeStorageService implements IStorageService {
+  uploads: { localUri: string; filename: string }[] = [];
+
+  upload(localUri: string, filename: string): Promise<string> {
+    this.uploads.push({ localUri, filename });
+    return Promise.resolve(`https://cdn.test/uploaded/${filename}`);
+  }
+}
+
+export class InMemoryCandidatePhotoRepository implements ICandidatePhotoRepository {
+  private store: Map<string, CandidatePhoto> = new Map();
+
+  private key(publisherId: string, assetId: string): string {
+    return `${publisherId}:${assetId}`;
+  }
+
+  saveMany(photos: CandidatePhoto[]): Promise<void> {
+    for (const p of photos) this.store.set(this.key(p.publisherId, p.assetId), p);
+    return Promise.resolve();
+  }
+
+  existingAssetIds(publisherId: string): Promise<Set<string>> {
+    const ids = [...this.store.values()]
+      .filter(p => p.publisherId === publisherId)
+      .map(p => p.assetId);
+    return Promise.resolve(new Set(ids));
+  }
+
+  all(): CandidatePhoto[] {
+    return [...this.store.values()];
   }
 }

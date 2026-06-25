@@ -1,19 +1,53 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
-import { NavigationContainer } from '@react-navigation/native';
+import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
+import * as Notifications from 'expo-notifications';
 import { HomeScreen } from '../screens/HomeScreen';
 import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { UploadScreen } from '../screens/UploadScreen';
+import { ReviewSuggestionScreen } from '../screens/ReviewSuggestionScreen';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { useAutoSync } from '../hooks/useAutoSync';
 import type { RootStackParamList } from './types';
 import { colors } from '../theme/theme';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
+export const navigationRef = createNavigationContainerRef<RootStackParamList>();
+
+/**
+ * Route a notification carries in its `data.screen`. Kept in sync with the
+ * scheduler's REMINDER_TARGET_SCREEN (infra can't import UI, so the literal is
+ * shared by contract, not import).
+ */
+const REVIEW_ROUTE: keyof RootStackParamList = 'ReviewSuggestion';
+
+/** Navigate to the review screen if a notification response targets it. */
+function routeFromNotification(response: Notifications.NotificationResponse | null): void {
+  const data = response?.notification.request.content.data as { screen?: string } | undefined;
+  if (data?.screen === REVIEW_ROUTE && navigationRef.isReady()) {
+    navigationRef.navigate('ReviewSuggestion');
+  }
+}
+
+/** Opens the suggestion review screen when the publisher taps the reminder. */
+function useNotificationRouting(enabled: boolean): void {
+  useEffect(() => {
+    if (!enabled) return;
+    // Cold start: app launched by tapping the notification.
+    void Notifications.getLastNotificationResponseAsync().then(routeFromNotification);
+    // Warm: tapped while the app was running/backgrounded.
+    const sub = Notifications.addNotificationResponseReceivedListener(routeFromNotification);
+    return () => sub.remove();
+  }, [enabled]);
+}
+
 function RootNavigator(): React.JSX.Element {
   const { publisherId, loading } = useAuth();
+  useNotificationRouting(publisherId != null);
+  useAutoSync(publisherId);
 
   if (loading) {
     return (
@@ -24,7 +58,7 @@ function RootNavigator(): React.JSX.Element {
   }
 
   return (
-    <NavigationContainer>
+    <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
         {publisherId == null ? (
           <Stack.Screen name="PhoneSignIn" component={PhoneSignInScreen} />
@@ -33,6 +67,11 @@ function RootNavigator(): React.JSX.Element {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="Upload" component={UploadScreen} options={{ presentation: 'modal' }} />
+            <Stack.Screen
+              name="ReviewSuggestion"
+              component={ReviewSuggestionScreen}
+              options={{ presentation: 'modal' }}
+            />
           </>
         )}
       </Stack.Navigator>

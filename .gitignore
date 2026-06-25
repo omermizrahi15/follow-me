@@ -33,3 +33,10 @@ Thumbs.db
 .vscode/
 .idea/
 *.swp
+
+# Photo-classification integration test fixtures (local sample images)
+src/infrastructure/classifiers/__fixtures__/manifest.json
+src/infrastructure/classifiers/__fixtures__/*.jpg
+src/infrastructure/classifiers/__fixtures__/*.jpeg
+src/infrastructure/classifiers/__fixtures__/*.png
+src/infrastructure/classifiers/__fixtures__/*.webp

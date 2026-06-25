@@ -6,6 +6,7 @@ export type RootStackParamList = {
   Home: undefined;
   Settings: undefined;
   Upload: undefined;
+  ReviewSuggestion: undefined;
 };
 
 /** Navigation prop for the root stack. */
