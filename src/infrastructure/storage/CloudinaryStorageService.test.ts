@@ -1,11 +1,17 @@
 jest.mock('expo-file-system', () => ({
-  readAsStringAsync: jest.fn(),
+  File: jest.fn(),
 }));
 
 import { CloudinaryStorageService } from './CloudinaryStorageService';
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 
-const mockRead = FileSystem.readAsStringAsync as jest.Mock;
+const MockFile = File as unknown as jest.Mock;
+
+/** Make `new File(uri).base64()` resolve to the given base64 string. */
+function setBase64(value: string): void {
+  MockFile.mockImplementation(() => ({ base64: () => Promise.resolve(value) }));
+}
+
 const mockFetch = jest.fn();
 (global as unknown as Record<string, unknown>).fetch = mockFetch;
 
@@ -33,8 +39,8 @@ function mockFailure(status: number, body: string): void {
 
 beforeEach(() => {
   mockFetch.mockReset();
-  mockRead.mockReset();
-  mockRead.mockResolvedValue('abc123==');
+  MockFile.mockReset();
+  setBase64('abc123==');
 });
 
 describe('CloudinaryStorageService — upload endpoint routing', () => {
@@ -98,8 +104,8 @@ describe('CloudinaryStorageService — MIME type in data URI', () => {
 });
 
 describe('CloudinaryStorageService — FormData payload', () => {
-  it('embeds the base64 content from FileSystem in the data URI', async () => {
-    mockRead.mockResolvedValue('realbase64content==');
+  it('embeds the base64 content from the file in the data URI', async () => {
+    setBase64('realbase64content==');
     mockSuccess();
     await makeSut().upload('file:///photo.jpg', 'photo.jpg');
     expect(lastFormData.get('file')).toBe('data:image/jpeg;base64,realbase64content==');
@@ -118,11 +124,11 @@ describe('CloudinaryStorageService — FormData payload', () => {
   });
 });
 
-describe('CloudinaryStorageService — FileSystem usage', () => {
-  it('reads the localUri with Base64 encoding', async () => {
+describe('CloudinaryStorageService — file reading', () => {
+  it('reads the localUri via the expo-file-system File API', async () => {
     mockSuccess();
     await makeSut().upload('file:///my-photo.jpg', 'photo.jpg');
-    expect(mockRead).toHaveBeenCalledWith('file:///my-photo.jpg', { encoding: 'base64' });
+    expect(MockFile).toHaveBeenCalledWith('file:///my-photo.jpg');
   });
 });
 

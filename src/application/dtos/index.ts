@@ -11,3 +11,10 @@ export interface SubscriberDto {
   contactHandle: string;
   status: 'pending' | 'active' | 'revoked';
 }
+
+export interface ProfileDto {
+  publisherId: string;
+  displayName: string;
+  bio: string | null;
+  avatarUrl: string | null;
+}

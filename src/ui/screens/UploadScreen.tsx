@@ -13,20 +13,31 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import type { RootNavigationProp } from '../navigation/types';
 import { useShareMedia } from '../hooks/useShareMedia';
+import { useSubscribers } from '../hooks/useSubscribers';
 import { usePublisherId } from '../context/AuthContext';
+import { InviteLinkCard } from '../components/InviteLinkCard';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 type Props = {
   navigation: RootNavigationProp;
 };
 
+// Below this many active followers we nudge the publisher to invite more after a
+// successful share; established publishers (at or above it) aren't nagged.
+const FEW_FOLLOWERS_THRESHOLD = 3;
+
 export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const { share } = useShareMedia();
   const publisherId = usePublisherId();
+  const { subscribers, loading: subscribersLoading } = useSubscribers(publisherId);
   const [pickedUris, setPickedUris] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [promptDismissed, setPromptDismissed] = useState(false);
+
+  const showInvitePrompt =
+    !promptDismissed && !subscribersLoading && subscribers.length < FEW_FOLLOWERS_THRESHOLD;
 
   function handlePickMedia(): void {
     void (async (): Promise<void> => {
@@ -66,25 +77,59 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   if (done) {
     return (
       <SafeAreaView style={styles.container}>
-        <View style={styles.successContainer}>
-          <View style={styles.successBadge}>
-            <Ionicons name="checkmark" size={40} color={colors.onAccent} />
+        <ScrollView
+          contentContainerStyle={styles.successScroll}
+          showsVerticalScrollIndicator={false}
+        >
+          <View style={styles.successHeader}>
+            <View style={styles.successBadge}>
+              <Ionicons name="checkmark" size={40} color={colors.onAccent} />
+            </View>
+            <Text style={styles.successTitle}>Sent!</Text>
+            <Text style={styles.successSubtitle}>
+              Your followers will receive the media on WhatsApp shortly.
+            </Text>
           </View>
-          <Text style={styles.successTitle}>Sent!</Text>
-          <Text style={styles.successSubtitle}>
-            Your followers will receive the media on WhatsApp shortly.
-          </Text>
+
+          {showInvitePrompt && (
+            <View style={styles.invitePrompt}>
+              <View style={styles.invitePromptHeader}>
+                <Text style={styles.invitePromptTitle}>Grow your audience</Text>
+                <TouchableOpacity
+                  onPress={() => setPromptDismissed(true)}
+                  accessibilityLabel="Dismiss"
+                  hitSlop={10}
+                >
+                  <Ionicons name="close" size={18} color={colors.textMuted} />
+                </TouchableOpacity>
+              </View>
+              <Text style={styles.invitePromptBody}>
+                {subscribers.length === 0
+                  ? "You don't have any followers yet — share your link so people start receiving your photos."
+                  : 'Reach more people — invite a few more followers to receive your photos.'}
+              </Text>
+              <InviteLinkCard />
+              <TouchableOpacity
+                style={styles.manageButton}
+                onPress={() => navigation.navigate('Home', { section: 'followers' })}
+              >
+                <Text style={styles.manageButtonText}>Manage followers</Text>
+              </TouchableOpacity>
+            </View>
+          )}
+
           <TouchableOpacity
             style={styles.backButton}
             onPress={() => {
               setDone(false);
               setPickedUris([]);
+              setPromptDismissed(false);
               navigation.goBack();
             }}
           >
             <Text style={styles.backButtonText}>Done</Text>
           </TouchableOpacity>
-        </View>
+        </ScrollView>
       </SafeAreaView>
     );
   }
@@ -185,7 +230,8 @@ const styles = StyleSheet.create({
   },
   disabled: { opacity: 0.5 },
   shareText: { color: colors.onAccent, fontWeight: '600', fontSize: 15 },
-  successContainer: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  successScroll: { flexGrow: 1, justifyContent: 'center', paddingVertical: spacing.xxl },
+  successHeader: { alignItems: 'center' },
   successBadge: {
     width: 80,
     height: 80,
@@ -196,8 +242,34 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   successTitle: { ...typography.title, fontSize: 28, color: colors.text, marginBottom: spacing.sm },
-  successSubtitle: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginBottom: 40, paddingHorizontal: spacing.xxl },
+  successSubtitle: { ...typography.caption, color: colors.textSecondary, textAlign: 'center', marginBottom: spacing.xxl, paddingHorizontal: spacing.xxl },
+  invitePrompt: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.lg,
+    marginBottom: spacing.xl,
+  },
+  invitePromptHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.sm,
+  },
+  invitePromptTitle: { ...typography.heading, color: colors.text },
+  invitePromptBody: { ...typography.caption, color: colors.textSecondary, lineHeight: 19, marginBottom: spacing.lg },
+  manageButton: {
+    marginTop: spacing.md,
+    paddingVertical: spacing.md,
+    borderRadius: radius.md,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  manageButtonText: { color: colors.text, fontWeight: '600', fontSize: 14 },
   backButton: {
+    alignSelf: 'center',
     backgroundColor: colors.surface,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xxl,

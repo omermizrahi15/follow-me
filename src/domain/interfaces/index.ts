@@ -1,6 +1,7 @@
 import type { Media } from '../entities/Media';
 import type { Subscriber } from '../entities/Subscriber';
 import type { PublisherConfig } from '../entities/PublisherConfig';
+import type { PublisherProfile } from '../entities/PublisherProfile';
 
 export interface IMediaRepository {
   save(media: Media): Promise<void>;
@@ -30,4 +31,9 @@ export interface IStorageService {
 export interface IPublisherConfigRepository {
   save(config: PublisherConfig): Promise<void>;
   findByPublisher(publisherId: string): Promise<PublisherConfig | null>;
+}
+
+export interface IPublisherProfileRepository {
+  save(profile: PublisherProfile): Promise<void>;
+  findByPublisher(publisherId: string): Promise<PublisherProfile | null>;
 }
