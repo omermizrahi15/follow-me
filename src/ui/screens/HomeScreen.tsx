@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -13,7 +13,7 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { SectionNav, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
@@ -50,7 +50,7 @@ export function HomeScreen(): React.JSX.Element {
   const { shareInvite } = useInviteLink();
   const publisherId = usePublisherId();
   const { profile } = useProfile(publisherId);
-  const { subscribers, loading: followersLoading } = useSubscribers(publisherId);
+  const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
   const [section, setSection] = useState<HomeSection>('me');
   const [bioExpanded, setBioExpanded] = useState(false);
 
@@ -73,6 +73,15 @@ export function HomeScreen(): React.JSX.Element {
   useEffect(() => {
     if (requestedSection != null) setSection(requestedSection);
   }, [requestedSection]);
+
+  // The Me page never unmounts (sections are local state, Upload is a modal on
+  // top), so refresh the followers count whenever the screen regains focus —
+  // e.g. coming back from the Upload modal or after a new follower joins.
+  useFocusEffect(
+    useCallback(() => {
+      void reloadSubscribers();
+    }, [reloadSubscribers]),
+  );
 
   function snapTo(h: number): void {
     Animated.spring(heightAnim, { toValue: h, useNativeDriver: false, bounciness: 2, speed: 14 }).start();
@@ -100,6 +109,9 @@ export function HomeScreen(): React.JSX.Element {
 
   function selectSection(next: HomeSection): void {
     setSection(next);
+    // Returning to the Me page: refresh the followers count (e.g. after adding
+    // or removing followers in the Followers section).
+    if (next === 'me') void reloadSubscribers();
     // Open every section at the medium anchor; the user can drag to full for long content.
     snapTo(MEDIUM_H);
   }
