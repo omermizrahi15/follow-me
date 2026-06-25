@@ -39,4 +39,49 @@ describe('SaveProfileUseCase / LoadProfileUseCase', () => {
     expect(loaded?.displayName).toBe('Omer M');
     expect(loaded?.bio).toBe('Updated');
   });
+
+  // Onboarding makes the photo and bio optional (and "Skip for now" saves
+  // nothing extra), so a name-only profile must round-trip cleanly.
+  it('saves a name-only profile, reading bio and avatar back as null', async (): Promise<void> => {
+    const repo = new InMemoryPublisherProfileRepository();
+    await new SaveProfileUseCase(repo).execute(makeProfile({ displayName: 'Omer' }));
+
+    const loaded = await new LoadProfileUseCase(repo).execute('user-1');
+    expect(loaded?.displayName).toBe('Omer');
+    expect(loaded?.bio).toBeNull();
+    expect(loaded?.avatarUrl).toBeNull();
+  });
+
+  it('normalizes empty / whitespace-only bio and avatar to null on save', async (): Promise<void> => {
+    const repo = new InMemoryPublisherProfileRepository();
+    await new SaveProfileUseCase(repo).execute(makeProfile({ bio: '   ', avatarUrl: '' }));
+
+    const loaded = await new LoadProfileUseCase(repo).execute('user-1');
+    expect(loaded?.bio).toBeNull();
+    expect(loaded?.avatarUrl).toBeNull();
+  });
+
+  it('trims the display name before persisting', async (): Promise<void> => {
+    const repo = new InMemoryPublisherProfileRepository();
+    await new SaveProfileUseCase(repo).execute(makeProfile({ displayName: '  Omer Mizrahi  ' }));
+
+    const loaded = await new LoadProfileUseCase(repo).execute('user-1');
+    expect(loaded?.displayName).toBe('Omer Mizrahi');
+  });
+
+  it('clears a previously set bio and avatar when re-saved empty', async (): Promise<void> => {
+    const repo = new InMemoryPublisherProfileRepository();
+    const save = new SaveProfileUseCase(repo);
+    await save.execute(makeProfile({ bio: 'Travel photos', avatarUrl: 'https://cdn.test/a.jpg' }));
+    await save.execute(makeProfile({ bio: null, avatarUrl: null }));
+
+    const loaded = await new LoadProfileUseCase(repo).execute('user-1');
+    expect(loaded?.bio).toBeNull();
+    expect(loaded?.avatarUrl).toBeNull();
+  });
+
+  it('rejects saving a profile with a blank display name', (): void => {
+    // The required field is enforced at construction, before the use case runs.
+    expect(() => makeProfile({ displayName: '   ' })).toThrow('displayName');
+  });
 });
