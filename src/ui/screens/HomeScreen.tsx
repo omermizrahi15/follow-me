@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -6,7 +6,6 @@ import {
   StyleSheet,
   ScrollView,
   Image,
-  Share,
   Dimensions,
   Animated,
   PanResponder,
@@ -14,15 +13,17 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
-import type { RootNavigationProp } from '../navigation/types';
+import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
+import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { SectionNav, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
 import { PhotoFeed } from '../components/PhotoFeed';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { FollowersSection } from './sections/FollowersSection';
 import { feedStubs } from '../data/feedStubs';
-import { profileStub } from '../data/profileStub';
+import { useInviteLink } from '../hooks/useInviteLink';
+import { useProfile } from '../hooks/useProfile';
+import { useSubscribers } from '../hooks/useSubscribers';
 import { usePublisherId } from '../context/AuthContext';
 import { colors, radius, spacing, shadow, typography } from '../theme/theme';
 
@@ -34,8 +35,6 @@ const FULL_H = Math.round(SCREEN_H * 0.84);
 const SNAPS = [SMALL_H, MEDIUM_H, FULL_H];
 /** Height of the floating nav bar — the sheet's lowest band stays glassy so the nav reads as glass. */
 const NAV_BAR_H = 56;
-// Public subscribe page (GitHub Pages); publisher id travels as the `?p=` param.
-const JOIN_BASE_URL = 'https://omermizrahi15.github.io/follow-me/join/';
 
 /**
  * The "Me" page. The photo feed scrolls behind as the immersive background; a
@@ -46,10 +45,20 @@ const JOIN_BASE_URL = 'https://omermizrahi15.github.io/follow-me/join/';
 export function HomeScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<RootNavigationProp>();
+  const route = useRoute<RouteProp<RootStackParamList, 'Home'>>();
+  const requestedSection = route.params?.section;
+  const { shareInvite } = useInviteLink();
   const publisherId = usePublisherId();
+  const { profile } = useProfile(publisherId);
+  const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
   const [section, setSection] = useState<HomeSection>('me');
   const [bioExpanded, setBioExpanded] = useState(false);
-  const bioIsLong = profileStub.bio.length > 70;
+
+  // Real profile when set up; gracefully fall back when name/photo/bio are missing.
+  const displayName = profile?.displayName ?? 'Your name';
+  const bio = profile?.bio ?? null;
+  const avatarUrl = profile?.avatarUrl ?? null;
+  const bioIsLong = (bio?.length ?? 0) > 70;
 
   const heightAnim = useRef(new Animated.Value(MEDIUM_H)).current;
   const heightRef = useRef(MEDIUM_H);
@@ -59,6 +68,20 @@ export function HomeScreen(): React.JSX.Element {
     const id = heightAnim.addListener(({ value }) => { heightRef.current = value; });
     return () => heightAnim.removeListener(id);
   }, [heightAnim]);
+
+  // Honour a deep-linked section (e.g. "Manage followers" from the post-share prompt).
+  useEffect(() => {
+    if (requestedSection != null) setSection(requestedSection);
+  }, [requestedSection]);
+
+  // The Me page never unmounts (sections are local state, Upload is a modal on
+  // top), so refresh the followers count whenever the screen regains focus —
+  // e.g. coming back from the Upload modal or after a new follower joins.
+  useFocusEffect(
+    useCallback(() => {
+      void reloadSubscribers();
+    }, [reloadSubscribers]),
+  );
 
   function snapTo(h: number): void {
     Animated.spring(heightAnim, { toValue: h, useNativeDriver: false, bounciness: 2, speed: 14 }).start();
@@ -86,15 +109,11 @@ export function HomeScreen(): React.JSX.Element {
 
   function selectSection(next: HomeSection): void {
     setSection(next);
+    // Returning to the Me page: refresh the followers count (e.g. after adding
+    // or removing followers in the Followers section).
+    if (next === 'me') void reloadSubscribers();
     // Open every section at the medium anchor; the user can drag to full for long content.
     snapTo(MEDIUM_H);
-  }
-
-  function handleInvite(): void {
-    const joinLink = `${JOIN_BASE_URL}?p=${publisherId}`;
-    void Share.share({
-      message: `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`,
-    });
   }
 
   // The sheet stays docked to the bottom; its lowest band (behind the nav) is left
@@ -145,18 +164,20 @@ export function HomeScreen(): React.JSX.Element {
             >
               <View style={styles.profile}>
                 <View style={styles.avatar}>
-                  {profileStub.avatarUri ? (
-                    <Image source={{ uri: profileStub.avatarUri }} style={styles.avatarImage} />
+                  {avatarUrl != null ? (
+                    <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
                   ) : (
                     <Ionicons name="camera" size={26} color={colors.accent} />
                   )}
                 </View>
                 <View style={styles.profileText}>
-                  <Text style={styles.name} numberOfLines={1}>{profileStub.name}</Text>
-                  <Text style={styles.bio} numberOfLines={bioExpanded ? undefined : 2}>
-                    {profileStub.bio}
-                  </Text>
-                  {bioIsLong && (
+                  <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
+                  {bio != null && (
+                    <Text style={styles.bio} numberOfLines={bioExpanded ? undefined : 2}>
+                      {bio}
+                    </Text>
+                  )}
+                  {bio != null && bioIsLong && (
                     <TouchableOpacity
                       style={styles.seeMore}
                       onPress={() => setBioExpanded(v => !v)}
@@ -175,13 +196,10 @@ export function HomeScreen(): React.JSX.Element {
 
               <View style={styles.stats}>
                 <View style={styles.statCol}>
-                  <Text style={styles.statNumber}>{profileStub.countries}</Text>
-                  <Text style={styles.statLabel}>Countries</Text>
-                </View>
-                <View style={styles.statDivider} />
-                <View style={styles.statCol}>
-                  <Text style={styles.statNumber}>{profileStub.followers}</Text>
-                  <Text style={styles.statLabel}>Followers</Text>
+                  <Text style={styles.statNumber}>{followersLoading ? '—' : subscribers.length}</Text>
+                  <Text style={styles.statLabel}>
+                    {subscribers.length === 1 ? 'Follower' : 'Followers'}
+                  </Text>
                 </View>
               </View>
 
@@ -194,7 +212,7 @@ export function HomeScreen(): React.JSX.Element {
                   <Ionicons name="add" size={16} color="#fff" />
                   <Text style={styles.addButtonText}>Add post</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.inviteButton} activeOpacity={0.85} onPress={handleInvite}>
+                <TouchableOpacity style={styles.inviteButton} activeOpacity={0.85} onPress={shareInvite}>
                   <Ionicons name="person-add-outline" size={15} color={colors.ink} />
                   <Text style={styles.inviteButtonText}>Invite</Text>
                 </TouchableOpacity>
@@ -275,7 +293,6 @@ const styles = StyleSheet.create({
   statCol: { flex: 1 },
   statNumber: { ...typography.heading, fontSize: 19, color: colors.text },
   statLabel: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-  statDivider: { width: 1, alignSelf: 'stretch', backgroundColor: colors.border, marginHorizontal: spacing.lg },
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
   addButton: {
     flex: 1,

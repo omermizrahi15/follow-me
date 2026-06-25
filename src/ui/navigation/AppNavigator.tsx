@@ -6,7 +6,9 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { UploadScreen } from '../screens/UploadScreen';
+import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { useOnboarding } from '../hooks/useOnboarding';
 import type { RootStackParamList } from './types';
 import { colors } from '../theme/theme';
 
@@ -14,13 +16,18 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 
 function RootNavigator(): React.JSX.Element {
   const { publisherId, loading } = useAuth();
+  const { completed: onboardingDone, loading: onboardingLoading, complete } = useOnboarding();
 
-  if (loading) {
+  if (loading || onboardingLoading) {
     return (
       <View style={styles.splash}>
         <ActivityIndicator color={colors.accent} />
       </View>
     );
+  }
+
+  if (!onboardingDone) {
+    return <OnboardingScreen onDone={() => void complete()} />;
   }
 
   return (
