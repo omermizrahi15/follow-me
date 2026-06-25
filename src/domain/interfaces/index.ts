@@ -4,6 +4,7 @@ import type { PublisherConfig } from '../entities/PublisherConfig';
 import type { PhotoCandidate } from '../entities/PhotoCandidate';
 import type { PhotoClassification } from '../entities/PhotoClassification';
 import type { CandidatePhoto } from '../entities/CandidatePhoto';
+import type { PublisherProfile } from '../entities/PublisherProfile';
 
 export interface IMediaRepository {
   save(media: Media): Promise<void>;
@@ -80,4 +81,9 @@ export interface INotificationScheduler {
   /** Cancel any existing reminder and schedule a new weekly one. */
   scheduleWeeklyReminder(schedule: ReminderSchedule): Promise<void>;
   cancelReminder(): Promise<void>;
+}
+
+export interface IPublisherProfileRepository {
+  save(profile: PublisherProfile): Promise<void>;
+  findByPublisher(publisherId: string): Promise<PublisherProfile | null>;
 }

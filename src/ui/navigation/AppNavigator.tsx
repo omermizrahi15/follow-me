@@ -8,8 +8,10 @@ import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { UploadScreen } from '../screens/UploadScreen';
 import { ReviewSuggestionScreen } from '../screens/ReviewSuggestionScreen';
+import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { useAutoSync } from '../hooks/useAutoSync';
+import { useOnboarding } from '../hooks/useOnboarding';
 import type { RootStackParamList } from './types';
 import { colors } from '../theme/theme';
 
@@ -48,13 +50,18 @@ function RootNavigator(): React.JSX.Element {
   const { publisherId, loading } = useAuth();
   useNotificationRouting(publisherId != null);
   useAutoSync(publisherId);
+  const { completed: onboardingDone, loading: onboardingLoading, complete } = useOnboarding();
 
-  if (loading) {
+  if (loading || onboardingLoading) {
     return (
       <View style={styles.splash}>
         <ActivityIndicator color={colors.accent} />
       </View>
     );
+  }
+
+  if (!onboardingDone) {
+    return <OnboardingScreen onDone={() => void complete()} />;
   }
 
   return (

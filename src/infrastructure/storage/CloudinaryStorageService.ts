@@ -1,4 +1,4 @@
-import * as FileSystem from 'expo-file-system';
+import { File } from 'expo-file-system';
 import type { IStorageService } from '../../domain/interfaces';
 
 function getMimeType(filename: string): string {
@@ -17,9 +17,7 @@ export class CloudinaryStorageService implements IStorageService {
   ) {}
 
   async upload(localUri: string, filename: string): Promise<string> {
-    const base64 = await FileSystem.readAsStringAsync(localUri, {
-      encoding: 'base64',
-    });
+    const base64 = await new File(localUri).base64();
     const mimeType = getMimeType(filename);
     const resourceType = mimeType.startsWith('video/') ? 'video' : 'image';
 

@@ -7,6 +7,8 @@ import { LoadConfigUseCase } from '../application/usecases/LoadConfigUseCase';
 import { SuggestPhotosUseCase } from '../application/usecases/SuggestPhotosUseCase';
 import { ScheduleReminderUseCase } from '../application/usecases/ScheduleReminderUseCase';
 import { SyncCandidatePhotosUseCase } from '../application/usecases/SyncCandidatePhotosUseCase';
+import { SaveProfileUseCase } from '../application/usecases/SaveProfileUseCase';
+import { LoadProfileUseCase } from '../application/usecases/LoadProfileUseCase';
 import { GeminiPhotoClassifier } from '../infrastructure/classifiers/GeminiPhotoClassifier';
 import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri } from '../infrastructure/media/ExpoMediaLibrary';
 import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotificationScheduler';
@@ -18,6 +20,7 @@ import { SupabaseMediaRepository } from '../infrastructure/repositories/Supabase
 import { SupabaseSubscriberRepository } from '../infrastructure/repositories/SupabaseSubscriberRepository';
 import { SupabasePublisherConfigRepository } from '../infrastructure/repositories/SupabasePublisherConfigRepository';
 import { SupabaseCandidatePhotoRepository } from '../infrastructure/repositories/SupabaseCandidatePhotoRepository';
+import { SupabasePublisherProfileRepository } from '../infrastructure/repositories/SupabasePublisherProfileRepository';
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
 import Constants from 'expo-constants';
 
@@ -34,7 +37,9 @@ const mediaRepo = new SupabaseMediaRepository(supabaseUrl, supabaseKey);
 const subscriberRepo = new SupabaseSubscriberRepository(supabaseUrl, supabaseKey);
 const configRepo = new SupabasePublisherConfigRepository(supabaseUrl, supabaseKey);
 const candidateRepo = new SupabaseCandidatePhotoRepository(supabaseUrl, supabaseKey);
-const storage = new CloudinaryStorageService(
+const profileRepo = new SupabasePublisherProfileRepository(supabaseUrl, supabaseKey);
+// Shared image/video uploader (Cloudinary) — used for posts and profile avatars.
+export const storage = new CloudinaryStorageService(
   requireEnv('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
   requireEnv('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
 );
@@ -70,6 +75,8 @@ export const syncCandidatePhotos = new SyncCandidatePhotosUseCase(
   candidateRepo,
   expoResolveLocalUri,
 );
+export const saveProfile = new SaveProfileUseCase(profileRepo);
+export const loadProfile = new LoadProfileUseCase(profileRepo);
 
 const easProjectId =
   (Constants.expoConfig?.extra?.eas as { projectId?: string } | undefined)?.projectId ?? '';

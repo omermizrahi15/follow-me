@@ -5,12 +5,14 @@ import type { PublisherConfig } from '../domain/entities/PublisherConfig';
 import type { PhotoCandidate } from '../domain/entities/PhotoCandidate';
 import type { PhotoClassification } from '../domain/entities/PhotoClassification';
 import type { CandidatePhoto } from '../domain/entities/CandidatePhoto';
+import type { PublisherProfile } from '../domain/entities/PublisherProfile';
 import type {
   IMediaRepository,
   ISubscriberRepository,
   INotifier,
   IStorageService,
   IPublisherConfigRepository,
+  IPublisherProfileRepository,
   IConfirmationSender,
   IMediaLibrary,
   IPhotoClassifier,
@@ -108,6 +110,19 @@ export class InMemoryPublisherConfigRepository implements IPublisherConfigReposi
   }
 
   async findByPublisher(publisherId: string): Promise<PublisherConfig | null> {
+    return Promise.resolve(this.store.get(publisherId) ?? null);
+  }
+}
+
+export class InMemoryPublisherProfileRepository implements IPublisherProfileRepository {
+  private store: Map<string, PublisherProfile> = new Map();
+
+  async save(profile: PublisherProfile): Promise<void> {
+    this.store.set(profile.publisherId, profile);
+    return Promise.resolve();
+  }
+
+  async findByPublisher(publisherId: string): Promise<PublisherProfile | null> {
     return Promise.resolve(this.store.get(publisherId) ?? null);
   }
 }
