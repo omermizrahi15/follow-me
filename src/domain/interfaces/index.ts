@@ -17,10 +17,38 @@ export interface ISubscriberRepository {
   findActiveByPublisher(publisherId: string): Promise<Subscriber[]>;
   findById(id: string): Promise<Subscriber | null>;
   findByPublisherAndContact(publisherId: string, contactHandle: string): Promise<Subscriber | null>;
+  // Every subscription tied to a phone number, across publishers. Used to act on
+  // an inbound STOP/START where we only know the sender's number.
+  findByContactHandle(contactHandle: string): Promise<Subscriber[]>;
 }
 
 export interface IConfirmationSender {
   sendWelcome(contactHandle: string, publisherName: string): Promise<void>;
+  sendUnsubscribeConfirmation(contactHandle: string, publisherName: string): Promise<void>;
+  sendResubscribeConfirmation(contactHandle: string, publisherName: string): Promise<void>;
+}
+
+// Messaging-compliance event types recorded in notification_log.
+export type NotificationEvent = 'opt_out' | 'opt_in';
+
+export interface NotificationLogEntry {
+  subscriberId: string | null;
+  publisherId: string;
+  contactHandle: string;
+  event: NotificationEvent;
+  detail?: string;
+}
+
+// A previously recorded entry, with the fields the store assigns on write.
+export interface RecordedNotificationLogEntry extends NotificationLogEntry {
+  id: string;
+  createdAt: string; // ISO string
+}
+
+// Append-only audit log of opt-out / opt-in events.
+export interface INotificationLog {
+  record(entry: NotificationLogEntry): Promise<void>;
+  findByContact(contactHandle: string): Promise<RecordedNotificationLogEntry[]>;
 }
 
 export interface INotifier {

@@ -20,6 +20,9 @@ import type {
   INotificationScheduler,
   ReminderSchedule,
   ICandidatePhotoRepository,
+  INotificationLog,
+  NotificationLogEntry,
+  RecordedNotificationLogEntry,
 } from '../domain/interfaces';
 
 export class InMemoryMediaRepository implements IMediaRepository {
@@ -66,19 +69,64 @@ export class InMemorySubscriberRepository implements ISubscriberRepository {
     return Promise.resolve(found ?? null);
   }
 
+  async findByContactHandle(contactHandle: string): Promise<Subscriber[]> {
+    return Promise.resolve(
+      [...this.store.values()].filter(s => s.contactHandle === contactHandle),
+    );
+  }
+
   all(): Subscriber[] { return [...this.store.values()]; }
 }
 
+type ConfirmationKind = 'welcome' | 'unsubscribe' | 'resubscribe';
+
 export class InMemoryConfirmationSender implements IConfirmationSender {
-  sent: Array<{ contactHandle: string; publisherName: string }> = [];
+  sent: Array<{ kind: ConfirmationKind; contactHandle: string; publisherName: string }> = [];
 
   sendWelcome(contactHandle: string, publisherName: string): Promise<void> {
-    this.sent.push({ contactHandle, publisherName });
+    this.sent.push({ kind: 'welcome', contactHandle, publisherName });
+    return Promise.resolve();
+  }
+
+  sendUnsubscribeConfirmation(contactHandle: string, publisherName: string): Promise<void> {
+    this.sent.push({ kind: 'unsubscribe', contactHandle, publisherName });
+    return Promise.resolve();
+  }
+
+  sendResubscribeConfirmation(contactHandle: string, publisherName: string): Promise<void> {
+    this.sent.push({ kind: 'resubscribe', contactHandle, publisherName });
     return Promise.resolve();
   }
 
   wasWelcomedAt(contactHandle: string): boolean {
-    return this.sent.some(s => s.contactHandle === contactHandle);
+    return this.sent.some(s => s.kind === 'welcome' && s.contactHandle === contactHandle);
+  }
+
+  sentOf(kind: ConfirmationKind): Array<{ contactHandle: string; publisherName: string }> {
+    return this.sent
+      .filter(s => s.kind === kind)
+      .map(({ contactHandle, publisherName }) => ({ contactHandle, publisherName }));
+  }
+}
+
+export class InMemoryNotificationLog implements INotificationLog {
+  entries: RecordedNotificationLogEntry[] = [];
+  private seq = 0;
+  // Fixed clock so recorded timestamps are deterministic in tests.
+  private now = '2026-01-01T00:00:00.000Z';
+
+  record(entry: NotificationLogEntry): Promise<void> {
+    this.seq += 1;
+    this.entries.push({ ...entry, id: `log-${this.seq}`, createdAt: this.now });
+    return Promise.resolve();
+  }
+
+  findByContact(contactHandle: string): Promise<RecordedNotificationLogEntry[]> {
+    return Promise.resolve(this.entries.filter(e => e.contactHandle === contactHandle));
+  }
+
+  ofEvent(event: NotificationLogEntry['event']): RecordedNotificationLogEntry[] {
+    return this.entries.filter(e => e.event === event);
   }
 }
 

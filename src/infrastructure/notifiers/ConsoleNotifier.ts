@@ -23,4 +23,14 @@ export class ConsoleConfirmationSender implements IConfirmationSender {
     console.log(`[ConsoleConfirmationSender] welcome → ${contactHandle} (publisher: ${publisherName})`);
     return Promise.resolve();
   }
+
+  sendUnsubscribeConfirmation(contactHandle: string, publisherName: string): Promise<void> {
+    console.log(`[ConsoleConfirmationSender] unsubscribe → ${contactHandle} (publisher: ${publisherName})`);
+    return Promise.resolve();
+  }
+
+  sendResubscribeConfirmation(contactHandle: string, publisherName: string): Promise<void> {
+    console.log(`[ConsoleConfirmationSender] resubscribe → ${contactHandle} (publisher: ${publisherName})`);
+    return Promise.resolve();
+  }
 }

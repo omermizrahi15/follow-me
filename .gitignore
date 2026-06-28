@@ -13,6 +13,9 @@ build/
 ios/
 android/
 
+# Supabase CLI local link metadata
+supabase/.temp/
+
 # Environment variables
 .env
 .env.local
