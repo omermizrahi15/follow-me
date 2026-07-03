@@ -14,6 +14,7 @@ import { SupabaseSubscriberRepository } from '../infrastructure/repositories/Sup
 import { SupabasePublisherConfigRepository } from '../infrastructure/repositories/SupabasePublisherConfigRepository';
 import { SupabasePublisherProfileRepository } from '../infrastructure/repositories/SupabasePublisherProfileRepository';
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
+import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 
 function requireEnv(key: string): string {
   const value = process.env[key] as string | undefined;
@@ -37,7 +38,10 @@ export const storage = new CloudinaryStorageService(
 const notifier = new ConsoleNotifier('Omer');
 const confirmationSender = new ConsoleConfirmationSender();
 
-export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage);
+// Names the posting's place ("Lisbon, Portugal") from the batch's EXIF GPS.
+const geocoder = new BigDataCloudGeocoder();
+
+export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage, geocoder);
 export const listFeed = new ListFeedUseCase(mediaRepo);
 export const subscribe = new SubscribeUseCase(subscriberRepo, confirmationSender);
 export const listSubscribers = new ListSubscribersUseCase(subscriberRepo);

@@ -4,6 +4,8 @@ import type { Subscriber } from '../domain/entities/Subscriber';
 import type { PublisherConfig } from '../domain/entities/PublisherConfig';
 import type { PublisherProfile } from '../domain/entities/PublisherProfile';
 import type {
+  Coordinate,
+  IGeocoder,
   IMediaRepository,
   ISubscriberRepository,
   INotifier,
@@ -137,6 +139,24 @@ export class InMemoryNotifier implements INotifier {
 export class InMemoryStorageService implements IStorageService {
   async upload(_localUri: string, filename: string): Promise<string> {
     return Promise.resolve(`https://mock-cdn.test/${filename}`);
+  }
+}
+
+export class FakeGeocoder implements IGeocoder {
+  calls: Coordinate[] = [];
+  private result: string | null = 'Lisbon, Portugal';
+  private shouldThrow = false;
+
+  returns(place: string | null): void { this.result = place; }
+  failOnNextCall(): void { this.shouldThrow = true; }
+
+  reverseGeocode(coordinate: Coordinate): Promise<string | null> {
+    this.calls.push(coordinate);
+    if (this.shouldThrow) {
+      this.shouldThrow = false;
+      return Promise.reject(new Error('geocoding service unavailable'));
+    }
+    return Promise.resolve(this.result);
   }
 }
 

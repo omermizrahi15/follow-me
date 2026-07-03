@@ -1,11 +1,14 @@
 import { Media } from '../../domain/entities/Media';
 import type { MediaType } from '../../domain/entities/Media';
 import type {
+  Coordinate,
+  IGeocoder,
   IMediaRepository,
   ISubscriberRepository,
   INotifier,
   IStorageService,
 } from '../../domain/interfaces';
+import { representativeCoordinate } from '../../domain/services/postingLocation';
 import { MediaMapper } from '../mappers/MediaMapper';
 import type { MediaDto } from '../dtos';
 
@@ -14,6 +17,8 @@ interface MediaItem {
   localUri: string;
   filename: string;
   mediaType?: MediaType;
+  /** Where the photo was taken (from EXIF GPS), when the device provides it. */
+  coordinate?: Coordinate;
 }
 
 export interface ShareMediaInput {
@@ -27,6 +32,7 @@ export class ShareMediaUseCase {
     private readonly subscriberRepo: ISubscriberRepository,
     private readonly notifier: INotifier,
     private readonly storage: IStorageService,
+    private readonly geocoder?: IGeocoder,
   ) {}
 
   async share(input: ShareMediaInput): Promise<MediaDto[]> {
@@ -34,17 +40,26 @@ export class ShareMediaUseCase {
     // Every item of one share() call carries the same postingId — the feed
     // groups on it to render the batch as a single posting.
     const postingId = `posting-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
-    const mediaItems = await Promise.all(
-      input.items.map(async (item) => {
-        const url = await this.storage.upload(item.localUri, item.filename);
-        return Media.create({
-          id: item.mediaId,
-          ownerId: input.ownerId,
-          url,
-          createdAt: new Date(),
-          postingId,
-          ...(item.mediaType != null ? { mediaType: item.mediaType } : {}),
-        });
+    // The place lookup runs alongside the uploads — neither waits on the other.
+    const [location, uploads] = await Promise.all([
+      this.resolveLocation(input.items),
+      Promise.all(
+        input.items.map(async (item) => ({
+          item,
+          url: await this.storage.upload(item.localUri, item.filename),
+        })),
+      ),
+    ]);
+
+    const mediaItems = uploads.map(({ item, url }) =>
+      Media.create({
+        id: item.mediaId,
+        ownerId: input.ownerId,
+        url,
+        createdAt: new Date(),
+        postingId,
+        ...(item.mediaType != null ? { mediaType: item.mediaType } : {}),
+        ...(location != null ? { location } : {}),
       }),
     );
 
@@ -54,5 +69,24 @@ export class ShareMediaUseCase {
     await Promise.all(subscribers.map(s => this.notifier.notify(s, mediaItems)));
 
     return mediaItems.map(m => MediaMapper.toDto(m));
+  }
+
+  /**
+   * "City, Country" for the batch: the median coordinate of the items that
+   * carry GPS, reverse-geocoded once. Null (never a throw) when no item has
+   * GPS, no geocoder is wired, or the lookup fails — sharing must not block
+   * on naming the place.
+   */
+  private async resolveLocation(items: MediaItem[]): Promise<string | null> {
+    if (this.geocoder == null) return null;
+    const coordinate = representativeCoordinate(
+      items.map(i => i.coordinate).filter((c): c is Coordinate => c != null),
+    );
+    if (coordinate == null) return null;
+    try {
+      return await this.geocoder.reverseGeocode(coordinate);
+    } catch {
+      return null;
+    }
   }
 }
