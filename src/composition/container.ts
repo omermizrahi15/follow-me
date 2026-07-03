@@ -1,4 +1,5 @@
 import { ShareMediaUseCase } from '../application/usecases/ShareMediaUseCase';
+import { ListFeedUseCase } from '../application/usecases/ListFeedUseCase';
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
 import { ListSubscribersUseCase } from '../application/usecases/ListSubscribersUseCase';
 import { RemoveSubscriberUseCase } from '../application/usecases/RemoveSubscriberUseCase';
@@ -37,6 +38,7 @@ const notifier = new ConsoleNotifier('Omer');
 const confirmationSender = new ConsoleConfirmationSender();
 
 export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage);
+export const listFeed = new ListFeedUseCase(mediaRepo);
 export const subscribe = new SubscribeUseCase(subscriberRepo, confirmationSender);
 export const listSubscribers = new ListSubscribersUseCase(subscriberRepo);
 export const removeSubscriber = new RemoveSubscriberUseCase(subscriberRepo);

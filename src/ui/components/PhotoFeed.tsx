@@ -17,8 +17,8 @@ export interface FeedPosting {
   id: string;
   /** Pre-formatted date label, e.g. "June 18, 2026". */
   date: string;
-  /** Place label, e.g. "Lisbon, Portugal". */
-  place: string;
+  /** Place label, e.g. "Lisbon, Portugal" — absent until location lands (issue #23). */
+  place?: string;
   /** Cover image shown full-bleed for the post (falls back to first media). */
   coverUri?: string;
   media: FeedMedia[];
@@ -61,8 +61,14 @@ function Post({ posting }: { posting: FeedPosting }): React.JSX.Element {
       )}
 
       <View style={styles.caption}>
-        <Text style={styles.place} numberOfLines={2}>{posting.place}</Text>
-        <Text style={styles.date}>{posting.date.toUpperCase()}</Text>
+        {posting.place != null ? (
+          <>
+            <Text style={styles.place} numberOfLines={2}>{posting.place}</Text>
+            <Text style={styles.date}>{posting.date.toUpperCase()}</Text>
+          </>
+        ) : (
+          <Text style={styles.place} numberOfLines={1}>{posting.date}</Text>
+        )}
       </View>
 
       {hasVideo(posting.media) && (

@@ -1,0 +1,17 @@
+-- The Home feed renders uploaded media grouped into "postings" — the batch of
+-- items shared together in one send (issue #44). Persist what the feed needs:
+--
+--   media_type  'image' | 'video' — drives the play badge on a posting.
+--   posting_id  shared by every item of one ShareMediaUseCase.share() call;
+--               the feed groups on it. Null for rows written before this
+--               migration — the reader falls back to a created_at time window.
+--   location    optional place label; stays null until media GPS metadata is
+--               reverse-geocoded (issue #23).
+
+alter table media add column if not exists media_type text not null default 'image';
+alter table media add column if not exists posting_id text;
+alter table media add column if not exists location text;
+
+-- The feed reads a publisher's media newest-first.
+create index if not exists media_owner_created_idx
+  on media (owner_id, created_at desc);

@@ -25,6 +25,16 @@ describe('Media', () => {
     expect(media.mediaType).toBe('video');
   });
 
+  it('stores the postingId that groups a shared batch', () => {
+    const media = Media.create({ ...validProps, postingId: 'posting-1' });
+    expect(media.postingId).toBe('posting-1');
+  });
+
+  it('has no postingId by default', () => {
+    const media = Media.create(validProps);
+    expect(media.postingId).toBeUndefined();
+  });
+
   it('throws if ownerId is missing', () => {
     expect(() => Media.create({ ...validProps, ownerId: '' }))
       .toThrow('Media must have an owner');

@@ -31,6 +31,9 @@ export class ShareMediaUseCase {
 
   async share(input: ShareMediaInput): Promise<MediaDto[]> {
     if (!input.ownerId) throw new Error('ownerId is required');
+    // Every item of one share() call carries the same postingId — the feed
+    // groups on it to render the batch as a single posting.
+    const postingId = `posting-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
     const mediaItems = await Promise.all(
       input.items.map(async (item) => {
         const url = await this.storage.upload(item.localUri, item.filename);
@@ -39,6 +42,7 @@ export class ShareMediaUseCase {
           ownerId: input.ownerId,
           url,
           createdAt: new Date(),
+          postingId,
           ...(item.mediaType != null ? { mediaType: item.mediaType } : {}),
         });
       }),

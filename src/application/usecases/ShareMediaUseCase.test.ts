@@ -75,6 +75,36 @@ describe('ShareMediaUseCase — multiple items', () => {
   });
 });
 
+describe('ShareMediaUseCase — posting grouping', () => {
+  it('stamps every item of one share with the same postingId', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: multipleItems });
+    const postingIds = mediaRepo.all().map(m => m.postingId);
+    expect(postingIds[0]).toBeDefined();
+    expect(new Set(postingIds).size).toBe(1);
+  });
+
+  it('uses a different postingId for each share call', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
+    await useCase.share({
+      ownerId: 'user-1',
+      items: [{ mediaId: 'media-2', localUri: 'file:///local/d.jpg', filename: 'd.jpg' }],
+    });
+    const postingIds = mediaRepo.all().map(m => m.postingId);
+    expect(new Set(postingIds).size).toBe(2);
+  });
+
+  it('keeps the item mediaType on the saved media', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await useCase.share({
+      ownerId: 'user-1',
+      items: [{ mediaId: 'media-1', localUri: 'file:///local/c.mp4', filename: 'c.mp4', mediaType: 'video' }],
+    });
+    expect(mediaRepo.all()[0]?.mediaType).toBe('video');
+  });
+});
+
 describe('ShareMediaUseCase — subscriber filtering', () => {
   it('notifies all active subscribers', async (): Promise<void> => {
     const { useCase, subscriberRepo, notifier } = makeSut();

@@ -20,8 +20,8 @@ import { logoSource } from '../assets';
 import { PhotoFeed } from '../components/PhotoFeed';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { FollowersSection } from './sections/FollowersSection';
-import { feedStubs } from '../data/feedStubs';
 import { useInviteLink } from '../hooks/useInviteLink';
+import { useFeed } from '../hooks/useFeed';
 import { useProfile } from '../hooks/useProfile';
 import { useSubscribers } from '../hooks/useSubscribers';
 import { usePublisherId } from '../context/AuthContext';
@@ -51,6 +51,7 @@ export function HomeScreen(): React.JSX.Element {
   const publisherId = usePublisherId();
   const { profile } = useProfile(publisherId);
   const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
+  const { postings, loading: feedLoading, reload: reloadFeed } = useFeed(publisherId);
   const [section, setSection] = useState<HomeSection>('me');
   const [bioExpanded, setBioExpanded] = useState(false);
 
@@ -75,12 +76,13 @@ export function HomeScreen(): React.JSX.Element {
   }, [requestedSection]);
 
   // The Me page never unmounts (sections are local state, Upload is a modal on
-  // top), so refresh the followers count whenever the screen regains focus —
-  // e.g. coming back from the Upload modal or after a new follower joins.
+  // top), so refresh the followers count and the feed whenever the screen
+  // regains focus — e.g. a fresh upload from the Upload modal must show up.
   useFocusEffect(
     useCallback(() => {
       void reloadSubscribers();
-    }, [reloadSubscribers]),
+      void reloadFeed();
+    }, [reloadSubscribers, reloadFeed]),
   );
 
   function snapTo(h: number): void {
@@ -128,7 +130,17 @@ export function HomeScreen(): React.JSX.Element {
         showsVerticalScrollIndicator={false}
         contentContainerStyle={{ paddingBottom: MEDIUM_H + spacing.lg }}
       >
-        <PhotoFeed postings={feedStubs} />
+        {postings.length > 0 ? (
+          <PhotoFeed postings={postings} />
+        ) : (
+          !feedLoading && (
+            <View style={styles.emptyFeed}>
+              <Ionicons name="images-outline" size={44} color="rgba(255,255,255,0.4)" />
+              <Text style={styles.emptyTitle}>No posts yet</Text>
+              <Text style={styles.emptyHint}>Photos you share with “Add post” will show up here.</Text>
+            </View>
+          )
+        )}
       </ScrollView>
 
       {/* Top scrim + floating logo/gear */}
@@ -236,6 +248,15 @@ export function HomeScreen(): React.JSX.Element {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#0E141C' },
+  emptyFeed: {
+    height: SCREEN_H - MEDIUM_H,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xxl,
+  },
+  emptyTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
+  emptyHint: { color: 'rgba(255,255,255,0.65)', fontSize: 13, textAlign: 'center' },
   topScrim: { position: 'absolute', top: 0, left: 0, right: 0 },
   appHeader: {
     position: 'absolute',
