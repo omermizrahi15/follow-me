@@ -1,13 +1,12 @@
 import React from 'react';
 import { View, Text, Image, ScrollView, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import type { FeedMedia } from '../components/PhotoFeed';
 import { mediaPreviewUri } from '../utils/mediaPreview';
-import { colors, radius, spacing } from '../theme/theme';
+import { colors, radius, shadow, spacing } from '../theme/theme';
 
 /** Width-to-height ratio of each photo in the posting (matches the feed). */
 const ASPECT = 4 / 5;
@@ -60,40 +59,37 @@ export function PostingDetailScreen(): React.JSX.Element {
         ))}
       </ScrollView>
 
-      {/* Top scrim + floating back button, same language as the Me page header */}
-      <LinearGradient
-        colors={['rgba(8,12,18,0.55)', 'transparent']}
-        style={[styles.topScrim, { height: insets.top + 64 }]}
-        pointerEvents="none"
-      />
+      {/* Floating back button — solid light pill so it reads over photos too */}
       <TouchableOpacity
         style={[styles.backButton, { top: insets.top + spacing.sm }]}
         accessibilityLabel="Back"
         onPress={() => navigation.goBack()}
       >
-        <Ionicons name="chevron-back" size={22} color="#fff" />
+        <Ionicons name="chevron-back" size={22} color={colors.ink} />
       </TouchableOpacity>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0E141C' },
-  topScrim: { position: 'absolute', top: 0, left: 0, right: 0 },
+  container: { flex: 1, backgroundColor: colors.background },
   backButton: {
     position: 'absolute',
     left: spacing.xl,
     width: 40,
     height: 40,
-    borderRadius: radius.md,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: radius.pill,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.border,
     alignItems: 'center',
     justifyContent: 'center',
+    ...shadow.raised,
   },
   titleBlock: { paddingHorizontal: spacing.xl, marginBottom: spacing.lg },
-  place: { color: '#fff', fontSize: 28, fontWeight: '700', letterSpacing: -0.5 },
+  place: { color: colors.text, fontSize: 28, fontWeight: '700', letterSpacing: -0.5 },
   date: {
-    color: 'rgba(255,255,255,0.75)',
+    color: colors.textSecondary,
     fontSize: 13,
     fontWeight: '600',
     letterSpacing: 1.2,

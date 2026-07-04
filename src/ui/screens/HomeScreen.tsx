@@ -123,6 +123,11 @@ export function HomeScreen(): React.JSX.Element {
   const glassBand = insets.bottom + NAV_BAR_H;
   const bottomInset = glassBand + spacing.md;
 
+  // The header floats over full-bleed photos when there are posts (white text
+  // on a dark scrim) but over the plain light background when there are none.
+  const overPhotos = postings.length > 0;
+  const headerTint = overPhotos ? '#fff' : colors.ink;
+
   return (
     <View style={styles.container}>
       {/* Feed = full-screen scrolling background */}
@@ -148,7 +153,7 @@ export function HomeScreen(): React.JSX.Element {
         ) : (
           !feedLoading && (
             <View style={styles.emptyFeed}>
-              <Ionicons name="images-outline" size={44} color="rgba(255,255,255,0.4)" />
+              <Ionicons name="images-outline" size={44} color={colors.textMuted} />
               <Text style={styles.emptyTitle}>No posts yet</Text>
               <Text style={styles.emptyHint}>Photos you share with “Add post” will show up here.</Text>
               <TouchableOpacity
@@ -164,23 +169,25 @@ export function HomeScreen(): React.JSX.Element {
         )}
       </ScrollView>
 
-      {/* Top scrim + floating logo/gear */}
-      <LinearGradient
-        colors={['rgba(8,12,18,0.55)', 'transparent']}
-        style={[styles.topScrim, { height: insets.top + 64 }]}
-        pointerEvents="none"
-      />
+      {/* Top scrim (only over photos) + floating logo/gear */}
+      {overPhotos && (
+        <LinearGradient
+          colors={['rgba(8,12,18,0.55)', 'transparent']}
+          style={[styles.topScrim, { height: insets.top + 64 }]}
+          pointerEvents="none"
+        />
+      )}
       <View style={[styles.appHeader, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
         <View style={styles.logoRow}>
-          <Image source={logoSource} style={styles.logoImg} resizeMode="contain" />
-          <Text style={styles.logoText}>Follow Me</Text>
+          <Image source={logoSource} style={[styles.logoImg, { tintColor: headerTint }]} resizeMode="contain" />
+          <Text style={[styles.logoText, { color: headerTint }]}>Follow Me</Text>
         </View>
         <TouchableOpacity
-          style={styles.gearButton}
+          style={[styles.gearButton, !overPhotos && styles.gearButtonLight]}
           accessibilityLabel="Settings"
           onPress={() => navigation.navigate('Settings')}
         >
-          <Ionicons name="settings-sharp" size={20} color="#fff" />
+          <Ionicons name="settings-sharp" size={20} color={headerTint} />
         </TouchableOpacity>
       </View>
 
@@ -268,7 +275,7 @@ export function HomeScreen(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0E141C' },
+  container: { flex: 1, backgroundColor: colors.background },
   emptyFeed: {
     height: SCREEN_H - MEDIUM_H,
     alignItems: 'center',
@@ -276,20 +283,20 @@ const styles = StyleSheet.create({
     gap: spacing.sm,
     paddingHorizontal: spacing.xxl,
   },
-  emptyTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
-  emptyHint: { color: 'rgba(255,255,255,0.65)', fontSize: 13, textAlign: 'center' },
+  emptyTitle: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  emptyHint: { color: colors.textSecondary, fontSize: 13, textAlign: 'center' },
   feedEndButton: {
     alignSelf: 'center',
     flexDirection: 'row',
     alignItems: 'center',
     gap: spacing.xs,
-    backgroundColor: '#fff',
+    backgroundColor: colors.accent,
     paddingVertical: spacing.md,
     paddingHorizontal: spacing.xl,
     borderRadius: radius.pill,
     marginVertical: spacing.xl,
   },
-  feedEndButtonText: { color: colors.ink, fontWeight: '600', fontSize: 14 },
+  feedEndButtonText: { color: colors.onAccent, fontWeight: '600', fontSize: 14 },
   topScrim: { position: 'absolute', top: 0, left: 0, right: 0 },
   appHeader: {
     position: 'absolute',
@@ -300,8 +307,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   logoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  logoImg: { width: 40, height: 30, tintColor: '#fff' },
-  logoText: { color: '#fff', fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
+  logoImg: { width: 40, height: 30 },
+  logoText: { fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
   gearButton: {
     width: 40,
     height: 40,
@@ -310,6 +317,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  gearButtonLight: { backgroundColor: colors.surfaceAlt },
   sheet: {
     position: 'absolute',
     left: 0,
