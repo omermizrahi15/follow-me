@@ -1,8 +1,9 @@
 import React from 'react';
-import { View, Text, Image, StyleSheet } from 'react-native';
+import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { MediaType } from '../../domain/entities/Media';
+import { mediaPreviewUri } from '../utils/mediaPreview';
 import { colors, radius, spacing } from '../theme/theme';
 
 /** A single media item within a posting. Mirrors the domain `Media`. */
@@ -26,19 +27,22 @@ export interface FeedPosting {
 
 interface Props {
   postings: FeedPosting[];
+  /** Called with the tapped posting — the Me page pushes its detail view. */
+  onPressPosting?: (posting: FeedPosting) => void;
 }
 
-/** Width-to-height ratio of each full-bleed post (portrait, Instagram-ish). */
-const ASPECT = 4 / 5;
+/** Width-to-height ratio of each full-bleed post (tall portrait, Polarsteps-ish). */
+const ASPECT = 2 / 3;
 
 function hasVideo(media: FeedMedia[]): boolean {
   return media.some(m => m.type === 'video');
 }
 
-function Post({ posting }: { posting: FeedPosting }): React.JSX.Element {
-  const cover = posting.coverUri ?? posting.media.find(m => m.uri)?.uri;
+function Post({ posting, onPress }: { posting: FeedPosting; onPress?: () => void }): React.JSX.Element {
+  const coverMedia = posting.media.find(m => m.uri);
+  const cover = posting.coverUri ?? (coverMedia != null ? mediaPreviewUri(coverMedia) : undefined);
   return (
-    <View style={styles.post}>
+    <TouchableOpacity style={styles.post} activeOpacity={0.92} onPress={onPress} disabled={onPress == null}>
       {cover ? (
         <Image source={{ uri: cover }} style={styles.image} resizeMode="cover" />
       ) : (
@@ -76,7 +80,7 @@ function Post({ posting }: { posting: FeedPosting }): React.JSX.Element {
           <Ionicons name="play" size={22} color="#fff" style={{ marginLeft: 3 }} />
         </View>
       )}
-    </View>
+    </TouchableOpacity>
   );
 }
 
@@ -84,12 +88,17 @@ function Post({ posting }: { posting: FeedPosting }): React.JSX.Element {
  * Full-bleed feed of the publisher's latest postings — large edge-to-edge
  * cover images stacked with no gaps (Instagram / Polarsteps "memories" style),
  * each with its place + date overlaid and a play badge when it holds video.
+ * Tapping a post opens it (all its photos) via `onPressPosting`.
  */
-export function PhotoFeed({ postings }: Props): React.JSX.Element {
+export function PhotoFeed({ postings, onPressPosting }: Props): React.JSX.Element {
   return (
     <View>
       {postings.map(p => (
-        <Post key={p.id} posting={p} />
+        <Post
+          key={p.id}
+          posting={p}
+          {...(onPressPosting != null ? { onPress: () => onPressPosting(p) } : {})}
+        />
       ))}
     </View>
   );

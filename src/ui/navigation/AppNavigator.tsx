@@ -6,6 +6,7 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { UploadScreen } from '../screens/UploadScreen';
+import { PostingDetailScreen } from '../screens/PostingDetailScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { useOnboarding } from '../hooks/useOnboarding';
@@ -40,6 +41,7 @@ function RootNavigator(): React.JSX.Element {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="Upload" component={UploadScreen} options={{ presentation: 'modal' }} />
+            <Stack.Screen name="Posting" component={PostingDetailScreen} />
           </>
         )}
       </Stack.Navigator>

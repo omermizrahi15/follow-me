@@ -131,13 +131,34 @@ export function HomeScreen(): React.JSX.Element {
         contentContainerStyle={{ paddingBottom: MEDIUM_H + spacing.lg }}
       >
         {postings.length > 0 ? (
-          <PhotoFeed postings={postings} />
+          <>
+            <PhotoFeed
+              postings={postings}
+              onPressPosting={p => navigation.navigate('Posting', { posting: p })}
+            />
+            <TouchableOpacity
+              style={styles.feedEndButton}
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate('Upload')}
+            >
+              <Ionicons name="add" size={18} color={colors.ink} />
+              <Text style={styles.feedEndButtonText}>Add post</Text>
+            </TouchableOpacity>
+          </>
         ) : (
           !feedLoading && (
             <View style={styles.emptyFeed}>
               <Ionicons name="images-outline" size={44} color="rgba(255,255,255,0.4)" />
               <Text style={styles.emptyTitle}>No posts yet</Text>
               <Text style={styles.emptyHint}>Photos you share with “Add post” will show up here.</Text>
+              <TouchableOpacity
+                style={[styles.feedEndButton, { marginTop: spacing.md }]}
+                activeOpacity={0.85}
+                onPress={() => navigation.navigate('Upload')}
+              >
+                <Ionicons name="add" size={18} color={colors.ink} />
+                <Text style={styles.feedEndButtonText}>Add post</Text>
+              </TouchableOpacity>
             </View>
           )
         )}
@@ -257,6 +278,18 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { color: '#fff', fontSize: 17, fontWeight: '700' },
   emptyHint: { color: 'rgba(255,255,255,0.65)', fontSize: 13, textAlign: 'center' },
+  feedEndButton: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: '#fff',
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.pill,
+    marginVertical: spacing.xl,
+  },
+  feedEndButtonText: { color: colors.ink, fontWeight: '600', fontSize: 14 },
   topScrim: { position: 'absolute', top: 0, left: 0, right: 0 },
   appHeader: {
     position: 'absolute',
