@@ -5,14 +5,15 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import type { FeedMedia } from '../components/PhotoFeed';
-import { mediaPreviewUri } from '../utils/mediaPreview';
+import { displaySizedUri, mediaPreviewUri } from '../utils/mediaPreview';
 import { colors, radius, shadow, spacing } from '../theme/theme';
 
 /** Width-to-height ratio of each photo in the posting (matches the feed). */
 const ASPECT = 4 / 5;
 
 function MediaItem({ media }: { media: FeedMedia }): React.JSX.Element {
-  const uri = mediaPreviewUri(media);
+  const raw = mediaPreviewUri(media);
+  const uri = raw != null ? displaySizedUri(raw, 1080) : undefined;
   return (
     <View style={styles.mediaItem}>
       {uri != null ? (

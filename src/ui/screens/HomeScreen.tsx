@@ -130,44 +130,38 @@ export function HomeScreen(): React.JSX.Element {
 
   return (
     <View style={styles.container}>
-      {/* Feed = full-screen scrolling background */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: MEDIUM_H + spacing.lg }}
-      >
-        {postings.length > 0 ? (
-          <>
-            <PhotoFeed
-              postings={postings}
-              onPressPosting={p => navigation.navigate('Posting', { posting: p })}
-            />
+      {/* Feed = full-screen virtualized background; only posts near the viewport are mounted */}
+      {postings.length > 0 ? (
+        <PhotoFeed
+          postings={postings}
+          onPressPosting={p => navigation.navigate('Posting', { posting: p })}
+          bottomPadding={MEDIUM_H + spacing.lg}
+          footer={
             <TouchableOpacity
               style={styles.feedEndButton}
               activeOpacity={0.85}
               onPress={() => navigation.navigate('Upload')}
             >
-              <Ionicons name="add" size={18} color={colors.ink} />
+              <Ionicons name="add" size={18} color={colors.onAccent} />
               <Text style={styles.feedEndButtonText}>Add post</Text>
             </TouchableOpacity>
-          </>
-        ) : (
-          !feedLoading && (
-            <View style={styles.emptyFeed}>
-              <Ionicons name="images-outline" size={44} color={colors.textMuted} />
-              <Text style={styles.emptyTitle}>No posts yet</Text>
-              <Text style={styles.emptyHint}>Photos you share with “Add post” will show up here.</Text>
-              <TouchableOpacity
-                style={[styles.feedEndButton, { marginTop: spacing.md }]}
-                activeOpacity={0.85}
-                onPress={() => navigation.navigate('Upload')}
-              >
-                <Ionicons name="add" size={18} color={colors.ink} />
-                <Text style={styles.feedEndButtonText}>Add post</Text>
-              </TouchableOpacity>
-            </View>
-          )
-        )}
-      </ScrollView>
+          }
+        />
+      ) : !feedLoading ? (
+        <View style={styles.emptyFeed}>
+          <Ionicons name="images-outline" size={44} color={colors.textMuted} />
+          <Text style={styles.emptyTitle}>No posts yet</Text>
+          <Text style={styles.emptyHint}>Photos you share with “Add post” will show up here.</Text>
+          <TouchableOpacity
+            style={[styles.feedEndButton, { marginTop: spacing.md }]}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Upload')}
+          >
+            <Ionicons name="add" size={18} color={colors.onAccent} />
+            <Text style={styles.feedEndButtonText}>Add post</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
       {/* Top scrim (only over photos) + floating logo/gear */}
       {overPhotos && (

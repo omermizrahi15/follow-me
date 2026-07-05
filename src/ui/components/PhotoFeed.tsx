@@ -1,9 +1,9 @@
 import React from 'react';
-import { View, Text, Image, TouchableOpacity, StyleSheet } from 'react-native';
+import { View, Text, Image, TouchableOpacity, FlatList, Dimensions, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import type { MediaType } from '../../domain/entities/Media';
-import { mediaPreviewUri } from '../utils/mediaPreview';
+import { displaySizedUri, mediaPreviewUri } from '../utils/mediaPreview';
 import { colors, radius, spacing } from '../theme/theme';
 
 /** A single media item within a posting. Mirrors the domain `Media`. */
@@ -29,10 +29,18 @@ interface Props {
   postings: FeedPosting[];
   /** Called with the tapped posting — the Me page pushes its detail view. */
   onPressPosting?: (posting: FeedPosting) => void;
+  /** Rendered after the last post, scrolling with the feed (e.g. "Add post"). */
+  footer?: React.ReactElement;
+  /** Extra bottom padding so the end of the feed clears the bottom sheet. */
+  bottomPadding?: number;
 }
 
 /** Width-to-height ratio of each full-bleed post (tall portrait, Polarsteps-ish). */
 const ASPECT = 2 / 3;
+/** Every post has the same fixed height — that's what lets the list virtualize cheaply. */
+const POST_HEIGHT = Math.round(Dimensions.get('window').width / ASPECT);
+/** Covers are delivered resized to roughly the screen, not at original camera size. */
+const COVER_WIDTH = 1080;
 
 function hasVideo(media: FeedMedia[]): boolean {
   return media.some(m => m.type === 'video');
@@ -40,7 +48,8 @@ function hasVideo(media: FeedMedia[]): boolean {
 
 function Post({ posting, onPress }: { posting: FeedPosting; onPress?: () => void }): React.JSX.Element {
   const coverMedia = posting.media.find(m => m.uri);
-  const cover = posting.coverUri ?? (coverMedia != null ? mediaPreviewUri(coverMedia) : undefined);
+  const rawCover = posting.coverUri ?? (coverMedia != null ? mediaPreviewUri(coverMedia) : undefined);
+  const cover = rawCover != null ? displaySizedUri(rawCover, COVER_WIDTH) : undefined;
   return (
     <TouchableOpacity style={styles.post} activeOpacity={0.92} onPress={onPress} disabled={onPress == null}>
       {cover ? (
@@ -89,23 +98,35 @@ function Post({ posting, onPress }: { posting: FeedPosting; onPress?: () => void
  * cover images stacked with no gaps (Instagram / Polarsteps "memories" style),
  * each with its place + date overlaid and a play badge when it holds video.
  * Tapping a post opens it (all its photos) via `onPressPosting`.
+ *
+ * Virtualized: only the posts near the viewport are mounted, so a feed of
+ * hundreds of postings costs the same as a feed of five.
  */
-export function PhotoFeed({ postings, onPressPosting }: Props): React.JSX.Element {
+export function PhotoFeed({ postings, onPressPosting, footer, bottomPadding }: Props): React.JSX.Element {
   return (
-    <View>
-      {postings.map(p => (
+    <FlatList
+      data={postings}
+      keyExtractor={p => p.id}
+      renderItem={({ item }) => (
         <Post
-          key={p.id}
-          posting={p}
-          {...(onPressPosting != null ? { onPress: () => onPressPosting(p) } : {})}
+          posting={item}
+          {...(onPressPosting != null ? { onPress: () => onPressPosting(item) } : {})}
         />
-      ))}
-    </View>
+      )}
+      showsVerticalScrollIndicator={false}
+      contentContainerStyle={{ paddingBottom: bottomPadding ?? 0 }}
+      ListFooterComponent={footer ?? null}
+      getItemLayout={(_, index) => ({ length: POST_HEIGHT, offset: POST_HEIGHT * index, index })}
+      initialNumToRender={3}
+      maxToRenderPerBatch={4}
+      windowSize={5}
+      removeClippedSubviews
+    />
   );
 }
 
 const styles = StyleSheet.create({
-  post: { width: '100%', aspectRatio: ASPECT, backgroundColor: colors.surfaceAlt },
+  post: { width: '100%', height: POST_HEIGHT, backgroundColor: colors.surfaceAlt },
   image: { width: '100%', height: '100%' },
   placeholder: { alignItems: 'center', justifyContent: 'center' },
   scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '45%' },
