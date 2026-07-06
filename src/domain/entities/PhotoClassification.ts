@@ -1,23 +1,35 @@
 import type { PhotoCandidate } from './PhotoCandidate';
 
 /**
- * The rule buckets a photo can fall into. `other` is a catch-all for anything
- * that doesn't match a real rule (screenshots, receipts, blurry shots) and is
- * always excluded from suggestions.
+ * The 10 scene categories a photo can fall into, ordered from most to least
+ * desirable for a travel/lifestyle share. `other` is a catch-all for anything
+ * that doesn't fit (screenshots, receipts, blurry shots) and is always excluded.
  */
 export type PhotoCategory =
-  | 'selfie_with_view'
-  | 'selfie_with_people'
-  | 'view_only'
-  | 'food'
+  | 'selfie_with_view'    // You in frame with scenic background
+  | 'sunset_sunrise'      // Golden-hour / sunrise / sunset sky
+  | 'view_only'           // Landscape, landmark, scenery — no selfie
+  | 'architecture'        // Buildings, streets, urban scenes
+  | 'selfie_with_people'  // Group/people photos, no notable scenery
+  | 'food'                // Food & drinks
+  | 'nature'              // Wildlife, plants, natural scenes (no selfie)
+  | 'night_scene'         // Night photography, city lights after dark
+  | 'activity'            // Sports, adventures, experiences in motion
+  | 'cultural'            // Museums, art, historical, religious sites
   | 'other';
 
-/** Every category the publisher is allowed to opt into (excludes `other`). */
+/** Every category the publisher is allowed to enable (excludes `other`). */
 export const SELECTABLE_CATEGORIES: readonly PhotoCategory[] = [
   'selfie_with_view',
-  'selfie_with_people',
+  'sunset_sunrise',
   'view_only',
+  'architecture',
+  'selfie_with_people',
   'food',
+  'nature',
+  'night_scene',
+  'activity',
+  'cultural',
 ] as const;
 
 /**
@@ -33,4 +45,10 @@ export interface PhotoClassification {
   quality: number;
   /** Short human-readable caption for the photo. */
   caption: string;
+  /**
+   * 2-4 word slug identifying the unique scene or subject, e.g. "beach-sunset",
+   * "restaurant-dinner", "hiking-summit". Photos of the same moment / place
+   * should share the same slug so the selection service can deduplicate them.
+   */
+  scene: string;
 }

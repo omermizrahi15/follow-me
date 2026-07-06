@@ -1,0 +1,73 @@
+/**
+ * Supabase Edge Function: POST /send-post
+ *
+ * Sends a manually-approved post (batch of already-uploaded media URLs) to ONE
+ * subscriber over WhatsApp. Called by the app once per subscriber after the
+ * publisher confirms a post — Twilio credentials stay server-side (issue #24).
+ *
+ * Body: { publisherId: string, to: string (phone), mediaUrls: string[] }
+ *
+ * TODO(#24): verify the caller's Supabase JWT matches publisherId instead of
+ * trusting the body (dev-grade, same posture as classify-photos).
+ *
+ * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (auto-injected),
+ *      TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM.
+ */
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { sendBatch, type TwilioCreds } from '../_shared/twilio.ts';
+import { composeAutoPostBody } from '../_shared/notificationBody.ts';
+
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+const TWILIO: TwilioCreds = {
+  accountSid: Deno.env.get('TWILIO_ACCOUNT_SID') ?? '',
+  authToken: Deno.env.get('TWILIO_AUTH_TOKEN') ?? '',
+  fromNumber: Deno.env.get('TWILIO_WHATSAPP_FROM') ?? '',
+};
+
+const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+
+function json(body: unknown, status = 200): Response {
+  return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+}
+
+async function publisherIdentity(publisherId: string): Promise<{ name: string; phone?: string }> {
+  try {
+    const { data } = await supabase.auth.admin.getUserById(publisherId);
+    const meta = (data.user?.user_metadata ?? {}) as { full_name?: string };
+    return { name: meta.full_name ?? 'Your friend', phone: data.user?.phone };
+  } catch {
+    return { name: 'Your friend' };
+  }
+}
+
+Deno.serve(async req => {
+  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+
+  let body: { publisherId?: string; to?: string; mediaUrls?: string[] };
+  try {
+    body = await req.json();
+  } catch {
+    return json({ error: 'Invalid JSON' }, 400);
+  }
+
+  const { publisherId, to, mediaUrls } = body;
+  if (!publisherId || !to || !Array.isArray(mediaUrls) || mediaUrls.length === 0) {
+    return json({ error: 'publisherId, to and non-empty mediaUrls are required' }, 400);
+  }
+  if (mediaUrls.some(u => typeof u !== 'string' || !u.startsWith('https://'))) {
+    return json({ error: 'mediaUrls must be https URLs' }, 400);
+  }
+
+  const { name, phone } = await publisherIdentity(publisherId);
+  const caption = composeAutoPostBody(name, phone);
+
+  try {
+    await sendBatch(TWILIO, to, caption, mediaUrls);
+  } catch (err) {
+    console.error(`send-post to ${to} failed:`, err);
+    return json({ error: err instanceof Error ? err.message : 'send failed' }, 502);
+  }
+
+  return json({ sent: mediaUrls.length });
+});

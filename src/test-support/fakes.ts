@@ -246,13 +246,24 @@ export class FakePhotoClassifier implements IPhotoClassifier {
   receivedCandidateIds: string[] = [];
   constructor(private readonly byId: Map<string, PhotoClassification> = new Map()) {}
 
-  classify(candidates: PhotoCandidate[]): Promise<PhotoClassification[]> {
-    this.receivedCandidateIds = candidates.map(c => c.id);
-    return Promise.resolve(
-      candidates
-        .map(c => this.byId.get(c.id))
-        .filter((c): c is PhotoClassification => c !== undefined),
-    );
+  classify(
+    candidates: PhotoCandidate[],
+    onEach?: (result: PhotoClassification, index: number, total: number) => void,
+    shouldStop?: () => boolean,
+  ): Promise<PhotoClassification[]> {
+    this.receivedCandidateIds = [];
+    const results: PhotoClassification[] = [];
+    const total = candidates.length;
+    for (const c of candidates) {
+      this.receivedCandidateIds.push(c.id);
+      const r = this.byId.get(c.id);
+      if (r != null) {
+        results.push(r);
+        onEach?.(r, results.length, total);
+      }
+      if (shouldStop?.()) break;
+    }
+    return Promise.resolve(results);
   }
 }
 
@@ -305,6 +316,15 @@ export class InMemoryCandidatePhotoRepository implements ICandidatePhotoReposito
       .filter(p => p.publisherId === publisherId)
       .map(p => p.assetId);
     return Promise.resolve(new Set(ids));
+  }
+
+  recentUrls(publisherId: string, limit: number): Promise<string[]> {
+    const urls = [...this.store.values()]
+      .filter(p => p.publisherId === publisherId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit)
+      .map(p => p.url);
+    return Promise.resolve(urls);
   }
 
   all(): CandidatePhoto[] {

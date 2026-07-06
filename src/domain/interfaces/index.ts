@@ -66,7 +66,17 @@ export interface IPublisherConfigRepository {
 
 /** Classifies candidate photos into rule categories with confidence/quality. */
 export interface IPhotoClassifier {
-  classify(candidates: PhotoCandidate[]): Promise<PhotoClassification[]>;
+  /**
+   * @param onEach     Called after each photo is classified (index is 1-based,
+   *                   total is the full candidate count).
+   * @param shouldStop When provided, called after each result. If it returns
+   *                   true, classification stops early (batch quota reached).
+   */
+  classify(
+    candidates: PhotoCandidate[],
+    onEach?: (result: PhotoClassification, index: number, total: number) => void,
+    shouldStop?: () => boolean,
+  ): Promise<PhotoClassification[]>;
 }
 
 /** Reads photos from the device library within a recency window. */
@@ -90,6 +100,8 @@ export interface ISentPhotoTracker {
 export interface ICandidatePhotoRepository {
   saveMany(photos: CandidatePhoto[]): Promise<void>;
   existingAssetIds(publisherId: string): Promise<Set<string>>;
+  /** Most recently created candidate photo URLs (newest first). */
+  recentUrls(publisherId: string, limit: number): Promise<string[]>;
 }
 
 /** Resolves a candidate to a uri the storage service can read (e.g. ph:// → file://). */

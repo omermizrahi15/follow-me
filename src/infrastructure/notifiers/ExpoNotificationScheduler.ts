@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { SchedulableTriggerInputTypes } from 'expo-notifications';
 import type { INotificationScheduler, ReminderSchedule } from '../../domain/interfaces';
+import { POST_REVIEW_CATEGORY } from './NotificationCategories';
 
 /** Stable id so re-scheduling replaces the previous reminder rather than stacking. */
 const REMINDER_ID = 'post-reminder';
@@ -25,6 +26,8 @@ export class ExpoNotificationScheduler implements INotificationScheduler {
       content: {
         title: 'Ready for your next post?',
         body: "We've picked some recent photos for you to review.",
+        categoryIdentifier: POST_REVIEW_CATEGORY,
+        interruptionLevel: 'timeSensitive',
         data: { screen: REMINDER_TARGET_SCREEN },
       },
       trigger: {
@@ -39,6 +42,48 @@ export class ExpoNotificationScheduler implements INotificationScheduler {
 
   async cancelReminder(): Promise<void> {
     await Notifications.cancelScheduledNotificationAsync(REMINDER_ID);
+  }
+
+  /**
+   * DEV ONLY — fires the reminder notification after `seconds` seconds.
+   * Pass `localAttachmentUris` (file:// paths) to show photos in the notification.
+   * Multiple URIs produce a scrollable filmstrip in the expanded view.
+   */
+  async scheduleTestIn(seconds: number, localAttachmentUris: string[] = []): Promise<void> {
+    const granted = await this.ensurePermission();
+    if (!granted) throw new Error('Notification permission not granted');
+    await this.cancelReminder();
+
+    // NOTE: the TS type (NotificationContentAttachmentIos) declares `url`/`type`,
+    // but the native iOS module reads `uri`/`typeHint` (Records.swift), so the
+    // typed keys are silently dropped. Send the keys native actually reads.
+    const attachments = localAttachmentUris.map((uri, i) => ({
+      identifier: `photo-${i}`,
+      uri,
+      hideThumbnail: false,
+    })) as unknown as Notifications.NotificationContentAttachmentIos[];
+
+    const photoCount = attachments.length;
+    const title = photoCount > 0
+      ? `${photoCount} photo${photoCount === 1 ? '' : 's'} ready to post 📸`
+      : '[DEV] Ready for your next post?';
+    const body = "We've pre-selected your best recent shots — tap to review.";
+
+    await Notifications.scheduleNotificationAsync({
+      identifier: REMINDER_ID,
+      content: {
+        title,
+        body,
+        categoryIdentifier: POST_REVIEW_CATEGORY,
+        interruptionLevel: 'timeSensitive',
+        attachments,
+        data: { screen: REMINDER_TARGET_SCREEN },
+      },
+      trigger: {
+        type: SchedulableTriggerInputTypes.TIME_INTERVAL,
+        seconds,
+      },
+    });
   }
 
   private async ensurePermission(): Promise<boolean> {

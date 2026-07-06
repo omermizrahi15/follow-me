@@ -16,6 +16,11 @@ describe('PublisherConfig', () => {
     expect(config.requireApproval).toBe(true);
   });
 
+  it('stores 3days frequency', () => {
+    const config = PublisherConfig.create({ ...validProps, frequency: '3days' });
+    expect(config.frequency).toBe('3days');
+  });
+
   it('stores biweekly frequency', () => {
     const config = PublisherConfig.create({ ...validProps, frequency: 'biweekly' });
     expect(config.frequency).toBe('biweekly');
@@ -36,6 +41,18 @@ describe('PublisherConfig', () => {
       .toThrow('PublisherConfig must have a publisherId');
   });
 
+  describe('lookbackDays derives from frequency', () => {
+    it.each([
+      ['3days', 3],
+      ['weekly', 7],
+      ['biweekly', 14],
+      ['monthly', 30],
+    ] as const)('frequency=%s → lookbackDays=%i', (frequency, days) => {
+      const config = PublisherConfig.create({ ...validProps, frequency });
+      expect(config.lookbackDays).toBe(days);
+    });
+  });
+
   describe('reminder schedule + suggestion settings', () => {
     it('applies sensible defaults when new fields are omitted', () => {
       const config = PublisherConfig.create(validProps);
@@ -45,12 +62,17 @@ describe('PublisherConfig', () => {
       expect(config.notifyMinute).toBe(0);
       expect(config.enabledCategories).toEqual([
         'selfie_with_view',
-        'selfie_with_people',
+        'sunset_sunrise',
         'view_only',
+        'architecture',
+        'selfie_with_people',
         'food',
+        'nature',
+        'night_scene',
+        'activity',
+        'cultural',
       ]);
-      expect(config.lookbackDays).toBe(7);
-      expect(config.minQuality).toBe(0.4);
+      expect(config.minQuality).toBe(0.15);
     });
 
     it('parses a custom notifyTime into hour and minute', () => {
@@ -59,17 +81,15 @@ describe('PublisherConfig', () => {
       expect(config.notifyMinute).toBe(45);
     });
 
-    it('stores a custom day, categories, lookback and minQuality', () => {
+    it('stores a custom day, categories and minQuality', () => {
       const config = PublisherConfig.create({
         ...validProps,
         notifyDayOfWeek: 5,
         enabledCategories: ['food'],
-        lookbackDays: 14,
         minQuality: 0.6,
       });
       expect(config.notifyDayOfWeek).toBe(5);
       expect(config.enabledCategories).toEqual(['food']);
-      expect(config.lookbackDays).toBe(14);
       expect(config.minQuality).toBe(0.6);
     });
 
@@ -87,11 +107,6 @@ describe('PublisherConfig', () => {
       expect(() =>
         PublisherConfig.create({ ...validProps, enabledCategories: ['other'] as never }),
       ).toThrow('enabledCategories');
-    });
-
-    it.each([0, -3])('rejects a non-positive lookbackDays (%p)', days => {
-      expect(() => PublisherConfig.create({ ...validProps, lookbackDays: days }))
-        .toThrow('lookbackDays');
     });
 
     it.each([-0.1, 1.1])('rejects an out-of-range minQuality (%p)', q => {

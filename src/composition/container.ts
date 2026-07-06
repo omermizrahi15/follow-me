@@ -14,7 +14,8 @@ import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri } from '../in
 import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotificationScheduler';
 import { registerExpoPushToken } from '../infrastructure/notifiers/ExpoPushToken';
 import type { ISentPhotoTracker } from '../domain/interfaces';
-import { ConsoleNotifier, ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
+import { ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
+import { WhatsAppEdgeNotifier } from '../infrastructure/notifiers/WhatsAppEdgeNotifier';
 import { SupabaseAuthService } from '../infrastructure/auth/SupabaseAuthService';
 import { SupabaseMediaRepository } from '../infrastructure/repositories/SupabaseMediaRepository';
 import { SupabaseSubscriberRepository } from '../infrastructure/repositories/SupabaseSubscriberRepository';
@@ -43,8 +44,9 @@ export const storage = new CloudinaryStorageService(
   requireEnv('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
   requireEnv('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
 );
-// TODO(#24): replace with WhatsApp implementations once notifications move server-side
-const notifier = new ConsoleNotifier('Omer');
+// Manual posts send WhatsApp via the send-post Edge Function (Twilio creds stay
+// server-side). TODO(#24): move subscribe confirmations server-side too.
+const notifier = new WhatsAppEdgeNotifier(`${supabaseUrl}/functions/v1/send-post`, supabaseKey);
 const confirmationSender = new ConsoleConfirmationSender();
 
 const mediaLibrary = new ExpoMediaLibrary();
@@ -86,3 +88,11 @@ export const registerPushToken = (): Promise<string | null> => registerExpoPushT
 
 /** The device's current IANA timezone, stored so the server fires at local time. */
 export const deviceTimezone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;
+
+/** DEV ONLY — schedule the approval-flow reminder to fire in `seconds` seconds. */
+export const scheduleTestNotification = (seconds: number, localAttachmentUris: string[] = []): Promise<void> =>
+  notificationScheduler.scheduleTestIn(seconds, localAttachmentUris);
+
+/** DEV ONLY — recent cloud-synced photo URLs (Cloudinary) for notification tests. */
+export const recentCandidateUrls = (publisherId: string, limit: number): Promise<string[]> =>
+  candidateRepo.recentUrls(publisherId, limit);

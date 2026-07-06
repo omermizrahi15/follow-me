@@ -51,7 +51,7 @@ function rowToConfig(row: ConfigRow): PublisherConfig {
     notifyDayOfWeek: row.notify_day_of_week,
     notifyTime: row.notify_time,
     enabledCategories: row.enabled_categories as PhotoCategory[],
-    lookbackDays: row.lookback_days,
+    // lookbackDays is now derived from frequency — not read from DB
     minQuality: row.min_quality,
     timezone: row.timezone,
     expoPushToken: row.expo_push_token ?? '',

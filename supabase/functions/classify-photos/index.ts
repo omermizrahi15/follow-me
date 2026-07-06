@@ -1,7 +1,7 @@
 /**
  * Supabase Edge Function: POST /classify-photos
  * Body: { "photos": [{ "id": string, "url"?: string, "base64"?: string, "mimeType"?: string }] }
- * Returns: { "classifications": [{ id, category, confidence, quality, caption }] }
+ * Returns: { "classifications": [{ id, category, confidence, quality, caption, scene }] }
  *
  * The single place provider specifics live. It holds GEMINI_API_KEY (never shipped
  * in the app) and asks Gemini Flash to classify each photo into one of the rule
@@ -15,21 +15,44 @@
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.0-flash';
 
-const CATEGORIES = ['selfie_with_view', 'selfie_with_people', 'view_only', 'food', 'other'] as const;
+const CATEGORIES = [
+  'selfie_with_view',
+  'sunset_sunrise',
+  'view_only',
+  'architecture',
+  'selfie_with_people',
+  'food',
+  'nature',
+  'night_scene',
+  'activity',
+  'cultural',
+  'other',
+] as const;
 type Category = (typeof CATEGORIES)[number];
 
 const PROMPT = `You classify a single photo for a social "share my travels" app.
+
 Choose exactly one category:
-- selfie_with_view: a self-portrait (the photographer is in frame, often arm's length) with a scenic background/landscape.
-- selfie_with_people: a self-portrait or close group photo where other people are the focus, no notable scenery.
-- view_only: scenery/landscape/landmark with no people prominently in frame.
-- food: a dish, drink, or meal is the subject.
-- other: anything else (screenshots, documents, receipts, memes, blurry/unusable, pets-only, etc.).
+- selfie_with_view: photographer visibly in frame with a scenic/landscape background.
+- sunset_sunrise: dominant subject is a golden-hour, sunrise, or sunset sky (with or without people).
+- view_only: scenery, landscape, or landmark — no people prominently in frame.
+- architecture: buildings, bridges, streets, or urban scenes without focus on nature or people.
+- selfie_with_people: group shot or close portrait of people; no notable scenery.
+- food: a dish, drink, or meal is the primary subject.
+- nature: forests, beaches, wildlife, plants — natural scenes without a prominent selfie.
+- night_scene: night photography, city lights, stars, or dark-sky shots.
+- activity: sports, hiking, swimming, dancing, or any experience captured in motion.
+- cultural: museums, art, religious or historical sites, traditions, or performances.
+- other: anything else — screenshots, documents, receipts, memes, blurry/unusable images.
 
 Also rate:
-- confidence: 0..1, how sure you are of the category.
-- quality: 0..1, photographic quality (sharp, well-exposed, well-composed; low for blurry/dark/cluttered).
+- confidence: 0..1, how certain you are of the category.
+- quality: 0..1, photographic quality (sharpness, exposure, composition; low for blurry/dark/cluttered).
 - caption: a short, friendly caption (max ~8 words).
+- scene: a 2-4 word kebab-case slug describing WHERE or WHAT — the primary location
+  or subject of the photo, ignoring who is in it (e.g. "beach-sunset", "restaurant-dinner",
+  "mountain-trail", "old-city-market"). Two photos of the same place MUST share the same
+  slug. Prefer generic location terms over unique details so similar shots collide.
 
 Respond with JSON only.`;
 
@@ -40,8 +63,9 @@ const RESPONSE_SCHEMA = {
     confidence: { type: 'NUMBER' },
     quality: { type: 'NUMBER' },
     caption: { type: 'STRING' },
+    scene: { type: 'STRING' },
   },
-  required: ['category', 'confidence', 'quality', 'caption'],
+  required: ['category', 'confidence', 'quality', 'caption', 'scene'],
 };
 
 const cors: Record<string, string> = {
@@ -70,6 +94,7 @@ interface Classification {
   confidence: number;
   quality: number;
   caption: string;
+  scene: string;
 }
 
 function bytesToBase64(bytes: Uint8Array): string {
@@ -139,6 +164,7 @@ async function classifyOne(photo: PhotoInput): Promise<Classification> {
     confidence: clamp01(parsed.confidence),
     quality: clamp01(parsed.quality),
     caption: typeof parsed.caption === 'string' ? parsed.caption : '',
+    scene: typeof parsed.scene === 'string' ? parsed.scene.toLowerCase().trim() : '',
   };
 }
 
@@ -157,18 +183,17 @@ Deno.serve(async (req: Request) => {
   const photos = Array.isArray(body.photos) ? body.photos : [];
   if (photos.length === 0) return json({ classifications: [] });
 
-  // Classify concurrently; a single photo failing degrades to `other` (confidence 0)
-  // so the whole batch never fails because of one bad image.
-  const classifications = await Promise.all(
-    photos.map(async (photo): Promise<Classification> => {
-      try {
-        return await classifyOne(photo);
-      } catch (err) {
-        console.error(`classify ${photo.id} failed:`, err);
-        return { id: photo.id, category: 'other', confidence: 0, quality: 0, caption: '' };
-      }
-    }),
-  );
+  // Classify sequentially (called one photo at a time by the app) so a single
+  // large batch never hits worker memory limits.
+  const classifications: Classification[] = [];
+  for (const photo of photos) {
+    try {
+      classifications.push(await classifyOne(photo));
+    } catch (err) {
+      console.error(`classify ${photo.id} failed:`, err);
+      classifications.push({ id: photo.id, category: 'other', confidence: 0, quality: 0, caption: '', scene: '' });
+    }
+  }
 
   return json({ classifications });
 });

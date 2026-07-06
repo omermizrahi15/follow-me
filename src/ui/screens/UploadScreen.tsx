@@ -44,7 +44,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) return;
       const picked = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
         quality: 0.8,
       });
@@ -87,7 +87,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
             </View>
             <Text style={styles.successTitle}>Sent!</Text>
             <Text style={styles.successSubtitle}>
-              Your followers will receive the media on WhatsApp shortly.
+              Your followers will receive the photos on WhatsApp shortly.
             </Text>
           </View>
 
@@ -149,7 +149,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           </TouchableOpacity>
         </View>
         <Text style={styles.subtitle}>
-          Pick photos or videos to send to your followers immediately
+          Pick photos to send to your followers immediately
         </Text>
       </View>
 
@@ -158,7 +158,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
         <Text style={styles.pickText}>
           {pickedUris.length > 0
             ? `${pickedUris.length} item${pickedUris.length > 1 ? 's' : ''} selected — tap to change`
-            : 'Select photos or videos'}
+            : 'Select photos'}
         </Text>
       </TouchableOpacity>
 

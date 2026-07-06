@@ -8,7 +8,8 @@ export type RootStackParamList = {
   Home: { section?: HomeSection } | undefined;
   Settings: undefined;
   Upload: undefined;
-  ReviewSuggestion: undefined;
+  /** `autoConfirm` — set by the "Post now" notification action; auto-posts on load. */
+  ReviewSuggestion: { autoConfirm?: boolean } | undefined;
 };
 
 /** Navigation prop for the root stack. */

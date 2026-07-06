@@ -55,4 +55,15 @@ export class SupabaseCandidatePhotoRepository implements ICandidatePhotoReposito
     if (error != null) throw new Error(error.message);
     return new Set(data.map(r => r.asset_id));
   }
+
+  async recentUrls(publisherId: string, limit: number): Promise<string[]> {
+    const { data, error } = await this.client
+      .from('candidate_photos')
+      .select('url')
+      .eq('publisher_id', publisherId)
+      .order('created_at', { ascending: false })
+      .limit(limit);
+    if (error != null) throw new Error(error.message);
+    return data.map(r => r.url);
+  }
 }

@@ -12,6 +12,9 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.followme.app",
+      "entitlements": {
+        "com.apple.developer.usernotifications.time-sensitive": true
+      },
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSPhotoLibraryUsageDescription": "Follow Me scans your recent photos to suggest a batch for your next post."

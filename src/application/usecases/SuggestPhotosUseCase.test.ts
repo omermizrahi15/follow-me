@@ -8,9 +8,15 @@ import {
   FakeSentPhotoTracker,
 } from '../../test-support/fakes';
 
+// Give candidates distinct timestamps (1 day apart) so temporal dedup in
+// PhotoSelectionService doesn't treat them as the same event.
+let candidateSeq = 0;
 function candidate(id: string): PhotoCandidate {
-  return { id, uri: `https://cdn.test/${id}.jpg`, createdAt: new Date('2026-06-01T00:00:00Z') };
+  const day = candidateSeq++;
+  return { id, uri: `https://cdn.test/${id}.jpg`, createdAt: new Date(Date.UTC(2026, 5, 1 + day)) };
 }
+
+beforeEach(() => { candidateSeq = 0; });
 
 function classification(id: string, over: Partial<PhotoClassification> = {}): PhotoClassification {
   return {
@@ -19,6 +25,7 @@ function classification(id: string, over: Partial<PhotoClassification> = {}): Ph
     confidence: 0.9,
     quality: 0.8,
     caption: 'a photo',
+    scene: '',
     ...over,
   };
 }
@@ -29,7 +36,6 @@ function config(): PublisherConfig {
     frequency: 'weekly',
     photosPerPost: 5,
     requireApproval: true,
-    lookbackDays: 9,
   });
 }
 
@@ -44,14 +50,14 @@ describe('SuggestPhotosUseCase', () => {
 
     await useCase.execute(config());
 
-    expect(library.lastLookbackDays).toBe(9);
+    expect(library.lastLookbackDays).toBe(7);
   });
 
   it('short-circuits without classifying when the library is empty', async () => {
     const classifier = new FakePhotoClassifier();
     const useCase = new SuggestPhotosUseCase(new FakeMediaLibrary([]), classifier, new FakeSentPhotoTracker());
 
-    const batch = await useCase.execute(config());
+    const { batch } = await useCase.execute(config());
 
     expect(batch).toEqual([]);
     expect(classifier.receivedCandidateIds).toEqual([]);
@@ -67,7 +73,7 @@ describe('SuggestPhotosUseCase', () => {
     );
     const useCase = new SuggestPhotosUseCase(library, classifier, new FakeSentPhotoTracker());
 
-    const batch = await useCase.execute(config());
+    const { batch } = await useCase.execute(config());
 
     expect(classifier.receivedCandidateIds).toEqual(['a', 'b']);
     expect(batch.map(c => c.candidate.id)).toEqual(['a', 'b']); // ranked by quality
@@ -87,7 +93,7 @@ describe('SuggestPhotosUseCase', () => {
       new FakeSentPhotoTracker(new Set(['a'])),
     );
 
-    const batch = await useCase.execute(config());
+    const { batch } = await useCase.execute(config());
 
     expect(batch.map(c => c.candidate.id)).toEqual(['b']);
   });

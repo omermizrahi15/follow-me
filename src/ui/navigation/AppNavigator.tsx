@@ -3,6 +3,8 @@ import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
+import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
+import { POST_NOW_ACTION } from '../../infrastructure/notifiers/NotificationCategories';
 import { HomeScreen } from '../screens/HomeScreen';
 import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
@@ -28,9 +30,28 @@ const REVIEW_ROUTE: keyof RootStackParamList = 'ReviewSuggestion';
 
 /** Navigate to the review screen if a notification response targets it. */
 function routeFromNotification(response: Notifications.NotificationResponse | null): void {
-  const data = response?.notification.request.content.data as { screen?: string } | undefined;
+  const data = response?.notification.request.content.data as {
+    screen?: string;
+    publisherId?: string;
+    batch?: unknown[];
+    pool?: unknown[];
+    batchId?: string;
+  } | undefined;
+
+  // Cold-start: the push listener in App.js didn't run, so cache the batch here.
+  if (data?.publisherId != null && Array.isArray(data.batch)) {
+    void SuggestionCache.save({
+      publisherId: data.publisherId,
+      batch: data.batch as never,
+      pool: Array.isArray(data.pool) ? (data.pool as never) : [],
+      batchId: data.batchId ?? String(Date.now()),
+      cachedAt: Date.now(),
+    });
+  }
+
   if (data?.screen === REVIEW_ROUTE && navigationRef.isReady()) {
-    navigationRef.navigate('ReviewSuggestion');
+    const autoConfirm = response?.actionIdentifier === POST_NOW_ACTION;
+    navigationRef.navigate('ReviewSuggestion', autoConfirm ? { autoConfirm: true } : undefined);
   }
 }
 

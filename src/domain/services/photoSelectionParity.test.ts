@@ -8,8 +8,10 @@ import { PublisherConfig } from '../entities/PublisherConfig';
 import type { PhotoCategory, PhotoClassification } from '../entities/PhotoClassification';
 import {
   selectBatch as sharedSelectBatch,
+  deduplicateCandidates as sharedDedup,
   type SharedClassification,
 } from '../../../supabase/functions/_shared/photoSelection';
+import type { PhotoCandidate } from '../entities/PhotoCandidate';
 
 interface Row {
   id: string;
@@ -26,6 +28,7 @@ function toDomain(r: Row): PhotoClassification {
     confidence: r.confidence,
     quality: r.quality,
     caption: '',
+    scene: '',
   };
 }
 
@@ -37,6 +40,7 @@ function toShared(r: Row): SharedClassification {
     confidence: r.confidence,
     quality: r.quality,
     createdAt: r.createdAtMs,
+    scene: '',
   };
 }
 
@@ -72,6 +76,31 @@ function assertParity(
 }
 
 const ALL: PhotoCategory[] = ['selfie_with_view', 'selfie_with_people', 'view_only', 'food'];
+
+describe('deduplicateCandidates parity (domain vs _shared)', () => {
+  function makeCandidates(pairs: [string, number][]): PhotoCandidate[] {
+    return pairs.map(([id, ms]) => ({ id, uri: `https://cdn.test/${id}.jpg`, createdAt: new Date(ms) }));
+  }
+
+  function assertDedup(pairs: [string, number][]): void {
+    const candidates = makeCandidates(pairs);
+    const domainIds = service.deduplicateCandidates(candidates).map(c => c.id);
+    const sharedIds = sharedDedup(candidates.map(c => ({ id: c.id, createdAt: c.createdAt.getTime() }))).map(c => c.id);
+    expect(sharedIds).toEqual(domainIds);
+  }
+
+  it('matches on a burst group', () => {
+    assertDedup([['a', 0], ['b', 10_000], ['c', 25_000], ['d', 30_000], ['e', 60_000]]);
+  });
+
+  it('matches when all gaps exceed the window', () => {
+    assertDedup([['a', 0], ['b', 30_000], ['c', 60_000]]);
+  });
+
+  it('matches on empty input', () => {
+    assertDedup([]);
+  });
+});
 
 describe('photoSelection parity (domain vs _shared)', () => {
   const day = (n: number): number => Date.parse(`2026-06-${String(n).padStart(2, '0')}T00:00:00Z`);

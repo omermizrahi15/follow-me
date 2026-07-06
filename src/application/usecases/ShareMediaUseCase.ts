@@ -33,7 +33,9 @@ export class ShareMediaUseCase {
     if (!input.ownerId) throw new Error('ownerId is required');
     const mediaItems = await Promise.all(
       input.items.map(async (item) => {
-        const url = await this.storage.upload(item.localUri, item.filename);
+        // Photos from the server-push cache are already hosted remotely — skip re-uploading.
+        const isRemote = item.localUri.startsWith('http://') || item.localUri.startsWith('https://');
+        const url = isRemote ? item.localUri : await this.storage.upload(item.localUri, item.filename);
         return Media.create({
           id: item.mediaId,
           ownerId: input.ownerId,

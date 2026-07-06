@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { InviteLinkCard } from '../components/InviteLinkCard';
 import { PhoneSignInScreen } from './PhoneSignInScreen';
 import { ProfileSetupStep } from './onboarding/ProfileSetupStep';
+import { AutoPostingSetupStep } from './onboarding/AutoPostingSetupStep';
 import { OnboardingHeader } from './onboarding/OnboardingHeader';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -20,9 +21,9 @@ type Props = {
   onDone: () => void;
 };
 
-type Step = 1 | 2 | 3 | 4;
+type Step = 1 | 2 | 3 | 4 | 5;
 
-const TOTAL_STEPS = 4;
+const TOTAL_STEPS = 5;
 
 /**
  * First-launch onboarding. Four steps:
@@ -57,6 +58,17 @@ export function OnboardingScreen({ onDone }: Props): React.JSX.Element {
     );
   }
 
+  if (step === 4 && publisherId != null) {
+    return (
+      <AutoPostingSetupStep
+        publisherId={publisherId}
+        step={4}
+        totalSteps={TOTAL_STEPS}
+        onDone={() => setStep(5)}
+      />
+    );
+  }
+
   return (
     <SafeAreaView style={styles.container}>
       <OnboardingHeader current={step} total={TOTAL_STEPS} />
@@ -65,18 +77,19 @@ export function OnboardingScreen({ onDone }: Props): React.JSX.Element {
         {step === 1 && (
           <View style={styles.content}>
             <View style={styles.iconCircle}>
-              <Ionicons name="camera" size={30} color={colors.accent} />
+              <Ionicons name="sparkles" size={30} color={colors.accent} />
             </View>
-            <Text style={styles.title}>Welcome to Follow Me</Text>
+            <Text style={styles.title}>Your AI photographer</Text>
             <Text style={styles.body}>
-              Share your photos once — your followers receive them straight to
-              WhatsApp, automatically. No feed to chase, no algorithm, just the
-              people who chose to follow you.
+              Follow Me scans your camera roll, picks the best shots using AI —
+              selfies with a view, people, food, landscapes — and sends them
+              straight to your followers on WhatsApp. Automatically, on your
+              schedule, no manual work needed.
             </Text>
           </View>
         )}
 
-        {step === 4 && (
+        {step === 5 && (
           <View style={styles.content}>
             <View style={styles.iconCircle}>
               <Ionicons name="person-add" size={28} color={colors.accent} />
@@ -103,7 +116,7 @@ export function OnboardingScreen({ onDone }: Props): React.JSX.Element {
           </TouchableOpacity>
         </View>
       )}
-      {step === 4 && (
+      {step === 5 && (
         <View style={styles.footer}>
           <TouchableOpacity style={styles.primary} onPress={onDone} activeOpacity={0.85}>
             <Text style={styles.primaryText}>Go to my page</Text>

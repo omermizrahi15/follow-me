@@ -1,19 +1,23 @@
 import * as MediaLibrary from 'expo-media-library';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { IMediaLibrary } from '../../domain/interfaces';
 import type { ResolvePayload } from '../classifiers/GeminiPhotoClassifier';
 import type { ResolveLocalUri } from '../../domain/interfaces';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
-/** Upper bound on assets scanned per run, so a huge library can't hang the UI. */
-const SCAN_LIMIT = 200;
+/** Assets fetched per pagination page. */
+const PAGE_SIZE = 100;
 
 /**
  * Reads recent photos from the device library via expo-media-library. Returns
  * lightweight PhotoCandidate value objects (no bytes) so the pure selection
  * logic stays device-agnostic. Bytes are loaded later, only for the photos we
  * actually classify.
+ *
+ * Uses `createdAfter` for OS-level date filtering and paginates through every
+ * matching page, so the full lookback window is always scanned regardless of
+ * how large the photo library is.
  */
 export class ExpoMediaLibrary implements IMediaLibrary {
   async recentPhotos(lookbackDays: number): Promise<PhotoCandidate[]> {
@@ -21,20 +25,33 @@ export class ExpoMediaLibrary implements IMediaLibrary {
     if (!granted) throw new Error('Photo library permission not granted');
 
     const cutoff = Date.now() - lookbackDays * MS_PER_DAY;
+    const results: PhotoCandidate[] = [];
+    let cursor: string | undefined = undefined;
 
-    const page = await MediaLibrary.getAssetsAsync({
-      mediaType: MediaLibrary.MediaType.photo,
-      sortBy: [MediaLibrary.SortBy.creationTime],
-      first: SCAN_LIMIT,
-    });
+    for (;;) {
+      const page = await MediaLibrary.getAssetsAsync({
+        mediaType: MediaLibrary.MediaType.photo,
+        // Descending so we process newest photos first (matters when early-stop
+        // kicks in during classification — we prefer recent over old).
+        sortBy: [[MediaLibrary.SortBy.creationTime, false]],
+        createdAfter: cutoff,
+        first: PAGE_SIZE,
+        ...(cursor != null ? { after: cursor } : {}),
+      });
 
-    return page.assets
-      .filter(asset => asset.creationTime >= cutoff)
-      .map(asset => ({
-        id: asset.id,
-        uri: asset.uri,
-        createdAt: new Date(asset.creationTime),
-      }));
+      for (const asset of page.assets) {
+        results.push({
+          id: asset.id,
+          uri: asset.uri,
+          createdAt: new Date(asset.creationTime),
+        });
+      }
+
+      if (!page.hasNextPage) break;
+      cursor = page.endCursor;
+    }
+
+    return results;
   }
 
   private async ensurePermission(): Promise<boolean> {
@@ -53,7 +70,10 @@ export class ExpoMediaLibrary implements IMediaLibrary {
  */
 export const expoResolvePayload: ResolvePayload = async candidate => {
   const uri = await expoResolveLocalUri(candidate);
-  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+  // ph:// URIs can't be read by FileSystem — only skip candidates that couldn't
+  // be resolved to a local file:// path (e.g. iCloud-only photos not yet downloaded).
+  if (!uri.startsWith('file://')) return null;
+  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
   return { id: candidate.id, base64, mimeType: 'image/jpeg' };
 };
 

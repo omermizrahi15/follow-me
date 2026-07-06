@@ -1,8 +1,16 @@
 import type { PhotoCategory } from './PhotoClassification';
 import { SELECTABLE_CATEGORIES } from './PhotoClassification';
 
-export type Frequency = 'weekly' | 'biweekly' | 'monthly';
+export type Frequency = '3days' | 'weekly' | 'biweekly' | 'monthly';
 export type PhotoCount = 5 | 10 | 15;
+
+/** Lookback window (in days) for each posting frequency. The two are the same concept. */
+export const FREQUENCY_DAYS: Record<Frequency, number> = {
+  '3days': 3,
+  weekly: 7,
+  biweekly: 14,
+  monthly: 30,
+};
 
 export interface PublisherConfigProps {
   publisherId: string;
@@ -13,11 +21,9 @@ export interface PublisherConfigProps {
   notifyDayOfWeek?: number;
   /** Time the post reminder fires, 24h "HH:MM". Default "18:00". */
   notifyTime?: string;
-  /** Which rule categories the publisher wants suggested. Default: all four. */
+  /** Which rule categories the publisher wants suggested. Default: all. */
   enabledCategories?: PhotoCategory[];
-  /** How far back to scan the library, in days. Default 7. */
-  lookbackDays?: number;
-  /** Minimum quality (0..1) a photo needs to be suggested. Default 0.4. */
+  /** Minimum quality (0..1) a photo needs to be suggested. Default 0.15. */
   minQuality?: number;
   /** IANA timezone used to fire the schedule at the publisher's local time. Default 'UTC'. */
   timezone?: string;
@@ -29,8 +35,7 @@ const DEFAULTS = {
   notifyDayOfWeek: 0,
   notifyTime: '18:00',
   enabledCategories: [...SELECTABLE_CATEGORIES] as PhotoCategory[],
-  lookbackDays: 7,
-  minQuality: 0.4,
+  minQuality: 0.15,
   timezone: 'UTC',
   expoPushToken: '',
 };
@@ -62,11 +67,6 @@ export class PublisherConfig {
       }
     }
 
-    const lookbackDays = props.lookbackDays ?? DEFAULTS.lookbackDays;
-    if (!Number.isInteger(lookbackDays) || lookbackDays < 1) {
-      throw new Error('PublisherConfig lookbackDays must be a positive integer');
-    }
-
     const minQuality = props.minQuality ?? DEFAULTS.minQuality;
     if (minQuality < 0 || minQuality > 1) {
       throw new Error('PublisherConfig minQuality must be between 0 and 1');
@@ -85,7 +85,6 @@ export class PublisherConfig {
       notifyDayOfWeek,
       notifyTime,
       enabledCategories,
-      lookbackDays,
       minQuality,
       timezone,
       expoPushToken,
@@ -99,7 +98,8 @@ export class PublisherConfig {
   get notifyDayOfWeek(): number { return this.props.notifyDayOfWeek; }
   get notifyTime(): string { return this.props.notifyTime; }
   get enabledCategories(): PhotoCategory[] { return this.props.enabledCategories; }
-  get lookbackDays(): number { return this.props.lookbackDays; }
+  /** Derived from frequency — the lookback window equals the posting interval. */
+  get lookbackDays(): number { return FREQUENCY_DAYS[this.props.frequency]; }
   get minQuality(): number { return this.props.minQuality; }
   get timezone(): string { return this.props.timezone; }
   get expoPushToken(): string { return this.props.expoPushToken; }

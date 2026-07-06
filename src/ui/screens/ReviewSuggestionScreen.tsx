@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -10,205 +10,414 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { RootNavigationProp } from '../navigation/types';
+import type { RouteProp } from '@react-navigation/native';
+import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { useSuggestedPhotos } from '../hooks/useSuggestedPhotos';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { usePublisherId } from '../context/AuthContext';
-import type { PhotoCategory } from '../../domain/entities/PhotoClassification';
+import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
+import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
+import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { colors, radius, spacing, typography } from '../theme/theme';
-
-type Props = { navigation: RootNavigationProp };
 
 const CATEGORY_LABEL: Record<PhotoCategory, string> = {
   selfie_with_view: 'Selfie + view',
-  selfie_with_people: 'Selfie + people',
+  sunset_sunrise: 'Sunset / sunrise',
   view_only: 'View',
+  architecture: 'Architecture',
+  selfie_with_people: 'Selfie + people',
   food: 'Food',
+  nature: 'Nature',
+  night_scene: 'Night scene',
+  activity: 'Activity',
+  cultural: 'Cultural',
   other: 'Other',
 };
 
-export function ReviewSuggestionScreen({ navigation }: Props): React.JSX.Element {
-  const publisherId = usePublisherId();
-  const { loading, error, batch, reload } = useSuggestedPhotos(publisherId);
-  const { share, loading: sharing, error: shareError } = useShareMedia();
-  const [removed, setRemoved] = useState<Set<string>>(new Set());
-  const [done, setDone] = useState(false);
+// ---------- step indicator ----------
 
-  const kept = useMemo(
-    () => batch.filter(c => !removed.has(c.candidate.id)),
-    [batch, removed],
+const STEPS = ['Scanning', 'Classifying', 'Done'] as const;
+
+function stepIndex(phase: string): number {
+  if (phase === 'scanning') return 0;
+  if (phase === 'classifying') return 1;
+  return 2;
+}
+
+function StepBar({ phase, classified, total }: {
+  phase: string; classified: number; total: number;
+}): React.JSX.Element {
+  const current = stepIndex(phase);
+  const pct = total > 0 ? Math.round((classified / total) * 100) : 0;
+
+  return (
+    <View>
+      <View style={stepStyles.container}>
+        {STEPS.map((label, i) => {
+          const active = i === current;
+          const done = i < current || phase === 'done';
+          return (
+            <React.Fragment key={label}>
+              {i > 0 && <View style={[stepStyles.line, done && stepStyles.lineDone]} />}
+              <View style={[stepStyles.dot, done && stepStyles.dotDone, active && stepStyles.dotActive]}>
+                {done && !active ? (
+                  <Ionicons name="checkmark" size={10} color={colors.onAccent} />
+                ) : (
+                  <Text style={stepStyles.dotText}>{i + 1}</Text>
+                )}
+              </View>
+              <Text style={[stepStyles.label, (active || done) && stepStyles.labelActive]}>
+                {label}
+              </Text>
+            </React.Fragment>
+          );
+        })}
+      </View>
+      {phase === 'classifying' && total > 0 && (
+        <View style={stepStyles.barRow}>
+          <View style={stepStyles.track}>
+            <View style={[stepStyles.fill, { width: `${pct}%` }]} />
+          </View>
+          <Text style={stepStyles.pct}>{pct}%</Text>
+        </View>
+      )}
+    </View>
   );
+}
 
-  function toggleRemove(id: string): void {
-    setRemoved(prev => {
-      const next = new Set(prev);
-      next.add(id);
-      return next;
-    });
+// ---------- photo grid ----------
+
+function PhotoCard({ c, onSwap }: {
+  c: PhotoClassification;
+  onSwap: (() => void) | null;
+}): React.JSX.Element {
+  return (
+    <View style={gridStyles.card}>
+      <Image source={{ uri: c.candidate.uri }} style={gridStyles.photo} />
+      <TouchableOpacity
+        style={gridStyles.chip}
+        onPress={onSwap ?? undefined}
+        disabled={onSwap == null}
+        activeOpacity={onSwap != null ? 0.7 : 1}
+        accessibilityLabel="Suggest a different photo"
+        hitSlop={4}
+      >
+        <Text style={gridStyles.chipText}>{CATEGORY_LABEL[c.category]}</Text>
+        {onSwap != null && (
+          <Ionicons name="refresh" size={10} color={colors.ink} style={{ marginLeft: 3 }} />
+        )}
+      </TouchableOpacity>
+      {c.caption !== '' && (
+        <Text style={gridStyles.caption} numberOfLines={1}>{c.caption}</Text>
+      )}
+    </View>
+  );
+}
+
+// ---------- inner content (usable inline in the sheet OR as a full screen) ----------
+
+interface ContentProps {
+  onBack: () => void;
+  bottomInset?: number;
+  /** When true the batch is auto-posted as soon as it loads (from "Post now" notification action). */
+  autoConfirm?: boolean;
+}
+
+export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm = false }: ContentProps): React.JSX.Element {
+  const publisherId = usePublisherId();
+  const { phase, found, unique, classified, total, partial, batch, pool, photosPerPost, fromCache, error, reload } = useSuggestedPhotos(publisherId);
+  const { share, loading: sharing, error: shareError } = useShareMedia();
+  // `slots` is the ordered list of photo IDs shown in the grid — one entry per grid position.
+  // Initialised from `batch` when classification finishes; swapping replaces in-place.
+  const [slots, setSlots] = useState<string[]>([]);
+  const [excluded, setExcluded] = useState<Set<string>>(new Set());
+  const [done, setDone] = useState(false);
+  const slotsInitRef = useRef(false);
+
+  // Initialise slots from batch when done; reset if the user re-scans.
+  useEffect(() => {
+    if (phase === 'loading' || phase === 'scanning') {
+      slotsInitRef.current = false;
+      setSlots([]);
+      setExcluded(new Set());
+    }
+    if (phase === 'done' && !slotsInitRef.current && batch.length > 0) {
+      slotsInitRef.current = true;
+      setSlots(batch.slice(0, photosPerPost).map(c => c.candidate.id));
+    }
+  }, [phase, batch, photosPerPost]);
+
+  const photoById = useMemo(() => {
+    const map = new Map<string, PhotoClassification>();
+    [...batch, ...pool].forEach(c => map.set(c.candidate.id, c));
+    return map;
+  }, [batch, pool]);
+
+  // During loading show the running partial set; once done use the slot order.
+  const kept = useMemo(() => {
+    if (phase !== 'done') return partial;
+    return slots
+      .map(id => photoById.get(id))
+      .filter((c): c is PhotoClassification => c != null);
+  }, [phase, slots, photoById, partial]);
+
+  // True when at least one unused, unexcluded photo remains in the pool.
+  const hasPool = useMemo(() => {
+    if (phase !== 'done') return false;
+    const usedIds = new Set(slots);
+    return [...batch, ...pool].some(
+      c => !excluded.has(c.candidate.id) && !usedIds.has(c.candidate.id),
+    );
+  }, [phase, slots, excluded, batch, pool]);
+
+  const shortfall = phase === 'done' && batch.length > 0 && photosPerPost > 0 && batch.length < photosPerPost;
+
+  function handleSwap(id: string): void {
+    const newExcluded = new Set(excluded);
+    newExcluded.add(id);
+    const usedIds = new Set(slots);
+    // Find the next available photo that is neither already shown nor excluded.
+    const replacement = [...batch, ...pool].find(
+      c => !newExcluded.has(c.candidate.id) && !usedIds.has(c.candidate.id),
+    );
+    setExcluded(newExcluded);
+    setSlots(
+      replacement
+        ? slots.map(slotId => (slotId === id ? replacement.candidate.id : slotId))
+        : slots.filter(slotId => slotId !== id),
+    );
   }
 
-  function handleConfirm(): void {
+  const handleConfirm = useCallback((): void => {
     void (async (): Promise<void> => {
-      const items = kept.map(c => ({
-        mediaId: c.candidate.id,
-        localUri: c.candidate.uri,
-        filename: c.candidate.uri.split('/').pop() ?? `${c.candidate.id}.jpg`,
-      }));
+      const items = await Promise.all(
+        kept.map(async c => {
+          // ph:// asset handles can't be read by the uploader — resolve to a
+          // real file:// path first. Remote https URLs pass through untouched
+          // (ShareMediaUseCase skips re-uploading those).
+          const isRemote = c.candidate.uri.startsWith('http');
+          const localUri = isRemote ? c.candidate.uri : await expoResolveLocalUri(c.candidate);
+          return {
+            mediaId: c.candidate.id,
+            localUri,
+            filename: c.candidate.uri.split('/').pop() ?? `${c.candidate.id}.jpg`,
+          };
+        }),
+      );
       try {
         await share(items, publisherId);
+        // Posted — this batch is spent; next visit should compute a fresh one.
+        void SuggestionCache.clear(publisherId).catch(() => undefined);
         setDone(true);
       } catch {
         /* surfaced via shareError */
       }
     })();
-  }
+  }, [kept, share, publisherId]);
+
+  // "Post now" notification action: auto-post as soon as the batch is ready.
+  const confirmedRef = useRef(false);
+  useEffect(() => {
+    if (autoConfirm && phase === 'done' && kept.length > 0 && !done && !confirmedRef.current) {
+      confirmedRef.current = true;
+      handleConfirm();
+    }
+  }, [autoConfirm, phase, kept.length, done, handleConfirm]);
 
   if (done) {
     return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.centered}>
-          <View style={styles.successBadge}>
+      <View style={[innerStyles.container, { paddingBottom: bottomInset }]}>
+        <View style={innerStyles.centered}>
+          <View style={innerStyles.successBadge}>
             <Ionicons name="checkmark" size={40} color={colors.onAccent} />
           </View>
-          <Text style={styles.successTitle}>Posted!</Text>
-          <Text style={styles.successSubtitle}>
+          <Text style={innerStyles.successTitle}>Posted!</Text>
+          <Text style={innerStyles.successSubtitle}>
             {kept.length} photo{kept.length === 1 ? '' : 's'} sent to your followers.
           </Text>
-          <TouchableOpacity style={styles.secondaryButton} onPress={() => navigation.goBack()}>
-            <Text style={styles.secondaryText}>Done</Text>
+          <TouchableOpacity style={innerStyles.secondaryButton} onPress={onBack}>
+            <Text style={innerStyles.secondaryText}>Done</Text>
           </TouchableOpacity>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
-  return (
-    <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.title}>Suggested post</Text>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            accessibilityLabel="Close"
-            hitSlop={8}
-            style={styles.closeButton}
-          >
-            <Ionicons name="close" size={22} color={colors.textSecondary} />
-          </TouchableOpacity>
+  // 'loading' = checking cache; show a plain spinner with no step bar.
+  if (phase === 'loading') {
+    return (
+      <View style={[innerStyles.container, { paddingBottom: bottomInset }]}>
+        <View style={innerStyles.header}>
+          <View style={innerStyles.headerTop}>
+            <TouchableOpacity onPress={onBack} accessibilityLabel="Back" hitSlop={8} style={innerStyles.backButton}>
+              <Ionicons name="chevron-back" size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+            <Text style={innerStyles.title}>Suggested post</Text>
+          </View>
         </View>
-        <Text style={styles.subtitle}>
-          We picked these from your recent photos. Remove any you don't want, then post.
+        <View style={innerStyles.centered}>
+          <ActivityIndicator color={colors.accent} />
+        </View>
+      </View>
+    );
+  }
+
+  const isLoading = phase === 'scanning' || phase === 'classifying';
+
+  return (
+    <View style={[innerStyles.container, { paddingBottom: bottomInset }]}>
+      {/* header */}
+      <View style={innerStyles.header}>
+        <View style={innerStyles.headerTop}>
+          <TouchableOpacity
+            onPress={onBack}
+            accessibilityLabel="Back"
+            hitSlop={8}
+            style={innerStyles.backButton}
+          >
+            <Ionicons name="chevron-back" size={18} color={colors.textSecondary} />
+          </TouchableOpacity>
+          <Text style={innerStyles.title}>Suggested post</Text>
+        </View>
+        <Text style={innerStyles.subtitle}>
+          {phase === 'done'
+            ? fromCache
+              ? `AI pre-selected ${batch.length} photo${batch.length === 1 ? '' : 's'} for you.`
+              : `AI picked ${batch.length} photo${batch.length === 1 ? '' : 's'} from ${found} scanned.`
+            : phase === 'classifying'
+            ? unique > 0
+              ? `Checking ${unique} unique photos (${found} scanned, ${found - unique} duplicates removed)`
+              : 'Classifying photos…'
+            : 'Scanning your library…'}
         </Text>
+        {fromCache && phase === 'done' && (
+          <TouchableOpacity onPress={reload} hitSlop={8}>
+            <Text style={innerStyles.rescanLink}>Rescan library instead</Text>
+          </TouchableOpacity>
+        )}
+        {shortfall && (
+          <Text style={innerStyles.shortfallNote}>
+            Only {batch.length} of {photosPerPost} photos found — try expanding the lookback window in settings.
+          </Text>
+        )}
+        {phase !== 'error' && (
+          <StepBar phase={phase} classified={classified} total={total} />
+        )}
       </View>
 
-      {loading ? (
-        <View style={styles.centered}>
-          <ActivityIndicator color={colors.accent} />
-          <Text style={styles.hint}>Finding your best recent photos…</Text>
-        </View>
-      ) : error != null ? (
-        <View style={styles.centered}>
-          <Text style={styles.errorNote}>{error}</Text>
-          <TouchableOpacity style={styles.secondaryButton} onPress={reload}>
-            <Text style={styles.secondaryText}>Try again</Text>
+      {/* body */}
+      {phase === 'error' ? (
+        <View style={innerStyles.centered}>
+          <Text style={innerStyles.errorNote}>{error}</Text>
+          <TouchableOpacity style={innerStyles.secondaryButton} onPress={reload}>
+            <Text style={innerStyles.secondaryText}>Try again</Text>
           </TouchableOpacity>
         </View>
-      ) : kept.length === 0 ? (
-        <View style={styles.centered}>
-          <Text style={styles.hint}>No new photos to suggest right now.</Text>
-          <TouchableOpacity style={styles.secondaryButton} onPress={reload}>
-            <Text style={styles.secondaryText}>Rescan</Text>
+      ) : kept.length === 0 && phase === 'done' ? (
+        <View style={innerStyles.centered}>
+          <Text style={innerStyles.hint}>No new photos to suggest right now.</Text>
+          <TouchableOpacity style={innerStyles.secondaryButton} onPress={reload}>
+            <Text style={innerStyles.secondaryText}>Rescan</Text>
           </TouchableOpacity>
         </View>
       ) : (
         <>
-          <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
+          <ScrollView contentContainerStyle={gridStyles.grid} showsVerticalScrollIndicator={false}>
             {kept.map(c => (
-              <View key={c.candidate.id} style={styles.card}>
-                <Image source={{ uri: c.candidate.uri }} style={styles.photo} />
-                <TouchableOpacity
-                  style={styles.removeButton}
-                  onPress={() => toggleRemove(c.candidate.id)}
-                  accessibilityLabel="Remove photo"
-                  hitSlop={6}
-                >
-                  <Ionicons name="close" size={16} color={colors.onAccent} />
-                </TouchableOpacity>
-                <View style={styles.chip}>
-                  <Text style={styles.chipText}>{CATEGORY_LABEL[c.category]}</Text>
-                </View>
-                {c.caption !== '' && (
-                  <Text style={styles.caption} numberOfLines={1}>{c.caption}</Text>
-                )}
-              </View>
+              <PhotoCard
+                key={c.candidate.id}
+                c={c}
+                onSwap={hasPool ? () => handleSwap(c.candidate.id) : null}
+              />
             ))}
+            {isLoading && kept.length === 0 && (
+              <View style={innerStyles.scanningRow}>
+                <ActivityIndicator color={colors.accent} />
+                <Text style={innerStyles.hint}>
+                  {phase === 'scanning' ? 'Scanning your library…' : 'Looking for great photos…'}
+                </Text>
+              </View>
+            )}
+            {phase === 'classifying' && kept.length > 0 && (
+              <View style={gridStyles.moreSpinner}>
+                <ActivityIndicator size="small" color={colors.accent} />
+                <Text style={[innerStyles.hint, { marginLeft: 8 }]}>
+                  {classified}/{total} checked
+                </Text>
+              </View>
+            )}
           </ScrollView>
 
-          <View style={styles.footer}>
-            {shareError != null && <Text style={styles.errorNote}>{shareError}</Text>}
-            <TouchableOpacity
-              style={[styles.confirmButton, sharing && styles.disabled]}
-              onPress={handleConfirm}
-              disabled={sharing}
-              activeOpacity={0.85}
-            >
-              {sharing ? (
-                <ActivityIndicator color={colors.onAccent} />
-              ) : (
-                <Text style={styles.confirmText}>
-                  Post {kept.length} photo{kept.length === 1 ? '' : 's'}
-                </Text>
-              )}
-            </TouchableOpacity>
-          </View>
+          {phase === 'done' && kept.length > 0 && (
+            <View style={innerStyles.footer}>
+              {shareError != null && <Text style={innerStyles.errorNote}>{shareError}</Text>}
+              <TouchableOpacity
+                style={[innerStyles.confirmButton, sharing && innerStyles.disabled]}
+                onPress={handleConfirm}
+                disabled={sharing}
+                activeOpacity={0.85}
+              >
+                {sharing ? (
+                  <ActivityIndicator color={colors.onAccent} />
+                ) : (
+                  <Text style={innerStyles.confirmText}>
+                    Post {kept.length} photo{kept.length === 1 ? '' : 's'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          )}
         </>
       )}
+    </View>
+  );
+}
+
+// ---------- navigation screen wrapper (for deep-links) ----------
+
+type Props = {
+  navigation: RootNavigationProp;
+  route: RouteProp<RootStackParamList, 'ReviewSuggestion'>;
+};
+
+export function ReviewSuggestionScreen({ navigation, route }: Props): React.JSX.Element {
+  return (
+    <SafeAreaView style={screenStyles.root}>
+      <ReviewSuggestionContent
+        onBack={() => navigation.goBack()}
+        autoConfirm={route.params?.autoConfirm ?? false}
+      />
     </SafeAreaView>
   );
 }
 
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, paddingHorizontal: spacing.xl },
-  header: { paddingTop: spacing.lg, paddingBottom: spacing.lg },
-  headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  closeButton: {
-    width: 36,
-    height: 36,
+// ---------- styles ----------
+
+const innerStyles = StyleSheet.create({
+  container: { flex: 1, paddingHorizontal: spacing.xl },
+  header: { paddingTop: spacing.md, paddingBottom: spacing.sm },
+  headerTop: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: spacing.xs,
+  },
+  backButton: {
+    width: 34,
+    height: 34,
     borderRadius: radius.pill,
     backgroundColor: colors.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { ...typography.title, color: colors.text },
-  subtitle: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
+  title: { ...typography.title, color: colors.text, fontSize: 15, flex: 1, textAlign: 'center' },
+  subtitle: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.xs },
+  shortfallNote: { ...typography.caption, color: '#C87A00', fontSize: 12, marginBottom: spacing.xs },
   centered: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md },
+  scanningRow: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, minHeight: 160, width: '100%' },
   hint: { ...typography.caption, color: colors.textSecondary },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.md, paddingVertical: spacing.md, paddingBottom: 140 },
-  card: { width: '47%' },
-  photo: { width: '100%', aspectRatio: 1, borderRadius: radius.md, backgroundColor: colors.surfaceAlt },
-  removeButton: {
-    position: 'absolute',
-    top: spacing.sm,
-    right: spacing.sm,
-    width: 28,
-    height: 28,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(19,33,43,0.7)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  chip: {
-    position: 'absolute',
-    bottom: spacing.lg + 18,
-    left: spacing.sm,
-    backgroundColor: colors.frosted,
-    borderRadius: radius.pill,
-    paddingHorizontal: spacing.sm,
-    paddingVertical: 2,
-  },
-  chipText: { ...typography.caption, fontSize: 11, fontWeight: '600', color: colors.ink },
-  caption: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: spacing.xs },
-  footer: { position: 'absolute', bottom: 110, left: spacing.xl, right: spacing.xl },
+  footer: { paddingVertical: spacing.md },
+  rescanLink: { ...typography.caption, fontSize: 12, color: colors.accent, marginBottom: spacing.xs, textDecorationLine: 'underline' },
   errorNote: { color: colors.danger, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm },
   confirmButton: {
     backgroundColor: colors.accent,
@@ -237,4 +446,83 @@ const styles = StyleSheet.create({
     borderColor: colors.border,
   },
   secondaryText: { color: colors.text, fontWeight: '600' },
+});
+
+const screenStyles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: colors.background },
+});
+
+const stepStyles = StyleSheet.create({
+  container: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: spacing.sm,
+    gap: 4,
+  },
+  dot: {
+    width: 20,
+    height: 20,
+    borderRadius: 10,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  dotActive: { backgroundColor: colors.accent },
+  dotDone: { backgroundColor: colors.success },
+  dotText: { fontSize: 10, fontWeight: '700', color: colors.textSecondary },
+  line: { flex: 1, height: 2, backgroundColor: colors.border },
+  lineDone: { backgroundColor: colors.success },
+  label: { fontSize: 11, color: colors.textSecondary, minWidth: 50 },
+  labelActive: { color: colors.text, fontWeight: '600' },
+  barRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    marginBottom: spacing.xs,
+  },
+  track: {
+    flex: 1,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: colors.surfaceAlt,
+    overflow: 'hidden',
+  },
+  fill: {
+    height: '100%',
+    borderRadius: 3,
+    backgroundColor: colors.accent,
+  },
+  pct: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: colors.accent,
+    width: 34,
+    textAlign: 'right',
+  },
+});
+
+const gridStyles = StyleSheet.create({
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.md,
+    paddingVertical: spacing.md,
+    paddingBottom: 100,
+  },
+  card: { width: '47%' },
+  photo: { width: '100%', aspectRatio: 1, borderRadius: radius.md, backgroundColor: colors.surfaceAlt },
+  chip: {
+    position: 'absolute',
+    bottom: spacing.lg + 18,
+    left: spacing.sm,
+    backgroundColor: colors.frosted,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.sm,
+    paddingVertical: 2,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  chipText: { ...typography.caption, fontSize: 11, fontWeight: '600', color: colors.ink },
+  caption: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: spacing.xs },
+  moreSpinner: { width: '100%', alignItems: 'center', paddingVertical: spacing.md },
 });
