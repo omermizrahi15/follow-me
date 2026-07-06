@@ -7,7 +7,7 @@ import type {
   INotifier,
   IStorageService,
 } from '../../domain/interfaces';
-import { representativeCoordinate } from '../../domain/services/postingLocation';
+import { representativeCoordinates } from '../../domain/services/postingLocation';
 import { MediaMapper } from '../mappers/MediaMapper';
 import type { MediaDto } from '../dtos';
 
@@ -95,14 +95,25 @@ export class ShareMediaUseCase {
    */
   private async resolveLocation(items: MediaItem[]): Promise<string | null> {
     if (this.geocoder == null) return null;
-    const coordinate = representativeCoordinate(
+    // Up to 3 major places (largest photo groups first) — a batch spanning
+    // two cities names both, e.g. "Lisbon, Portugal & Porto, Portugal".
+    const representatives = representativeCoordinates(
       items.map(i => i.coordinate).filter((c): c is Coordinate => c != null),
+      3,
     );
-    if (coordinate == null) return null;
-    try {
-      return await this.geocoder.reverseGeocode(coordinate);
-    } catch {
-      return null;
+    const places: string[] = [];
+    for (const coordinate of representatives) {
+      try {
+        const place = await this.geocoder.reverseGeocode(coordinate);
+        // Nearby clusters can resolve to the same "City, Country" — dedupe.
+        if (place != null && !places.includes(place)) places.push(place);
+      } catch {
+        // A failed lookup skips one place, never the whole posting.
+      }
     }
+    if (places.length === 0) return null;
+    if (places.length === 1) return places[0] ?? null;
+    if (places.length === 2) return `${places[0]} & ${places[1]}`;
+    return `${places[0]}, ${places[1]} & ${places[2]}`;
   }
 }

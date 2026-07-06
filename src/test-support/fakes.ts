@@ -154,9 +154,12 @@ export class InMemoryStorageService implements IStorageService {
 export class FakeGeocoder implements IGeocoder {
   calls: Coordinate[] = [];
   private result: string | null = 'Lisbon, Portugal';
+  private queue: Array<string | null> = [];
   private shouldThrow = false;
 
   returns(place: string | null): void { this.result = place; }
+  /** Results for the next calls, in order; falls back to `returns` after. */
+  returnsInOrder(...places: Array<string | null>): void { this.queue = places; }
   failOnNextCall(): void { this.shouldThrow = true; }
 
   reverseGeocode(coordinate: Coordinate): Promise<string | null> {
@@ -165,6 +168,7 @@ export class FakeGeocoder implements IGeocoder {
       this.shouldThrow = false;
       return Promise.reject(new Error('geocoding service unavailable'));
     }
+    if (this.queue.length > 0) return Promise.resolve(this.queue.shift() ?? null);
     return Promise.resolve(this.result);
   }
 }

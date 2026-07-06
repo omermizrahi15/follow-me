@@ -1,4 +1,4 @@
-import { representativeCoordinate } from './postingLocation';
+import { representativeCoordinate, representativeCoordinates } from './postingLocation';
 
 describe('representativeCoordinate', () => {
   it('returns null for an empty batch', () => {
@@ -38,5 +38,42 @@ describe('representativeCoordinate', () => {
     ]);
     expect(result?.latitude).toBeCloseTo(38.72);
     expect(result?.longitude).toBeCloseTo(-9.14);
+  });
+});
+
+describe('representativeCoordinates — multi-place clustering', () => {
+  const lisbon = { latitude: 38.72, longitude: -9.14 };
+  const lisbonB = { latitude: 38.74, longitude: -9.15 };
+  const porto = { latitude: 41.15, longitude: -8.61 };
+  const portoB = { latitude: 41.16, longitude: -8.63 };
+  const madrid = { latitude: 40.42, longitude: -3.70 };
+  const rome = { latitude: 41.90, longitude: 12.50 };
+
+  it('returns empty for no coordinates', () => {
+    expect(representativeCoordinates([])).toEqual([]);
+  });
+
+  it('collapses one city to a single representative', () => {
+    const reps = representativeCoordinates([lisbon, lisbonB]);
+    expect(reps).toHaveLength(1);
+    expect(reps[0]!.latitude).toBeCloseTo(38.73, 1);
+  });
+
+  it('returns both places for a two-city batch, largest group first', () => {
+    const reps = representativeCoordinates([porto, lisbon, lisbonB, portoB, lisbon]);
+    expect(reps).toHaveLength(2);
+    // Lisbon has 3 photos, Porto 2 — Lisbon first.
+    expect(reps[0]!.latitude).toBeCloseTo(38.72, 0);
+    expect(reps[1]!.latitude).toBeCloseTo(41.15, 0);
+  });
+
+  it('caps at three places even when the batch spans four cities', () => {
+    const reps = representativeCoordinates([lisbon, lisbon, porto, porto, madrid, madrid, rome]);
+    expect(reps).toHaveLength(3);
+  });
+
+  it('honours a smaller max', () => {
+    const reps = representativeCoordinates([lisbon, porto, madrid], 2);
+    expect(reps).toHaveLength(2);
   });
 });

@@ -17,6 +17,8 @@ import { useShareMedia } from '../hooks/useShareMedia';
 import { usePublisherId } from '../context/AuthContext';
 import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
 import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
+import * as MediaLibrary from 'expo-media-library';
+import type { Coordinate } from '../../domain/interfaces';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -206,10 +208,20 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           // (ShareMediaUseCase skips re-uploading those).
           const isRemote = c.candidate.uri.startsWith('http');
           const localUri = isRemote ? c.candidate.uri : await expoResolveLocalUri(c.candidate);
+          // EXIF GPS so the posting gets a place name — the candidate id is
+          // the library asset id even for server-cached (remote) photos.
+          let coordinate: Coordinate | undefined;
+          try {
+            const info = await MediaLibrary.getAssetInfoAsync(c.candidate.id);
+            if (info.location != null) {
+              coordinate = { latitude: info.location.latitude, longitude: info.location.longitude };
+            }
+          } catch { /* no GPS — the posting just goes out without a place */ }
           return {
             mediaId: c.candidate.id,
             localUri,
             filename: c.candidate.uri.split('/').pop() ?? `${c.candidate.id}.jpg`,
+            ...(coordinate != null ? { coordinate } : {}),
           };
         }),
       );
