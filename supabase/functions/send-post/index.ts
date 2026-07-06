@@ -14,8 +14,11 @@
  *      TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { sendBatch, type TwilioCreds } from '../_shared/twilio.ts';
+import { sendBatch, sendWhatsApp, type TwilioCreds } from '../_shared/twilio.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
+
+// Supabase edge runtime: lets background work continue after the response is sent.
+declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -62,12 +65,28 @@ Deno.serve(async req => {
   const { name, phone } = await publisherIdentity(publisherId);
   const caption = composeAutoPostBody(name, phone);
 
+  // Send the first message synchronously so pipeline errors (bad creds, expired
+  // sandbox join, bad number) surface to the app; the rest go out in the
+  // background, paced ~1 msg/sec to respect Twilio's WhatsApp throttle.
+  const [first, ...rest] = mediaUrls;
   try {
-    await sendBatch(TWILIO, to, caption, mediaUrls);
+    await sendWhatsApp(TWILIO, to, caption, first);
   } catch (err) {
     console.error(`send-post to ${to} failed:`, err);
     return json({ error: err instanceof Error ? err.message : 'send failed' }, 502);
   }
 
-  return json({ sent: mediaUrls.length });
+  if (rest.length > 0) {
+    const sendRest = new Promise(resolve => setTimeout(resolve, 1100))
+      .then(() => sendBatch(TWILIO, to, '', rest))
+      .then(result => {
+        if (result.failed > 0) {
+          console.error(`send-post to ${to}: ${result.failed}/${rest.length} background sends failed:`, result.errors);
+        }
+      });
+    if (typeof EdgeRuntime !== 'undefined') EdgeRuntime.waitUntil(sendRest);
+    else await sendRest;
+  }
+
+  return json({ sent: 1, queued: rest.length });
 });

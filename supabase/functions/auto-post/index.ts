@@ -354,7 +354,10 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     .eq('status', 'active');
 
   for (const sub of (subs ?? []) as { contact_handle: string }[]) {
-    await sendBatch(TWILIO, sub.contact_handle, caption, urls);
+    const result = await sendBatch(TWILIO, sub.contact_handle, caption, urls);
+    if (result.failed > 0) {
+      console.error(`auto-post to ${sub.contact_handle}: ${result.failed}/${urls.length} sends failed:`, result.errors);
+    }
   }
 
   await supabase.from('media').upsert(

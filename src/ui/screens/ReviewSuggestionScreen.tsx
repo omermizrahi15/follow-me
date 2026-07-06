@@ -126,7 +126,7 @@ interface ContentProps {
 export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm = false }: ContentProps): React.JSX.Element {
   const publisherId = usePublisherId();
   const { phase, found, unique, classified, total, partial, batch, pool, photosPerPost, fromCache, error, reload } = useSuggestedPhotos(publisherId);
-  const { share, loading: sharing, error: shareError } = useShareMedia();
+  const { share, loading: sharing, error: shareError, progress: shareProgress } = useShareMedia();
   // `slots` is the ordered list of photo IDs shown in the grid — one entry per grid position.
   // Initialised from `batch` when classification finishes; swapping replaces in-place.
   const [slots, setSlots] = useState<string[]>([]);
@@ -358,7 +358,16 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                 activeOpacity={0.85}
               >
                 {sharing ? (
-                  <ActivityIndicator color={colors.onAccent} />
+                  <View style={innerStyles.progressRow}>
+                    <ActivityIndicator color={colors.onAccent} />
+                    <Text style={innerStyles.confirmText}>
+                      {shareProgress == null
+                        ? 'Posting…'
+                        : shareProgress.stage === 'uploading'
+                        ? `Uploading ${Math.min(shareProgress.done + 1, shareProgress.total)}/${shareProgress.total}…`
+                        : 'Sending to followers…'}
+                    </Text>
+                  </View>
                 ) : (
                   <Text style={innerStyles.confirmText}>
                     Post {kept.length} photo{kept.length === 1 ? '' : 's'}
@@ -427,6 +436,7 @@ const innerStyles = StyleSheet.create({
   },
   disabled: { opacity: 0.5 },
   confirmText: { color: colors.onAccent, fontWeight: '600', fontSize: 15 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   successBadge: {
     width: 80,
     height: 80,

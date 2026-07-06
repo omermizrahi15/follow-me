@@ -21,6 +21,13 @@ export interface ShareMediaInput {
   items: MediaItem[];
 }
 
+export interface ShareProgress {
+  /** 'uploading' = photos → cloud storage; 'notifying' = messages → subscribers. */
+  stage: 'uploading' | 'notifying';
+  done: number;
+  total: number;
+}
+
 export class ShareMediaUseCase {
   constructor(
     private readonly mediaRepo: IMediaRepository,
@@ -29,13 +36,17 @@ export class ShareMediaUseCase {
     private readonly storage: IStorageService,
   ) {}
 
-  async share(input: ShareMediaInput): Promise<MediaDto[]> {
+  async share(input: ShareMediaInput, onProgress?: (p: ShareProgress) => void): Promise<MediaDto[]> {
     if (!input.ownerId) throw new Error('ownerId is required');
+    let uploaded = 0;
+    onProgress?.({ stage: 'uploading', done: 0, total: input.items.length });
     const mediaItems = await Promise.all(
       input.items.map(async (item) => {
         // Photos from the server-push cache are already hosted remotely — skip re-uploading.
         const isRemote = item.localUri.startsWith('http://') || item.localUri.startsWith('https://');
         const url = isRemote ? item.localUri : await this.storage.upload(item.localUri, item.filename);
+        uploaded++;
+        onProgress?.({ stage: 'uploading', done: uploaded, total: input.items.length });
         return Media.create({
           id: item.mediaId,
           ownerId: input.ownerId,
@@ -49,7 +60,13 @@ export class ShareMediaUseCase {
     await Promise.all(mediaItems.map(m => this.mediaRepo.save(m)));
 
     const subscribers = await this.subscriberRepo.findActiveByPublisher(input.ownerId);
-    await Promise.all(subscribers.map(s => this.notifier.notify(s, mediaItems)));
+    onProgress?.({ stage: 'notifying', done: 0, total: subscribers.length });
+    let notified = 0;
+    await Promise.all(subscribers.map(async s => {
+      await this.notifier.notify(s, mediaItems);
+      notified++;
+      onProgress?.({ stage: 'notifying', done: notified, total: subscribers.length });
+    }));
 
     return mediaItems.map(m => MediaMapper.toDto(m));
   }

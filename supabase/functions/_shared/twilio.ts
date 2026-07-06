@@ -35,20 +35,39 @@ export async function sendWhatsApp(
   }
 }
 
+export interface BatchSendResult {
+  sent: number;
+  failed: number;
+  errors: string[];
+}
+
 /**
  * Sends a batch of photo URLs to one subscriber. Twilio WhatsApp allows one
  * MediaUrl per message: the first carries the caption, the rest carry only media.
- * Mirrors WhatsAppNotifier.notify().
+ *
+ * Messages are paced (default ~1.1s apart) because Twilio throttles WhatsApp
+ * to ~1 msg/sec — rapid-fire batches silently drop messages. A failed message
+ * is recorded and the batch continues, so one bad send doesn't lose the rest.
  */
 export async function sendBatch(
   creds: TwilioCreds,
   to: string,
   caption: string,
   mediaUrls: string[],
-): Promise<void> {
-  const [first, ...rest] = mediaUrls;
-  await sendWhatsApp(creds, to, caption, first);
-  for (const u of rest) {
-    await sendWhatsApp(creds, to, '', u);
+  pauseMs = 1100,
+): Promise<BatchSendResult> {
+  let sent = 0;
+  const errors: string[] = [];
+  for (let i = 0; i < mediaUrls.length; i++) {
+    try {
+      await sendWhatsApp(creds, to, i === 0 ? caption : '', mediaUrls[i]);
+      sent++;
+    } catch (err) {
+      errors.push(err instanceof Error ? err.message : String(err));
+    }
+    if (i < mediaUrls.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, pauseMs));
+    }
   }
+  return { sent, failed: errors.length, errors };
 }
