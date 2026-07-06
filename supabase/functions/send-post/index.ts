@@ -35,12 +35,23 @@ function json(body: unknown, status = 200): Response {
 }
 
 async function publisherIdentity(publisherId: string): Promise<{ name: string; phone?: string }> {
+  // The profile's display name is what the publisher chose in the app; auth
+  // metadata is only a fallback (often empty for email signups).
+  let profileName = '';
+  try {
+    const { data } = await supabase
+      .from('publisher_profile')
+      .select('display_name')
+      .eq('publisher_id', publisherId)
+      .maybeSingle();
+    profileName = (data as { display_name?: string } | null)?.display_name ?? '';
+  } catch { /* fall through to auth metadata */ }
   try {
     const { data } = await supabase.auth.admin.getUserById(publisherId);
     const meta = (data.user?.user_metadata ?? {}) as { full_name?: string };
-    return { name: meta.full_name ?? 'Your friend', phone: data.user?.phone };
+    return { name: profileName || meta.full_name || 'Your friend', phone: data.user?.phone };
   } catch {
-    return { name: 'Your friend' };
+    return { name: profileName || 'Your friend' };
   }
 }
 

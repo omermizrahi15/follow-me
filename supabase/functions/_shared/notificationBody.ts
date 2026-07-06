@@ -3,8 +3,8 @@
 // so the body is the photos headline (+ optional chat link).
 
 export function composeAutoPostBody(publisherName: string, publisherPhone?: string): string {
-  const headline = `Checkout ${publisherName} latest photos 📸`;
+  const headline = `Check out ${publisherName}'s latest photos 📸`;
   if (publisherPhone == null || publisherPhone === '') return headline;
   const waPhone = publisherPhone.replace(/^\+/, '');
-  return `${headline}\nChat with ${publisherName}: https://wa.me/${waPhone}`;
+  return `${headline}\nHit the link to reply to ${publisherName}: https://wa.me/${waPhone}`;
 }
