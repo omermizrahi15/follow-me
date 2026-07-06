@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<!--
+  Follow Me — public post gallery (GitHub Pages).
+  Opened from the WhatsApp message ("See all N photos: …?id=<postId>").
+  Fetches the post row + publisher name from Supabase REST with the anon key
+  (public by design; posts/publisher_profile have anon SELECT policies).
+  Hosted here because Supabase serves Edge Function & Storage HTML as
+  text/plain (anti-phishing), so it can't host pages itself.
+-->
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Photos — Follow Me</title>
+  <style>
+    :root { color-scheme: light; }
+    * { box-sizing: border-box; margin: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F7F9FB; color: #1A222B; }
+    header { padding: 28px 20px 16px; text-align: center; }
+    header h1 { font-size: 22px; font-weight: 700; }
+    header p { margin-top: 4px; color: #6B7683; font-size: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; padding: 0 6px 40px; max-width: 900px; margin: 0 auto; }
+    .grid a { display: block; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background: #E8EDF2; }
+    .grid img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .15s ease; }
+    .grid a:hover img { transform: scale(1.03); }
+    .status { text-align: center; padding: 60px 20px; color: #6B7683; font-size: 15px; }
+    footer { text-align: center; padding-bottom: 32px; color: #9AA5AE; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="title">Loading…</h1>
+    <p id="subtitle"></p>
+  </header>
+  <div class="grid" id="grid"></div>
+  <p class="status" id="status" hidden></p>
+  <footer>Shared with Follow Me</footer>
+
+  <script>
+    const SUPABASE_URL = 'https://eigvoazyrimzbzcjlscp.supabase.co';
+    const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpZ3ZvYXp5cmltemJ6Y2psc2NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMDEwMjQsImV4cCI6MjA5NjU3NzAyNH0.IS5azZCKMuEnxyZKMPgoV1lePyg4rpvPu8rt1q85yCA';
+    const HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
+
+    // Cloudinary display rendition — bounded width, auto format/quality.
+    function displayUrl(url) {
+      if (!url.includes('/image/upload/') || url.includes('/image/upload/f_')) return url;
+      return url.replace('/image/upload/', '/image/upload/f_auto,q_auto:good,w_1200/');
+    }
+
+    function fail(message) {
+      document.getElementById('title').textContent = 'Follow Me';
+      const status = document.getElementById('status');
+      status.textContent = message;
+      status.hidden = false;
+    }
+
+    async function load() {
+      const id = new URLSearchParams(location.search).get('id');
+      if (!id) return fail('This link is invalid.');
+
+      const postRes = await fetch(
+        SUPABASE_URL + '/rest/v1/posts?id=eq.' + encodeURIComponent(id) + '&select=publisher_id,media_urls,created_at',
+        { headers: HEADERS },
+      );
+      const rows = postRes.ok ? await postRes.json() : [];
+      const post = rows[0];
+      if (!post) return fail('This post was not found or has expired.');
+
+      let name = 'Your friend';
+      try {
+        const profRes = await fetch(
+          SUPABASE_URL + '/rest/v1/publisher_profile?publisher_id=eq.' + encodeURIComponent(post.publisher_id) + '&select=display_name',
+          { headers: HEADERS },
+        );
+        const profiles = profRes.ok ? await profRes.json() : [];
+        if (profiles[0] && profiles[0].display_name) name = profiles[0].display_name;
+      } catch (_) { /* keep fallback name */ }
+
+      document.title = name + "'s photos — Follow Me";
+      document.getElementById('title').textContent = name + "'s photos \u{1F4F8}";
+      const date = new Date(post.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+      const count = post.media_urls.length;
+      document.getElementById('subtitle').textContent = count + ' photo' + (count === 1 ? '' : 's') + ' · ' + date;
+
+      const grid = document.getElementById('grid');
+      for (const url of post.media_urls) {
+        const a = document.createElement('a');
+        a.href = url;
+        a.target = '_blank';
+        a.rel = 'noopener';
+        const img = document.createElement('img');
+        img.src = displayUrl(url);
+        img.loading = 'lazy';
+        img.alt = 'photo';
+        a.appendChild(img);
+        grid.appendChild(a);
+      }
+    }
+
+    load().catch(() => fail('Something went wrong loading this post.'));
+  </script>
+</body>
+</html>
