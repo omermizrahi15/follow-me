@@ -12,6 +12,17 @@ const NSE_BUNDLE_ID = `${MAIN_BUNDLE_ID}.NotificationService`;
 const NSE_TARGET = 'NotificationServiceExtension';
 const DEV_TEAM = '458VBLF2C4';
 
+// Copy the extension sources from the tracked native/ folder into the
+// gitignored ios/ directory (refreshed on every run, so edits to native/
+// propagate even when the target already exists).
+const srcDir = path.join(__dirname, '../native', NSE_TARGET);
+const destDir = path.join(__dirname, '../ios', NSE_TARGET);
+fs.mkdirSync(destDir, { recursive: true });
+for (const f of fs.readdirSync(srcDir)) {
+  fs.copyFileSync(path.join(srcDir, f), path.join(destDir, f));
+}
+console.log(`Copied ${NSE_TARGET} sources from native/ into ios/.`);
+
 const project = xcode.project(PROJ_PATH);
 project.parseSync();
 
