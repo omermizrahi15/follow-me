@@ -32,6 +32,9 @@ export function useFeed(publisherId: string | null): UseFeed {
 
   const reload = useCallback(async (): Promise<void> => {
     if (publisherId == null) {
+      // Callers should mount the feed only after auth resolves; surface the
+      // mistake in dev instead of silently rendering an empty feed.
+      if (__DEV__) console.warn('useFeed: no publisherId — rendering an empty feed');
       setState({ postings: [], loading: false, error: null });
       return;
     }

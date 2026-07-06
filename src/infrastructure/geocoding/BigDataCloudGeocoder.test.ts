@@ -14,12 +14,31 @@ beforeEach(() => {
 });
 
 describe('BigDataCloudGeocoder', () => {
-  it('calls the client endpoint with the coordinate', async () => {
+  it('calls the client endpoint with the coordinate and an abort signal', async () => {
     mockResponse({ city: 'Lisbon', countryName: 'Portugal' });
     await new BigDataCloudGeocoder().reverseGeocode(LISBON);
     expect(mockFetch).toHaveBeenCalledWith(
       'https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=38.7223&longitude=-9.1393&localityLanguage=en',
+      { signal: expect.any(AbortSignal) as AbortSignal },
     );
+  });
+
+  it('gives up after the timeout instead of stalling the share', async () => {
+    jest.useFakeTimers();
+    try {
+      // A fetch that never settles until its signal aborts.
+      mockFetch.mockImplementationOnce(
+        (_url: string, opts: { signal: AbortSignal }) =>
+          new Promise((_, reject) =>
+            opts.signal.addEventListener('abort', () => reject(new Error('Aborted'))),
+          ),
+      );
+      const result = new BigDataCloudGeocoder().reverseGeocode(LISBON);
+      jest.advanceTimersByTime(5000);
+      await expect(result).resolves.toBeNull();
+    } finally {
+      jest.useRealTimers();
+    }
   });
 
   it('returns "City, Country"', async () => {
