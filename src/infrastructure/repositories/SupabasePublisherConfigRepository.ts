@@ -3,6 +3,7 @@ import type { IPublisherConfigRepository } from '../../domain/interfaces';
 import { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../domain/entities/PublisherConfig';
 import type { PhotoCategory } from '../../domain/entities/PhotoClassification';
+import { SELECTABLE_CATEGORIES } from '../../domain/entities/PhotoClassification';
 
 type ConfigColumns = {
   publisher_id: string;
@@ -50,7 +51,12 @@ function rowToConfig(row: ConfigRow): PublisherConfig {
     requireApproval: row.require_approval,
     notifyDayOfWeek: row.notify_day_of_week,
     notifyTime: row.notify_time,
-    enabledCategories: row.enabled_categories as PhotoCategory[],
+    // Guard against null/empty from older rows or manual edits — an empty
+    // category list would make every scan return nothing.
+    enabledCategories:
+      Array.isArray(row.enabled_categories) && row.enabled_categories.length > 0
+        ? (row.enabled_categories as PhotoCategory[])
+        : [...SELECTABLE_CATEGORIES],
     // lookbackDays is now derived from frequency — not read from DB
     minQuality: row.min_quality,
     timezone: row.timezone,

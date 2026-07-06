@@ -15,6 +15,12 @@ create index if not exists candidate_photos_publisher_created_idx
 alter table candidate_photos enable row level security;
 
 -- Dev policies: open access for the anon role, matching the other tables.
+-- TODO(production): replace with authenticated policies before launch —
+--   for select/insert/update/delete to authenticated
+--   using (auth.uid() = publisher_id) with check (auth.uid() = publisher_id)
+-- and drop every dev_allow_* policy. Requires the app's Supabase clients to
+-- attach the user session (they currently use the bare anon key).
+-- See docs/PRODUCTION.md → "RLS hardening" for the full plan.
 drop policy if exists dev_allow_select on candidate_photos;
 create policy dev_allow_select on candidate_photos for select to anon using (true);
 

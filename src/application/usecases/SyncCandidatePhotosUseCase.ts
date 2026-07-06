@@ -9,6 +9,18 @@ import type {
 const identityResolve: ResolveLocalUri = candidate => Promise.resolve(candidate.uri);
 
 /**
+ * Filename for the uploaded copy. Library uris can be odd (ph:// handles,
+ * query params, no slash at all) — strip params, take the last path segment,
+ * and fall back to the asset id when nothing usable remains.
+ */
+function deriveFilename(uri: string, assetId: string): string {
+  const lastSegment = uri.split('?')[0]?.split('/').pop() ?? '';
+  const safe = lastSegment.replace(/[^\w.-]/g, '');
+  const fallback = `${assetId.replace(/[^\w.-]/g, '') || 'photo'}.jpg`;
+  return safe.length > 0 ? safe : fallback;
+}
+
+/**
  * Uploads recent library photos to the cloud so the autonomous server job can
  * post them. Only photos not already synced are uploaded (deduped by asset id),
  * keeping the cloud set bounded to the lookback window. Runs on-device when the
@@ -31,8 +43,7 @@ export class SyncCandidatePhotosUseCase {
     const rows = await Promise.all(
       fresh.map(async (c): Promise<CandidatePhoto> => {
         const localUri = await this.resolveLocalUri(c);
-        const filename = c.uri.split('/').pop() ?? `${c.id}.jpg`;
-        const url = await this.storage.upload(localUri, filename);
+        const url = await this.storage.upload(localUri, deriveFilename(c.uri, c.id));
         return { publisherId, assetId: c.id, url, createdAt: c.createdAt };
       }),
     );

@@ -43,6 +43,9 @@ export class SupabaseCandidatePhotoRepository implements ICandidatePhotoReposito
         url: p.url,
         created_at: p.createdAt.toISOString(),
       })),
+      // Explicit conflict target (= the table's primary key) so re-syncing the
+      // same asset updates the row regardless of client-library defaults.
+      { onConflict: 'publisher_id,asset_id' },
     );
     if (error != null) throw new Error(error.message);
   }

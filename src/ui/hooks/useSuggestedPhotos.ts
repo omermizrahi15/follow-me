@@ -55,6 +55,13 @@ export function useSuggestedPhotos(publisherId: string): State & { reload: () =>
   const runScan = useCallback((skipCache: boolean): void => {
     setState(INITIAL);
 
+    // Safety net: the navigator guards this screen behind auth, but if it ever
+    // mounts without a publisher (e.g. mid-logout) fail visibly, don't scan.
+    if (!publisherId) {
+      setState(s => ({ ...s, phase: 'error', error: 'Not signed in' }));
+      return;
+    }
+
     void (async (): Promise<void> => {
       try {
         const config = await loadConfig.execute(publisherId);

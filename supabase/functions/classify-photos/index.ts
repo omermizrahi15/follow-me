@@ -130,23 +130,29 @@ function normalizeCategory(c: unknown): Category {
   return CATEGORIES.includes(c as Category) ? (c as Category) : 'other';
 }
 
+/** One retry on transient failures (5xx / 429) with a short backoff. */
+async function callGemini(body: string): Promise<Response> {
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
+  const request = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body };
+  const first = await fetch(url, request);
+  if (first.ok || (first.status < 500 && first.status !== 429)) return first;
+  await first.body?.cancel();
+  await new Promise(resolve => setTimeout(resolve, 800));
+  return fetch(url, request);
+}
+
 async function classifyOne(photo: PhotoInput): Promise<Classification> {
   const { data, mimeType } = await resolveImage(photo);
 
-  const res = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`,
-    {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        contents: [{ parts: [{ text: PROMPT }, { inlineData: { mimeType, data } }] }],
-        generationConfig: {
-          responseMimeType: 'application/json',
-          responseSchema: RESPONSE_SCHEMA,
-          temperature: 0,
-        },
-      }),
-    },
+  const res = await callGemini(
+    JSON.stringify({
+      contents: [{ parts: [{ text: PROMPT }, { inlineData: { mimeType, data } }] }],
+      generationConfig: {
+        responseMimeType: 'application/json',
+        responseSchema: RESPONSE_SCHEMA,
+        temperature: 0,
+      },
+    }),
   );
 
   if (!res.ok) {
@@ -155,7 +161,11 @@ async function classifyOne(photo: PhotoInput): Promise<Classification> {
 
   const payload = await res.json();
   const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (typeof text !== 'string') throw new Error('Gemini returned no content');
+  if (typeof text !== 'string') {
+    // Log the shape so an API format change is diagnosable from function logs.
+    console.error('Gemini returned no content; payload shape:', JSON.stringify(payload)?.slice(0, 500));
+    throw new Error('Gemini returned no content');
+  }
   const parsed = JSON.parse(text);
 
   return {
