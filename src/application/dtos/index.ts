@@ -8,7 +8,6 @@ export interface MediaDto {
 export interface FeedMediaDto {
   id: string;
   url: string;
-  mediaType: 'image' | 'video';
 }
 
 /** One feed entry — the batch of media shared together in a single send. */

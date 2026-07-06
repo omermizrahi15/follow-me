@@ -32,7 +32,7 @@ const singleItem = [{ mediaId: 'media-1', localUri: 'file:///local/photo.jpg', f
 const multipleItems = [
   { mediaId: 'media-1', localUri: 'file:///local/a.jpg', filename: 'a.jpg' },
   { mediaId: 'media-2', localUri: 'file:///local/b.jpg', filename: 'b.jpg' },
-  { mediaId: 'media-3', localUri: 'file:///local/c.mp4', filename: 'c.mp4' },
+  { mediaId: 'media-3', localUri: 'file:///local/c.jpg', filename: 'c.jpg' },
 ];
 
 describe('ShareMediaUseCase — single item', () => {
@@ -98,14 +98,6 @@ describe('ShareMediaUseCase — posting grouping', () => {
     expect(new Set(postingIds).size).toBe(2);
   });
 
-  it('keeps the item mediaType on the saved media', async (): Promise<void> => {
-    const { useCase, mediaRepo } = makeSut();
-    await useCase.share({
-      ownerId: 'user-1',
-      items: [{ mediaId: 'media-1', localUri: 'file:///local/c.mp4', filename: 'c.mp4', mediaType: 'video' }],
-    });
-    expect(mediaRepo.all()[0]?.mediaType).toBe('video');
-  });
 });
 
 describe('ShareMediaUseCase — posting location', () => {

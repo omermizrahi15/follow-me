@@ -1,5 +1,4 @@
 import { Media } from '../../domain/entities/Media';
-import type { MediaType } from '../../domain/entities/Media';
 import type {
   Coordinate,
   IGeocoder,
@@ -16,7 +15,6 @@ interface MediaItem {
   mediaId: string;
   localUri: string;
   filename: string;
-  mediaType?: MediaType;
   /** Where the photo was taken (from EXIF GPS), when the device provides it. */
   coordinate?: Coordinate;
 }
@@ -58,7 +56,6 @@ export class ShareMediaUseCase {
         url,
         createdAt: new Date(),
         postingId,
-        ...(item.mediaType != null ? { mediaType: item.mediaType } : {}),
         ...(location != null ? { location } : {}),
       }),
     );

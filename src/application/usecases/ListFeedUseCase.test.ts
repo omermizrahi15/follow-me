@@ -42,13 +42,12 @@ describe('ListFeedUseCase — grouping by postingId', () => {
     expect(feed.map(p => p.id)).toEqual(['post-new', 'post-old']);
   });
 
-  it('carries mediaType, url and the posting createdAt/location', async (): Promise<void> => {
+  it('carries the url and the posting createdAt/location', async (): Promise<void> => {
     const { useCase, mediaRepo } = makeSut();
-    await mediaRepo.save(makeMedia('m1', { postingId: 'post-a', mediaType: 'video', location: 'Lisbon, Portugal' }));
+    await mediaRepo.save(makeMedia('m1', { postingId: 'post-a', location: 'Lisbon, Portugal' }));
 
     const feed = await useCase.list('user-1');
 
-    expect(feed[0]?.media[0]?.mediaType).toBe('video');
     expect(feed[0]?.media[0]?.url).toBe('https://cdn.example.com/m1.jpg');
     expect(feed[0]?.createdAt).toBe('2026-06-18T10:00:00.000Z');
     expect(feed[0]?.location).toBe('Lisbon, Portugal');

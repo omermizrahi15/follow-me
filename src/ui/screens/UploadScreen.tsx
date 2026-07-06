@@ -46,7 +46,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) return;
       const picked = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.All,
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
         quality: 0.8,
         // EXIF carries the photos' GPS — it names the posting's place in the feed.
@@ -69,7 +69,6 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
             mediaId: `${Date.now()}-${i}`,
             localUri: asset.uri,
             filename: asset.fileName ?? asset.uri.split('/').pop() ?? `media-${i}.jpg`,
-            mediaType: asset.type === 'video' ? ('video' as const) : ('image' as const),
             ...(coordinate != null ? { coordinate } : {}),
           };
         });
@@ -158,7 +157,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           </TouchableOpacity>
         </View>
         <Text style={styles.subtitle}>
-          Pick photos or videos to send to your followers immediately
+          Pick photos to send to your followers immediately
         </Text>
       </View>
 
@@ -167,7 +166,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
         <Text style={styles.pickText}>
           {pickedAssets.length > 0
             ? `${pickedAssets.length} item${pickedAssets.length > 1 ? 's' : ''} selected — tap to change`
-            : 'Select photos or videos'}
+            : 'Select photos'}
         </Text>
       </TouchableOpacity>
 

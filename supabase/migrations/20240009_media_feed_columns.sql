@@ -1,7 +1,7 @@
 -- The Home feed renders uploaded media grouped into "postings" — the batch of
 -- items shared together in one send (issue #44). Persist what the feed needs:
 --
---   media_type  'image' | 'video' — drives the play badge on a posting.
+--   media_type  since dropped in 20240011 — the app went photos-only.
 --   posting_id  shared by every item of one ShareMediaUseCase.share() call;
 --               the feed groups on it. Nullable here; 20240010 makes it
 --               NOT NULL with a per-row default.

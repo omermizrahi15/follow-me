@@ -2,14 +2,12 @@ import React from 'react';
 import { View, Text, Image, TouchableOpacity, FlatList, Dimensions, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import type { MediaType } from '../../domain/entities/Media';
-import { displaySizedUri, mediaPreviewUri } from '../utils/mediaPreview';
+import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
 import { colors, radius, spacing } from '../theme/theme';
 
-/** A single media item within a posting. Mirrors the domain `Media`. */
+/** A single photo within a posting. Mirrors the domain `Media`. */
 export interface FeedMedia {
   id: string;
-  type: MediaType;
   uri?: string;
 }
 
@@ -42,13 +40,8 @@ const POST_HEIGHT = Math.round(Dimensions.get('window').width / ASPECT);
 /** Covers are delivered resized to roughly the screen, not at original camera size. */
 const COVER_WIDTH = 1080;
 
-function hasVideo(media: FeedMedia[]): boolean {
-  return media.some(m => m.type === 'video');
-}
-
 function Post({ posting, onPress }: { posting: FeedPosting; onPress?: () => void }): React.JSX.Element {
-  const coverMedia = posting.media.find(m => m.uri);
-  const rawCover = posting.coverUri ?? (coverMedia != null ? mediaPreviewUri(coverMedia) : undefined);
+  const rawCover = posting.coverUri ?? posting.media.find(m => m.uri)?.uri;
   const cover = rawCover != null ? displaySizedUri(rawCover, COVER_WIDTH) : undefined;
   return (
     <TouchableOpacity style={styles.post} activeOpacity={0.92} onPress={onPress} disabled={onPress == null}>
@@ -83,12 +76,6 @@ function Post({ posting, onPress }: { posting: FeedPosting; onPress?: () => void
           <Text style={styles.place} numberOfLines={1}>{posting.date}</Text>
         )}
       </View>
-
-      {hasVideo(posting.media) && (
-        <View style={styles.playBadge}>
-          <Ionicons name="play" size={22} color="#fff" style={{ marginLeft: 3 }} />
-        </View>
-      )}
     </TouchableOpacity>
   );
 }
@@ -96,8 +83,8 @@ function Post({ posting, onPress }: { posting: FeedPosting; onPress?: () => void
 /**
  * Full-bleed feed of the publisher's latest postings — large edge-to-edge
  * cover images stacked with no gaps (Instagram / Polarsteps "memories" style),
- * each with its place + date overlaid and a play badge when it holds video.
- * Tapping a post opens it (all its photos) via `onPressPosting`.
+ * each with its place + date overlaid. Tapping a post opens it (all its
+ * photos) via `onPressPosting`.
  *
  * Virtualized: only the posts near the viewport are mounted, so a feed of
  * hundreds of postings costs the same as a feed of five.
@@ -160,17 +147,4 @@ const styles = StyleSheet.create({
     paddingVertical: 4,
   },
   countText: { color: '#fff', fontSize: 12, fontWeight: '600' },
-  playBadge: {
-    position: 'absolute',
-    right: spacing.xl,
-    bottom: spacing.xl,
-    width: 54,
-    height: 54,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 });

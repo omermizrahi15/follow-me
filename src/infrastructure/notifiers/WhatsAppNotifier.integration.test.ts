@@ -20,14 +20,13 @@ function makeSubscriber(): Subscriber {
 }
 
 describeIf(RUN)('WhatsAppNotifier (integration)', () => {
-  it('sends a batch of 2 photos + 1 video with location without throwing', async (): Promise<void> => {
+  it('sends a batch of 3 photos with location without throwing', async (): Promise<void> => {
     const mediaItems = [
       Media.create({
         id: 'photo-1',
         ownerId: 'user-test',
         url: 'https://res.cloudinary.com/demo/image/upload/sample.jpg',
         createdAt: new Date(),
-        mediaType: 'image',
         location: 'Tel Aviv, Israel',
       }),
       Media.create({
@@ -35,15 +34,13 @@ describeIf(RUN)('WhatsAppNotifier (integration)', () => {
         ownerId: 'user-test',
         url: 'https://res.cloudinary.com/demo/image/upload/cld-sample.jpg',
         createdAt: new Date(),
-        mediaType: 'image',
         location: 'Tel Aviv, Israel',
       }),
       Media.create({
-        id: 'video-1',
+        id: 'photo-3',
         ownerId: 'user-test',
-        url: 'https://res.cloudinary.com/demo/video/upload/dog.mp4',
+        url: 'https://res.cloudinary.com/demo/image/upload/cld-sample-2.jpg',
         createdAt: new Date(),
-        mediaType: 'video',
         location: 'Tel Aviv, Israel',
       }),
     ];

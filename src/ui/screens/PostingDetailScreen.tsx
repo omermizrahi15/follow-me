@@ -5,15 +5,14 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import type { FeedMedia } from '../components/PhotoFeed';
-import { displaySizedUri, mediaPreviewUri } from '../utils/mediaPreview';
+import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
 import { colors, radius, shadow, spacing } from '../theme/theme';
 
 /** Width-to-height ratio of each photo in the posting (matches the feed). */
 const ASPECT = 4 / 5;
 
 function MediaItem({ media }: { media: FeedMedia }): React.JSX.Element {
-  const raw = mediaPreviewUri(media);
-  const uri = raw != null ? displaySizedUri(raw, 1080) : undefined;
+  const uri = media.uri != null ? displaySizedUri(media.uri, 1080) : undefined;
   return (
     <View style={styles.mediaItem}>
       {uri != null ? (
@@ -23,18 +22,13 @@ function MediaItem({ media }: { media: FeedMedia }): React.JSX.Element {
           <Ionicons name="image-outline" size={40} color={colors.textMuted} />
         </View>
       )}
-      {media.type === 'video' && (
-        <View style={styles.playBadge}>
-          <Ionicons name="play" size={22} color="#fff" style={{ marginLeft: 3 }} />
-        </View>
-      )}
     </View>
   );
 }
 
 /**
- * One posting, opened by tapping it in the feed: every photo and video of the
- * batch stacked full-width, with the posting's place and date up top.
+ * One posting, opened by tapping it in the feed: every photo of the batch
+ * stacked full-width, with the posting's place and date up top.
  */
 export function PostingDetailScreen(): React.JSX.Element {
   const insets = useSafeAreaInsets();
@@ -99,17 +93,4 @@ const styles = StyleSheet.create({
   mediaItem: { width: '100%', aspectRatio: ASPECT, marginBottom: 2, backgroundColor: colors.surfaceAlt },
   mediaImage: { width: '100%', height: '100%' },
   placeholder: { alignItems: 'center', justifyContent: 'center' },
-  playBadge: {
-    position: 'absolute',
-    right: spacing.xl,
-    bottom: spacing.xl,
-    width: 54,
-    height: 54,
-    borderRadius: radius.pill,
-    backgroundColor: 'rgba(255,255,255,0.22)',
-    borderWidth: 1,
-    borderColor: 'rgba(255,255,255,0.5)',
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
 });

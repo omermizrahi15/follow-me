@@ -10,16 +10,6 @@ function isCloudinary(uri: string): boolean {
 }
 
 /**
- * A poster-frame URL for a Cloudinary video: swapping the file extension to
- * .jpg makes Cloudinary render a still — which is what an <Image> needs,
- * since it can't display an .mp4.
- */
-export function videoPosterUri(uri: string): string {
-  if (!isCloudinary(uri)) return uri;
-  return uri.replace(/\.\w+$/, '.jpg');
-}
-
-/**
  * Right-size a Cloudinary delivery URL for on-screen display instead of
  * shipping the original upload (a phone camera photo is several MB; the feed
  * needs ~a tenth of that). `c_limit` never upscales; f_auto/q_auto let

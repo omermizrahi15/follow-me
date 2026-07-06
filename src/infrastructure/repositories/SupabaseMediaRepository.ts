@@ -11,7 +11,6 @@ interface Database {
           owner_id: string;
           url: string;
           created_at: string;
-          media_type: string;
           posting_id: string | null;
           location: string | null;
         };
@@ -20,7 +19,6 @@ interface Database {
           owner_id: string;
           url: string;
           created_at: string;
-          media_type?: string;
           posting_id?: string | null;
           location?: string | null;
         };
@@ -29,7 +27,6 @@ interface Database {
           owner_id?: string;
           url?: string;
           created_at?: string;
-          media_type?: string;
           posting_id?: string | null;
           location?: string | null;
         };
@@ -51,7 +48,6 @@ function rowToMedia(row: MediaRow): Media {
     ownerId: row.owner_id,
     url: row.url,
     createdAt: new Date(row.created_at),
-    mediaType: row.media_type === 'video' ? 'video' : 'image',
     ...(row.posting_id != null ? { postingId: row.posting_id } : {}),
     ...(row.location != null ? { location: row.location } : {}),
   });
@@ -70,7 +66,6 @@ export class SupabaseMediaRepository implements IMediaRepository {
       owner_id: media.ownerId,
       url: media.url,
       created_at: media.createdAt.toISOString(),
-      media_type: media.mediaType,
       posting_id: media.postingId ?? null,
       location: media.location ?? null,
     });

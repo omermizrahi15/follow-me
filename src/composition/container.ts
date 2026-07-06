@@ -29,7 +29,7 @@ const mediaRepo = new SupabaseMediaRepository(supabaseUrl, supabaseKey);
 const subscriberRepo = new SupabaseSubscriberRepository(supabaseUrl, supabaseKey);
 const configRepo = new SupabasePublisherConfigRepository(supabaseUrl, supabaseKey);
 const profileRepo = new SupabasePublisherProfileRepository(supabaseUrl, supabaseKey);
-// Shared image/video uploader (Cloudinary) — used for posts and profile avatars.
+// Shared photo uploader (Cloudinary) — used for posts and profile avatars.
 export const storage = new CloudinaryStorageService(
   requireEnv('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
   requireEnv('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
