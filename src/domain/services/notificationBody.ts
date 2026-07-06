@@ -1,10 +1,9 @@
 import type { Media } from '../entities/Media';
 
 export function composeNotificationBody(publisherName: string, media: Media[], publisherPhone?: string): string {
-  const mediaDescription = describeMedia(media);
   const locationClause = formatLocationClause(selectTopLocations(media));
   const locationPart = locationClause != null ? ` from ${locationClause}` : '';
-  const headline = `Checkout ${publisherName} latest ${mediaDescription}${locationPart} 📸`;
+  const headline = `Checkout ${publisherName} latest photos${locationPart} 📸`;
   if (publisherPhone == null) return headline;
   const waPhone = publisherPhone.replace(/^\+/, '');
   return `${headline}\nChat with ${publisherName}: https://wa.me/${waPhone}`;
@@ -28,12 +27,4 @@ export function formatLocationClause(locations: string[]): string | null {
   if (second == null) return first;
   if (rest.length === 0) return `${first} & ${second}`;
   return `${first}, ${second} and more`;
-}
-
-function describeMedia(media: Media[]): string {
-  const hasImages = media.some(m => m.mediaType === 'image');
-  const hasVideos = media.some(m => m.mediaType === 'video');
-  if (hasImages && hasVideos) return 'photos and videos';
-  if (hasVideos) return 'videos';
-  return 'photos';
 }

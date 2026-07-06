@@ -13,7 +13,7 @@ export class ConsoleNotifier implements INotifier {
     const body = composeNotificationBody(this.publisherName, media, this.publisherPhone);
     console.log(`[ConsoleNotifier] → ${subscriber.contactHandle}`);
     console.log(`  body: ${body}`);
-    media.forEach((m, i) => console.log(`  [${i}] ${m.mediaType} ${m.url}`));
+    media.forEach((m, i) => console.log(`  [${i}] ${m.url}`));
     return Promise.resolve();
   }
 }

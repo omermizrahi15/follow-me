@@ -20,8 +20,8 @@ import { logoSource } from '../assets';
 import { PhotoFeed } from '../components/PhotoFeed';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { FollowersSection } from './sections/FollowersSection';
-import { feedStubs } from '../data/feedStubs';
 import { useInviteLink } from '../hooks/useInviteLink';
+import { useFeed } from '../hooks/useFeed';
 import { useProfile } from '../hooks/useProfile';
 import { useSubscribers } from '../hooks/useSubscribers';
 import { usePublisherId } from '../context/AuthContext';
@@ -49,8 +49,9 @@ export function HomeScreen(): React.JSX.Element {
   const requestedSection = route.params?.section;
   const { shareInvite } = useInviteLink();
   const publisherId = usePublisherId();
-  const { profile } = useProfile(publisherId);
+  const { profile, reload: reloadProfile } = useProfile(publisherId);
   const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
+  const { postings, loading: feedLoading, reload: reloadFeed } = useFeed(publisherId);
   const [section, setSection] = useState<HomeSection>('me');
   const [bioExpanded, setBioExpanded] = useState(false);
 
@@ -75,12 +76,15 @@ export function HomeScreen(): React.JSX.Element {
   }, [requestedSection]);
 
   // The Me page never unmounts (sections are local state, Upload is a modal on
-  // top), so refresh the followers count whenever the screen regains focus —
-  // e.g. coming back from the Upload modal or after a new follower joins.
+  // top), so refresh the followers count, the feed and the profile whenever
+  // the screen regains focus — e.g. a fresh upload or a profile edit in
+  // Settings must show up on return.
   useFocusEffect(
     useCallback(() => {
       void reloadSubscribers();
-    }, [reloadSubscribers]),
+      void reloadFeed();
+      void reloadProfile();
+    }, [reloadSubscribers, reloadFeed, reloadProfile]),
   );
 
   function snapTo(h: number): void {
@@ -121,33 +125,65 @@ export function HomeScreen(): React.JSX.Element {
   const glassBand = insets.bottom + NAV_BAR_H;
   const bottomInset = glassBand + spacing.md;
 
+  // The header floats over full-bleed photos when there are posts (white text
+  // on a dark scrim) but over the plain light background when there are none.
+  const overPhotos = postings.length > 0;
+  const headerTint = overPhotos ? '#fff' : colors.ink;
+
   return (
     <View style={styles.container}>
-      {/* Feed = full-screen scrolling background */}
-      <ScrollView
-        showsVerticalScrollIndicator={false}
-        contentContainerStyle={{ paddingBottom: MEDIUM_H + spacing.lg }}
-      >
-        <PhotoFeed postings={feedStubs} />
-      </ScrollView>
+      {/* Feed = full-screen virtualized background; only posts near the viewport are mounted */}
+      {postings.length > 0 ? (
+        <PhotoFeed
+          postings={postings}
+          onPressPosting={p => navigation.navigate('Posting', { posting: p })}
+          bottomPadding={MEDIUM_H + spacing.lg}
+          footer={
+            <TouchableOpacity
+              style={styles.feedEndButton}
+              activeOpacity={0.85}
+              onPress={() => navigation.navigate('Upload')}
+            >
+              <Ionicons name="add" size={18} color={colors.onAccent} />
+              <Text style={styles.feedEndButtonText}>Add post</Text>
+            </TouchableOpacity>
+          }
+        />
+      ) : !feedLoading ? (
+        <View style={styles.emptyFeed}>
+          <Ionicons name="images-outline" size={44} color={colors.textMuted} />
+          <Text style={styles.emptyTitle}>No posts yet</Text>
+          <Text style={styles.emptyHint}>Photos you share with “Add post” will show up here.</Text>
+          <TouchableOpacity
+            style={[styles.feedEndButton, { marginTop: spacing.md }]}
+            activeOpacity={0.85}
+            onPress={() => navigation.navigate('Upload')}
+          >
+            <Ionicons name="add" size={18} color={colors.onAccent} />
+            <Text style={styles.feedEndButtonText}>Add post</Text>
+          </TouchableOpacity>
+        </View>
+      ) : null}
 
-      {/* Top scrim + floating logo/gear */}
-      <LinearGradient
-        colors={['rgba(8,12,18,0.55)', 'transparent']}
-        style={[styles.topScrim, { height: insets.top + 64 }]}
-        pointerEvents="none"
-      />
+      {/* Top scrim (only over photos) + floating logo/gear */}
+      {overPhotos && (
+        <LinearGradient
+          colors={['rgba(8,12,18,0.55)', 'transparent']}
+          style={[styles.topScrim, { height: insets.top + 64 }]}
+          pointerEvents="none"
+        />
+      )}
       <View style={[styles.appHeader, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
         <View style={styles.logoRow}>
-          <Image source={logoSource} style={styles.logoImg} resizeMode="contain" />
-          <Text style={styles.logoText}>Follow Me</Text>
+          <Image source={logoSource} style={[styles.logoImg, { tintColor: headerTint }]} resizeMode="contain" />
+          <Text style={[styles.logoText, { color: headerTint }]}>Follow Me</Text>
         </View>
         <TouchableOpacity
-          style={styles.gearButton}
+          style={[styles.gearButton, !overPhotos && styles.gearButtonLight]}
           accessibilityLabel="Settings"
           onPress={() => navigation.navigate('Settings')}
         >
-          <Ionicons name="settings-sharp" size={20} color="#fff" />
+          <Ionicons name="settings-sharp" size={20} color={headerTint} />
         </TouchableOpacity>
       </View>
 
@@ -235,7 +271,28 @@ export function HomeScreen(): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#0E141C' },
+  container: { flex: 1, backgroundColor: colors.background },
+  emptyFeed: {
+    height: SCREEN_H - MEDIUM_H,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.sm,
+    paddingHorizontal: spacing.xxl,
+  },
+  emptyTitle: { color: colors.text, fontSize: 17, fontWeight: '700' },
+  emptyHint: { color: colors.textSecondary, fontSize: 13, textAlign: 'center' },
+  feedEndButton: {
+    alignSelf: 'center',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.accent,
+    paddingVertical: spacing.md,
+    paddingHorizontal: spacing.xl,
+    borderRadius: radius.pill,
+    marginVertical: spacing.xl,
+  },
+  feedEndButtonText: { color: colors.onAccent, fontWeight: '600', fontSize: 14 },
   topScrim: { position: 'absolute', top: 0, left: 0, right: 0 },
   appHeader: {
     position: 'absolute',
@@ -246,8 +303,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
   },
   logoRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  logoImg: { width: 40, height: 30, tintColor: '#fff' },
-  logoText: { color: '#fff', fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
+  logoImg: { width: 40, height: 30 },
+  logoText: { fontSize: 22, fontWeight: '700', letterSpacing: -0.4 },
   gearButton: {
     width: 40,
     height: 40,
@@ -256,6 +313,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  gearButtonLight: { backgroundColor: colors.surfaceAlt },
   sheet: {
     position: 'absolute',
     left: 0,

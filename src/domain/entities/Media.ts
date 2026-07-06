@@ -1,12 +1,11 @@
-export type MediaType = 'image' | 'video';
-
 export interface MediaProps {
   id: string;
   ownerId: string;
   url: string;
   createdAt: Date;
   location?: string;
-  mediaType?: MediaType;
+  /** Groups the items shared together in one send — the feed's "posting". */
+  postingId?: string;
 }
 
 export class Media {
@@ -23,5 +22,5 @@ export class Media {
   get url(): string { return this.props.url; }
   get createdAt(): Date { return this.props.createdAt; }
   get location(): string | undefined { return this.props.location; }
-  get mediaType(): MediaType { return this.props.mediaType ?? 'image'; }
+  get postingId(): string | undefined { return this.props.postingId; }
 }

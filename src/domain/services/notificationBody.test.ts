@@ -1,14 +1,13 @@
 import { composeNotificationBody, selectTopLocations, formatLocationClause } from './notificationBody';
 import { Media } from '../entities/Media';
 
-function makeMedia(overrides: Partial<{ location: string; mediaType: 'image' | 'video' }> = {}): Media {
+function makeMedia(overrides: Partial<{ location: string }> = {}): Media {
   return Media.create({
     id: 'media-1',
     ownerId: 'user-1',
     url: 'https://cdn.test/item.jpg',
     createdAt: new Date(),
     ...(overrides.location != null ? { location: overrides.location } : {}),
-    mediaType: overrides.mediaType ?? 'image',
   });
 }
 
@@ -96,25 +95,10 @@ describe('composeNotificationBody — publisher name', () => {
   });
 });
 
-describe('composeNotificationBody — media type description', () => {
-  it('says "photos" for images only', () => {
-    const body = composeNotificationBody('Omer', [makeMedia({ mediaType: 'image' })]);
+describe('composeNotificationBody — media description', () => {
+  it('describes the batch as "photos"', () => {
+    const body = composeNotificationBody('Omer', [makeMedia()]);
     expect(body).toContain('photos');
-    expect(body).not.toContain('videos');
-  });
-
-  it('says "videos" for videos only', () => {
-    const body = composeNotificationBody('Omer', [makeMedia({ mediaType: 'video' })]);
-    expect(body).toContain('videos');
-    expect(body).not.toContain('photos');
-  });
-
-  it('says "photos and videos" for a mixed batch', () => {
-    const body = composeNotificationBody('Omer', [
-      makeMedia({ mediaType: 'image' }),
-      makeMedia({ mediaType: 'video' }),
-    ]);
-    expect(body).toContain('photos and videos');
   });
 });
 

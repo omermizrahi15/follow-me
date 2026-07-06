@@ -56,6 +56,16 @@ export interface IStorageService {
   upload(localUri: string, filename: string): Promise<string>;
 }
 
+export interface Coordinate {
+  latitude: number;
+  longitude: number;
+}
+
+export interface IGeocoder {
+  /** Human place label ("City, Country") for a coordinate; null when unresolvable. */
+  reverseGeocode(coordinate: Coordinate): Promise<string | null>;
+}
+
 export interface IPublisherConfigRepository {
   save(config: PublisherConfig): Promise<void>;
   findByPublisher(publisherId: string): Promise<PublisherConfig | null>;

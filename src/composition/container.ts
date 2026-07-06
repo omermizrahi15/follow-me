@@ -1,4 +1,5 @@
 import { ShareMediaUseCase } from '../application/usecases/ShareMediaUseCase';
+import { ListFeedUseCase } from '../application/usecases/ListFeedUseCase';
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
 import { ListSubscribersUseCase } from '../application/usecases/ListSubscribersUseCase';
 import { RemoveSubscriberUseCase } from '../application/usecases/RemoveSubscriberUseCase';
@@ -13,6 +14,7 @@ import { SupabaseSubscriberRepository } from '../infrastructure/repositories/Sup
 import { SupabasePublisherConfigRepository } from '../infrastructure/repositories/SupabasePublisherConfigRepository';
 import { SupabasePublisherProfileRepository } from '../infrastructure/repositories/SupabasePublisherProfileRepository';
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
+import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 
 function requireEnv(key: string): string {
   const value = process.env[key] as string | undefined;
@@ -27,7 +29,7 @@ const mediaRepo = new SupabaseMediaRepository(supabaseUrl, supabaseKey);
 const subscriberRepo = new SupabaseSubscriberRepository(supabaseUrl, supabaseKey);
 const configRepo = new SupabasePublisherConfigRepository(supabaseUrl, supabaseKey);
 const profileRepo = new SupabasePublisherProfileRepository(supabaseUrl, supabaseKey);
-// Shared image/video uploader (Cloudinary) — used for posts and profile avatars.
+// Shared photo uploader (Cloudinary) — used for posts and profile avatars.
 export const storage = new CloudinaryStorageService(
   requireEnv('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
   requireEnv('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
@@ -36,7 +38,11 @@ export const storage = new CloudinaryStorageService(
 const notifier = new ConsoleNotifier('Omer');
 const confirmationSender = new ConsoleConfirmationSender();
 
-export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage);
+// Names the posting's place ("Lisbon, Portugal") from the batch's EXIF GPS.
+const geocoder = new BigDataCloudGeocoder();
+
+export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage, geocoder);
+export const listFeed = new ListFeedUseCase(mediaRepo);
 export const subscribe = new SubscribeUseCase(subscriberRepo, confirmationSender);
 export const listSubscribers = new ListSubscribersUseCase(subscriberRepo);
 export const removeSubscriber = new RemoveSubscriberUseCase(subscriberRepo);
