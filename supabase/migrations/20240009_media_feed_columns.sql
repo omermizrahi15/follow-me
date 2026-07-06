@@ -3,8 +3,8 @@
 --
 --   media_type  'image' | 'video' — drives the play badge on a posting.
 --   posting_id  shared by every item of one ShareMediaUseCase.share() call;
---               the feed groups on it. Nullable here; 20240010 backfills and
---               makes it NOT NULL with a per-row default.
+--               the feed groups on it. Nullable here; 20240010 makes it
+--               NOT NULL with a per-row default.
 --   location    optional place label; stays null until media GPS metadata is
 --               reverse-geocoded (issue #23).
 
