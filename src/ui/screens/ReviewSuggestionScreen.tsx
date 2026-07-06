@@ -161,16 +161,25 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
       .filter((c): c is PhotoClassification => c != null);
   }, [phase, slots, photoById, partial]);
 
-  // True when at least one unused, unexcluded photo remains in the pool.
-  const hasPool = useMemo(() => {
-    if (phase !== 'done') return false;
+  // Next unused, unexcluded photo — powers both swap and the "add photo" slot.
+  const nextAvailable = useMemo(() => {
+    if (phase !== 'done') return null;
     const usedIds = new Set(slots);
-    return [...batch, ...pool].some(
-      c => !excluded.has(c.candidate.id) && !usedIds.has(c.candidate.id),
+    return (
+      [...batch, ...pool].find(
+        c => !excluded.has(c.candidate.id) && !usedIds.has(c.candidate.id),
+      ) ?? null
     );
   }, [phase, slots, excluded, batch, pool]);
+  const hasPool = nextAvailable != null;
 
   const shortfall = phase === 'done' && batch.length > 0 && photosPerPost > 0 && batch.length < photosPerPost;
+
+  function handleAddSlot(): void {
+    if (nextAvailable != null) {
+      setSlots(s => [...s, nextAvailable.candidate.id]);
+    }
+  }
 
   function handleSwap(id: string): void {
     const newExcluded = new Set(excluded);
@@ -330,6 +339,34 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                 onSwap={hasPool ? () => handleSwap(c.candidate.id) : null}
               />
             ))}
+            {/* Empty slot — batch is below the configured photos-per-post. */}
+            {phase === 'done' && kept.length > 0 && photosPerPost > 0 && kept.length < photosPerPost && (
+              hasPool ? (
+                <TouchableOpacity
+                  style={[gridStyles.card, gridStyles.addCard]}
+                  onPress={handleAddSlot}
+                  activeOpacity={0.7}
+                  accessibilityLabel="Add the next suggested photo"
+                >
+                  <View style={gridStyles.addPlus}>
+                    <Ionicons name="add" size={28} color={colors.accent} />
+                  </View>
+                  <Text style={gridStyles.addLabel}>Add photo</Text>
+                  <Text style={gridStyles.addHint}>{kept.length}/{photosPerPost} selected</Text>
+                </TouchableOpacity>
+              ) : (
+                <View style={[gridStyles.card, gridStyles.addCard, gridStyles.addCardDisabled]}>
+                  <View style={[gridStyles.addPlus, gridStyles.addPlusDisabled]}>
+                    <Ionicons name="add" size={28} color={colors.textMuted} />
+                  </View>
+                  <Text style={gridStyles.addLabelDisabled}>No more photos</Text>
+                  <TouchableOpacity onPress={reload} hitSlop={8}>
+                    <Text style={gridStyles.addRescanLink}>Rescan library</Text>
+                  </TouchableOpacity>
+                  <Text style={gridStyles.addHint}>or adjust categories in settings</Text>
+                </View>
+              )
+            )}
             {isLoading && kept.length === 0 && (
               <View style={innerStyles.scanningRow}>
                 <ActivityIndicator color={colors.accent} />
@@ -535,4 +572,30 @@ const gridStyles = StyleSheet.create({
   chipText: { ...typography.caption, fontSize: 11, fontWeight: '600', color: colors.ink },
   caption: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: spacing.xs },
   moreSpinner: { width: '100%', alignItems: 'center', paddingVertical: spacing.md },
+  // Empty "add photo" slot shown when the batch is below photos-per-post.
+  addCard: {
+    aspectRatio: 1,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderStyle: 'dashed',
+    borderColor: colors.accent,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    padding: spacing.sm,
+  },
+  addCardDisabled: { borderColor: colors.border },
+  addPlus: {
+    width: 44,
+    height: 44,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceAlt,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  addPlusDisabled: { backgroundColor: colors.surface },
+  addLabel: { ...typography.caption, fontSize: 12, fontWeight: '600', color: colors.accent },
+  addLabelDisabled: { ...typography.caption, fontSize: 12, fontWeight: '600', color: colors.textMuted },
+  addRescanLink: { ...typography.caption, fontSize: 11, color: colors.accent, textDecorationLine: 'underline' },
+  addHint: { ...typography.caption, fontSize: 10, color: colors.textMuted, textAlign: 'center' },
 });
