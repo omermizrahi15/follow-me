@@ -10,8 +10,9 @@
  */
 
 export const colors = {
-  /** App background — white. */
-  background: '#FFFFFF',
+  /** App background — soft slate-tinted off-white, so white surfaces (cards,
+   *  the Home sheet) read as raised layers instead of blending in. */
+  background: '#F2F5F8',
   /** Card / elevated surface. */
   surface: '#FFFFFF',
   /** Subtle alternate surface (inputs, pressed states, chips). */
