@@ -16,6 +16,7 @@ import { selectBatch, type SharedClassification } from '../_shared/photoSelectio
 import { isAutoPostDue } from '../_shared/autoPostSchedule.ts';
 import { sendBatch, sendWhatsApp, type TwilioCreds } from '../_shared/twilio.ts';
 import { collageUrl } from '../_shared/collage.ts';
+import { savePostGallery } from '../_shared/postGallery.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -356,8 +357,13 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
   }
 
   const { name, phone } = await publisherIdentity(config.publisher_id);
-  const caption = composeAutoPostBody(name, phone);
   const urls = batch.map(b => b.url);
+  const galleryUrl = await savePostGallery(supabase, config.publisher_id, urls);
+  const caption = composeAutoPostBody(
+    name,
+    phone,
+    galleryUrl != null ? { url: galleryUrl, photoCount: urls.length } : null,
+  );
 
   const { data: subs } = await supabase
     .from('subscribers')

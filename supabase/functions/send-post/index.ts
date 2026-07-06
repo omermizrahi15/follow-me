@@ -17,6 +17,7 @@ import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendBatch, sendWhatsApp, whatsappSafeMediaUrl, type TwilioCreds } from '../_shared/twilio.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 import { collageUrl } from '../_shared/collage.ts';
+import { savePostGallery } from '../_shared/postGallery.ts';
 
 // Supabase edge runtime: lets background work continue after the response is sent.
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -75,7 +76,12 @@ Deno.serve(async req => {
   }
 
   const { name, phone } = await publisherIdentity(publisherId);
-  const caption = composeAutoPostBody(name, phone);
+  const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls);
+  const caption = composeAutoPostBody(
+    name,
+    phone,
+    galleryUrl != null ? { url: galleryUrl, photoCount: mediaUrls.length } : null,
+  );
 
   // Preferred path: the whole batch as ONE message — a Cloudinary-composed
   // grid collage with the caption. Falls through to per-photo sends when the
