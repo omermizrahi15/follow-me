@@ -1,15 +1,18 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { useNavigation } from '@react-navigation/native';
+import type { RootNavigationProp } from '../navigation/types';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useAuth } from '../context/AuthContext';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /**
- * App settings, opened from the Me-page gear. Currently: account info + sign
- * out. Fuller content (about, privacy, terms) tracked in issue #35.
+ * App settings, opened from the Me-page gear. Currently: profile editing,
+ * account info + sign out. Fuller content (about, privacy, terms) in issue #35.
  */
 export function SettingsScreen(): React.JSX.Element {
+  const navigation = useNavigation<RootNavigationProp>();
   const { publisherPhone, signOut } = useAuth();
 
   return (
@@ -18,6 +21,21 @@ export function SettingsScreen(): React.JSX.Element {
       <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
         <Text style={styles.sectionLabel}>Account</Text>
         <View style={styles.card}>
+          <TouchableOpacity
+            style={styles.row}
+            onPress={() => navigation.navigate('EditProfile')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.iconWrap}>
+              <Ionicons name="person-outline" size={20} color={colors.accent} />
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Edit profile</Text>
+              <Text style={styles.rowValue}>Name, photo and bio</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+          <View style={styles.divider} />
           <View style={styles.row}>
             <View style={styles.iconWrap}>
               <Ionicons name="call-outline" size={20} color={colors.accent} />
@@ -70,6 +88,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   row: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, padding: spacing.lg },
+  divider: { height: 1, backgroundColor: colors.border, marginLeft: spacing.lg },
   iconWrap: {
     width: 38,
     height: 38,

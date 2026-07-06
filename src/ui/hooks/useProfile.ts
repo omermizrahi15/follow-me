@@ -12,10 +12,14 @@ interface UseProfile extends ProfileState {
   reload: () => Promise<void>;
 }
 
-export function useProfile(publisherId: string): UseProfile {
+export function useProfile(publisherId: string | null): UseProfile {
   const [state, setState] = useState<ProfileState>({ profile: null, loading: true });
 
   const reload = useCallback(async (): Promise<void> => {
+    if (publisherId == null) {
+      setState({ profile: null, loading: false });
+      return;
+    }
     setState(prev => ({ ...prev, loading: true }));
     try {
       const profile = await loadProfile.execute(publisherId);

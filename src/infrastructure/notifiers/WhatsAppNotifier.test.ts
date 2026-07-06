@@ -6,7 +6,7 @@ import { Subscriber } from '../../domain/entities/Subscriber';
 const CONTACT = '+972501234567';
 const IMAGE_URL = 'https://cdn.test/photo.jpg';
 const IMAGE_URL_2 = 'https://cdn.test/photo2.jpg';
-const VIDEO_URL = 'https://cdn.test/video.mp4';
+const IMAGE_URL_3 = 'https://cdn.test/photo3.jpg';
 
 function makeSubscriber(contactHandle = CONTACT): Subscriber {
   return Subscriber.create({ id: 'sub-1', publisherId: 'user-1', contactHandle, status: 'active' });
@@ -34,7 +34,7 @@ describe('WhatsAppNotifier — routing', () => {
     await notifier.notify(makeSubscriber('+972509999999'), [
       makeMedia(IMAGE_URL),
       makeMedia(IMAGE_URL_2),
-      makeMedia(VIDEO_URL),
+      makeMedia(IMAGE_URL_3),
     ]);
     expect(twilio.sent.every(s => s.to === '+972509999999')).toBe(true);
   });
@@ -56,17 +56,17 @@ describe('WhatsAppNotifier — one message per media item (Twilio WhatsApp limit
     expect(twilio.sent[1]?.mediaUrl).toBe(IMAGE_URL_2);
   });
 
-  it('sends three items (photos + video) as three separate messages', async (): Promise<void> => {
+  it('sends three items as three separate messages', async (): Promise<void> => {
     const { notifier, twilio } = makeSut();
     await notifier.notify(makeSubscriber(), [
       makeMedia(IMAGE_URL),
       makeMedia(IMAGE_URL_2),
-      makeMedia(VIDEO_URL),
+      makeMedia(IMAGE_URL_3),
     ]);
     expect(twilio.sent).toHaveLength(3);
     expect(twilio.sent[0]?.mediaUrl).toBe(IMAGE_URL);
     expect(twilio.sent[1]?.mediaUrl).toBe(IMAGE_URL_2);
-    expect(twilio.sent[2]?.mediaUrl).toBe(VIDEO_URL);
+    expect(twilio.sent[2]?.mediaUrl).toBe(IMAGE_URL_3);
   });
 
   it('puts the caption only on the first message', async (): Promise<void> => {
@@ -81,7 +81,7 @@ describe('WhatsAppNotifier — one message per media item (Twilio WhatsApp limit
     await notifier.notify(makeSubscriber(), [
       makeMedia(IMAGE_URL),
       makeMedia(IMAGE_URL_2),
-      makeMedia(VIDEO_URL),
+      makeMedia(IMAGE_URL_3),
     ]);
     expect(twilio.sent[1]?.body).toBe('');
     expect(twilio.sent[2]?.body).toBe('');

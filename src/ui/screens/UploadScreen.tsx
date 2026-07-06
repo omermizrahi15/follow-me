@@ -12,6 +12,8 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import type { RootNavigationProp } from '../navigation/types';
+import { gpsFromExif } from '../../domain/services/exifGps';
+import type { GpsExif } from '../../domain/services/exifGps';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { useSubscribers } from '../hooks/useSubscribers';
 import { usePublisherId } from '../context/AuthContext';
@@ -30,7 +32,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const { share } = useShareMedia();
   const publisherId = usePublisherId();
   const { subscribers, loading: subscribersLoading } = useSubscribers(publisherId);
-  const [pickedUris, setPickedUris] = useState<string[]>([]);
+  const [pickedAssets, setPickedAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,9 +49,11 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
         mediaTypes: ImagePicker.MediaTypeOptions.Images,
         allowsMultipleSelection: true,
         quality: 0.8,
+        // EXIF carries the photos' GPS — it names the posting's place in the feed.
+        exif: true,
       });
       if (!picked.canceled) {
-        setPickedUris(picked.assets.map(a => a.uri));
+        setPickedAssets(picked.assets);
       }
     })();
   }
@@ -59,11 +63,15 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
       setLoading(true);
       setError(null);
       try {
-        const items = pickedUris.map((uri, i) => ({
-          mediaId: `${Date.now()}-${i}`,
-          localUri: uri,
-          filename: uri.split('/').pop() ?? `media-${i}.jpg`,
-        }));
+        const items = pickedAssets.map((asset, i) => {
+          const coordinate = gpsFromExif(asset.exif as GpsExif | null | undefined);
+          return {
+            mediaId: `${Date.now()}-${i}`,
+            localUri: asset.uri,
+            filename: asset.fileName ?? asset.uri.split('/').pop() ?? `media-${i}.jpg`,
+            ...(coordinate != null ? { coordinate } : {}),
+          };
+        });
         await share(items, publisherId);
         setDone(true);
       } catch (e: unknown) {
@@ -122,7 +130,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
             style={styles.backButton}
             onPress={() => {
               setDone(false);
-              setPickedUris([]);
+              setPickedAssets([]);
               setPromptDismissed(false);
               navigation.goBack();
             }}
@@ -156,21 +164,21 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
       <TouchableOpacity style={styles.pickButton} onPress={handlePickMedia} activeOpacity={0.8}>
         <Ionicons name="add" size={28} color={colors.accent} />
         <Text style={styles.pickText}>
-          {pickedUris.length > 0
-            ? `${pickedUris.length} item${pickedUris.length > 1 ? 's' : ''} selected — tap to change`
+          {pickedAssets.length > 0
+            ? `${pickedAssets.length} item${pickedAssets.length > 1 ? 's' : ''} selected — tap to change`
             : 'Select photos'}
         </Text>
       </TouchableOpacity>
 
-      {pickedUris.length > 0 && (
+      {pickedAssets.length > 0 && (
         <ScrollView horizontal style={styles.preview} showsHorizontalScrollIndicator={false}>
-          {pickedUris.map((uri, i) => (
-            <Image key={i} source={{ uri }} style={styles.thumb} />
+          {pickedAssets.map((asset, i) => (
+            <Image key={i} source={{ uri: asset.uri }} style={styles.thumb} />
           ))}
         </ScrollView>
       )}
 
-      {pickedUris.length > 0 && (
+      {pickedAssets.length > 0 && (
         <View style={styles.footer}>
           {error != null && <Text style={styles.errorNote}>{error}</Text>}
           <Text style={styles.followerNote}>

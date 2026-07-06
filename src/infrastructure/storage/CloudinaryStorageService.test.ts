@@ -62,23 +62,6 @@ describe('CloudinaryStorageService — upload endpoint routing', () => {
     );
   });
 
-  it('uses /video/upload for MP4', async () => {
-    mockSuccess();
-    await makeSut().upload('file:///clip.mp4', 'clip.mp4');
-    expect(mockFetch).toHaveBeenCalledWith(
-      'https://api.cloudinary.com/v1_1/my-cloud/video/upload',
-      expect.anything(),
-    );
-  });
-
-  it('uses /video/upload for MOV', async () => {
-    mockSuccess();
-    await makeSut().upload('file:///clip.mov', 'clip.mov');
-    expect(mockFetch).toHaveBeenCalledWith(
-      expect.stringContaining('/video/upload'),
-      expect.anything(),
-    );
-  });
 });
 
 describe('CloudinaryStorageService — MIME type in data URI', () => {
@@ -89,9 +72,6 @@ describe('CloudinaryStorageService — MIME type in data URI', () => {
     ['photo.PNG', 'image/png'],
     ['photo.gif', 'image/gif'],
     ['photo.webp', 'image/webp'],
-    ['clip.mp4', 'video/mp4'],
-    ['clip.mov', 'video/mp4'],
-    ['clip.avi', 'video/mp4'],
     ['unknown.xyz', 'image/jpeg'],
     ['noextension', 'image/jpeg'],
   ];

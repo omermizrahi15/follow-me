@@ -1,4 +1,5 @@
 import { ShareMediaUseCase } from '../application/usecases/ShareMediaUseCase';
+import { ListFeedUseCase } from '../application/usecases/ListFeedUseCase';
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
 import { ListSubscribersUseCase } from '../application/usecases/ListSubscribersUseCase';
 import { RemoveSubscriberUseCase } from '../application/usecases/RemoveSubscriberUseCase';
@@ -23,6 +24,7 @@ import { SupabasePublisherConfigRepository } from '../infrastructure/repositorie
 import { SupabaseCandidatePhotoRepository } from '../infrastructure/repositories/SupabaseCandidatePhotoRepository';
 import { SupabasePublisherProfileRepository } from '../infrastructure/repositories/SupabasePublisherProfileRepository';
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
+import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import Constants from 'expo-constants';
 
 function requireEnv(key: string): string {
@@ -39,7 +41,7 @@ const subscriberRepo = new SupabaseSubscriberRepository(supabaseUrl, supabaseKey
 const configRepo = new SupabasePublisherConfigRepository(supabaseUrl, supabaseKey);
 const candidateRepo = new SupabaseCandidatePhotoRepository(supabaseUrl, supabaseKey);
 const profileRepo = new SupabasePublisherProfileRepository(supabaseUrl, supabaseKey);
-// Shared image/video uploader (Cloudinary) — used for posts and profile avatars.
+// Shared photo uploader (Cloudinary) — used for posts and profile avatars.
 export const storage = new CloudinaryStorageService(
   requireEnv('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
   requireEnv('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
@@ -61,8 +63,11 @@ const sentPhotoTracker: ISentPhotoTracker = {
   sentCandidateIds: async publisherId =>
     new Set((await mediaRepo.findByOwner(publisherId)).map(m => m.id)),
 };
+// Names the posting's place ("Lisbon, Portugal") from the batch's EXIF GPS.
+const geocoder = new BigDataCloudGeocoder();
 
-export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage);
+export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage, geocoder);
+export const listFeed = new ListFeedUseCase(mediaRepo);
 export const subscribe = new SubscribeUseCase(subscriberRepo, confirmationSender);
 export const listSubscribers = new ListSubscribersUseCase(subscriberRepo);
 export const removeSubscriber = new RemoveSubscriberUseCase(subscriberRepo);

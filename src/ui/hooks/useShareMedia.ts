@@ -2,13 +2,13 @@ import { useState } from 'react';
 import { shareMedia } from '../../composition/container';
 import type { MediaDto } from '../../application/dtos';
 import type { ShareProgress } from '../../application/usecases/ShareMediaUseCase';
-import type { MediaType } from '../../domain/entities/Media';
+import type { Coordinate } from '../../domain/interfaces';
 
 interface MediaItem {
   mediaId: string;
   localUri: string;
   filename: string;
-  mediaType?: MediaType;
+  coordinate?: Coordinate;
 }
 
 interface ShareMediaState {
