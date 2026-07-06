@@ -14,7 +14,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { selectBatch, type SharedClassification } from '../_shared/photoSelection.ts';
 import { isAutoPostDue } from '../_shared/autoPostSchedule.ts';
-import { sendBatch, type TwilioCreds } from '../_shared/twilio.ts';
+import { sendBatch, sendWhatsApp, type TwilioCreds } from '../_shared/twilio.ts';
+import { collageUrl } from '../_shared/collage.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -364,10 +365,20 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     .eq('publisher_id', config.publisher_id)
     .eq('status', 'active');
 
+  // One collage message per subscriber when possible; per-photo fallback otherwise.
+  const collage = collageUrl(urls);
   for (const sub of (subs ?? []) as { contact_handle: string }[]) {
-    const result = await sendBatch(TWILIO, sub.contact_handle, caption, urls);
-    if (result.failed > 0) {
-      console.error(`auto-post to ${sub.contact_handle}: ${result.failed}/${urls.length} sends failed:`, result.errors);
+    if (collage != null) {
+      try {
+        await sendWhatsApp(TWILIO, sub.contact_handle, caption, collage);
+      } catch (err) {
+        console.error(`auto-post collage to ${sub.contact_handle} failed:`, err);
+      }
+    } else {
+      const result = await sendBatch(TWILIO, sub.contact_handle, caption, urls);
+      if (result.failed > 0) {
+        console.error(`auto-post to ${sub.contact_handle}: ${result.failed}/${urls.length} sends failed:`, result.errors);
+      }
     }
   }
 

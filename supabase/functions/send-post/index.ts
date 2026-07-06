@@ -16,6 +16,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { sendBatch, sendWhatsApp, whatsappSafeMediaUrl, type TwilioCreds } from '../_shared/twilio.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
+import { collageUrl } from '../_shared/collage.ts';
 
 // Supabase edge runtime: lets background work continue after the response is sent.
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -75,6 +76,20 @@ Deno.serve(async req => {
 
   const { name, phone } = await publisherIdentity(publisherId);
   const caption = composeAutoPostBody(name, phone);
+
+  // Preferred path: the whole batch as ONE message — a Cloudinary-composed
+  // grid collage with the caption. Falls through to per-photo sends when the
+  // URLs can't be collaged (non-Cloudinary source).
+  const collage = collageUrl(mediaUrls);
+  if (collage != null) {
+    try {
+      await sendWhatsApp(TWILIO, to, caption, collage);
+    } catch (err) {
+      console.error(`send-post collage to ${to} failed:`, err);
+      return json({ error: err instanceof Error ? err.message : 'send failed' }, 502);
+    }
+    return json({ sent: 1, photos: mediaUrls.length, collage: true });
+  }
 
   // Send the first message synchronously so pipeline errors (bad creds, expired
   // sandbox join, bad number) surface to the app; the rest go out in the
