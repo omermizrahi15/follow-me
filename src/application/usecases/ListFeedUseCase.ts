@@ -3,15 +3,12 @@ import type { IMediaRepository } from '../../domain/interfaces';
 import type { FeedPostingDto } from '../dtos';
 
 /**
- * Rows written before posting_id existed carry no grouping; consecutive items
- * uploaded within this window are treated as one posting.
- */
-const LEGACY_GROUP_WINDOW_MS = 10 * 60 * 1000;
-
-/**
  * Builds the Home feed: a publisher's media grouped into "postings" — the
- * batch shared together in one send — newest first. Items stamped with a
- * postingId group on it; legacy items fall back to a created-at time window.
+ * batch shared together in one send — newest first, grouped on postingId.
+ *
+ * Every stored media item carries a postingId: ShareMediaUseCase stamps it on
+ * upload and the database enforces NOT NULL, so a missing one is a bug (a
+ * write that bypassed the share flow), not data — it throws.
  */
 export class ListFeedUseCase {
   constructor(private readonly mediaRepo: IMediaRepository) {}
@@ -21,41 +18,26 @@ export class ListFeedUseCase {
     const media = await this.mediaRepo.findByOwner(publisherId);
     const sorted = [...media].sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 
-    const groups: Media[][] = [];
-    const byPostingId = new Map<string, Media[]>();
+    // Insertion order of the map follows the newest-first sort, so the
+    // resulting postings stay newest-first too.
+    const groups = new Map<string, Media[]>();
     for (const item of sorted) {
       const postingId = item.postingId;
-      if (postingId != null) {
-        const existing = byPostingId.get(postingId);
-        if (existing != null) {
-          existing.push(item);
-        } else {
-          const group = [item];
-          byPostingId.set(postingId, group);
-          groups.push(group);
-        }
-        continue;
+      if (postingId == null) {
+        throw new Error(`media ${item.id} has no postingId — it must be stamped at share time`);
       }
-      // Legacy row: join the previous group when it is also legacy and close in time.
-      const last = groups[groups.length - 1];
-      const lastItem = last?.[last.length - 1];
-      if (
-        last != null && lastItem != null && lastItem.postingId == null &&
-        lastItem.createdAt.getTime() - item.createdAt.getTime() <= LEGACY_GROUP_WINDOW_MS
-      ) {
-        last.push(item);
-      } else {
-        groups.push([item]);
-      }
+      const group = groups.get(postingId);
+      if (group != null) group.push(item);
+      else groups.set(postingId, [item]);
     }
 
-    return groups.map(group => this.toPosting(group));
+    return [...groups.entries()].map(([postingId, group]) => this.toPosting(postingId, group));
   }
 
-  private toPosting(group: Media[]): FeedPostingDto {
+  private toPosting(postingId: string, group: Media[]): FeedPostingDto {
     const newest = group[0] as Media; // groups are built non-empty, newest first
     return {
-      id: newest.postingId ?? `legacy-${newest.id}`,
+      id: postingId,
       createdAt: newest.createdAt.toISOString(),
       location: group.find(m => m.location != null)?.location ?? null,
       media: group.map(m => ({ id: m.id, url: m.url, mediaType: m.mediaType })),

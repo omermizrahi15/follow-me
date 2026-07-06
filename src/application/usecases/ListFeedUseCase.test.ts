@@ -85,35 +85,16 @@ describe('ListFeedUseCase — grouping by postingId', () => {
   });
 });
 
-describe('ListFeedUseCase — legacy rows without postingId', () => {
-  it('groups legacy items uploaded within the time window into one posting', async (): Promise<void> => {
+describe('ListFeedUseCase — postingId invariant', () => {
+  // ShareMediaUseCase stamps a postingId on every upload and the database
+  // enforces NOT NULL; a row without one means some write bypassed the share
+  // flow, and the feed should fail loudly rather than guess a grouping.
+  it('throws when a media item has no postingId', async (): Promise<void> => {
     const { useCase, mediaRepo } = makeSut();
-    await mediaRepo.save(makeMedia('m1', { createdAt: new Date('2026-06-18T10:00:00Z') }));
-    await mediaRepo.save(makeMedia('m2', { createdAt: new Date('2026-06-18T10:03:00Z') }));
+    await mediaRepo.save(makeMedia('rogue'));
 
-    const feed = await useCase.list('user-1');
-
-    expect(feed).toHaveLength(1);
-    expect(feed[0]?.media).toHaveLength(2);
-  });
-
-  it('splits legacy items uploaded far apart into separate postings', async (): Promise<void> => {
-    const { useCase, mediaRepo } = makeSut();
-    await mediaRepo.save(makeMedia('m1', { createdAt: new Date('2026-06-18T10:00:00Z') }));
-    await mediaRepo.save(makeMedia('m2', { createdAt: new Date('2026-06-18T11:00:00Z') }));
-
-    const feed = await useCase.list('user-1');
-
-    expect(feed).toHaveLength(2);
-  });
-
-  it('does not fold a legacy item into a postingId group', async (): Promise<void> => {
-    const { useCase, mediaRepo } = makeSut();
-    await mediaRepo.save(makeMedia('stamped', { postingId: 'post-a', createdAt: new Date('2026-06-18T10:01:00Z') }));
-    await mediaRepo.save(makeMedia('legacy', { createdAt: new Date('2026-06-18T10:00:00Z') }));
-
-    const feed = await useCase.list('user-1');
-
-    expect(feed).toHaveLength(2);
+    await expect(useCase.list('user-1')).rejects.toThrow(
+      'media rogue has no postingId — it must be stamped at share time',
+    );
   });
 });
