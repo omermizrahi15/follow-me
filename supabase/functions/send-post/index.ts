@@ -14,7 +14,7 @@
  *      TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { sendBatch, sendWhatsApp, type TwilioCreds } from '../_shared/twilio.ts';
+import { sendBatch, sendWhatsApp, whatsappSafeMediaUrl, type TwilioCreds } from '../_shared/twilio.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 
 // Supabase edge runtime: lets background work continue after the response is sent.
@@ -70,7 +70,7 @@ Deno.serve(async req => {
   // background, paced ~1 msg/sec to respect Twilio's WhatsApp throttle.
   const [first, ...rest] = mediaUrls;
   try {
-    await sendWhatsApp(TWILIO, to, caption, first);
+    await sendWhatsApp(TWILIO, to, caption, whatsappSafeMediaUrl(first ?? ''));
   } catch (err) {
     console.error(`send-post to ${to} failed:`, err);
     return json({ error: err instanceof Error ? err.message : 'send failed' }, 502);

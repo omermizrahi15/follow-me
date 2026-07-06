@@ -42,6 +42,17 @@ export interface BatchSendResult {
 }
 
 /**
+ * Rewrites a Cloudinary delivery URL so the media is WhatsApp-compatible:
+ * JPEG (iPhones upload HEIC, which WhatsApp rejects with error 63021), bounded
+ * width and auto quality (WhatsApp caps images at 5MB). Non-Cloudinary URLs
+ * pass through unchanged.
+ */
+export function whatsappSafeMediaUrl(url: string): string {
+  if (!url.includes('/image/upload/') || url.includes('/image/upload/f_')) return url;
+  return url.replace('/image/upload/', '/image/upload/f_jpg,q_auto:good,w_1600/');
+}
+
+/**
  * Sends a batch of photo URLs to one subscriber. Twilio WhatsApp allows one
  * MediaUrl per message: the first carries the caption, the rest carry only media.
  *
@@ -60,7 +71,7 @@ export async function sendBatch(
   const errors: string[] = [];
   for (let i = 0; i < mediaUrls.length; i++) {
     try {
-      await sendWhatsApp(creds, to, i === 0 ? caption : '', mediaUrls[i]);
+      await sendWhatsApp(creds, to, i === 0 ? caption : '', whatsappSafeMediaUrl(mediaUrls[i] ?? ''));
       sent++;
     } catch (err) {
       errors.push(err instanceof Error ? err.message : String(err));
