@@ -49,7 +49,7 @@ export function HomeScreen(): React.JSX.Element {
   const requestedSection = route.params?.section;
   const { shareInvite } = useInviteLink();
   const publisherId = usePublisherId();
-  const { profile } = useProfile(publisherId);
+  const { profile, reload: reloadProfile } = useProfile(publisherId);
   const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
   const { postings, loading: feedLoading, reload: reloadFeed } = useFeed(publisherId);
   const [section, setSection] = useState<HomeSection>('me');
@@ -76,13 +76,15 @@ export function HomeScreen(): React.JSX.Element {
   }, [requestedSection]);
 
   // The Me page never unmounts (sections are local state, Upload is a modal on
-  // top), so refresh the followers count and the feed whenever the screen
-  // regains focus — e.g. a fresh upload from the Upload modal must show up.
+  // top), so refresh the followers count, the feed and the profile whenever
+  // the screen regains focus — e.g. a fresh upload or a profile edit in
+  // Settings must show up on return.
   useFocusEffect(
     useCallback(() => {
       void reloadSubscribers();
       void reloadFeed();
-    }, [reloadSubscribers, reloadFeed]),
+      void reloadProfile();
+    }, [reloadSubscribers, reloadFeed, reloadProfile]),
   );
 
   function snapTo(h: number): void {
