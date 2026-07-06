@@ -130,6 +130,9 @@ export function HomeScreen(): React.JSX.Element {
   function closeSuggestions(): void {
     setShowingSuggestions(false);
     snapTo(MEDIUM_H);
+    // The sheet lives inside Home (no focus change), so refresh the feed
+    // explicitly — the user may have just posted from it.
+    void reloadFeed();
   }
 
   // The sheet stays docked to the bottom; its lowest band (behind the nav) is left
