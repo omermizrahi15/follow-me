@@ -303,8 +303,11 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
 const styles = StyleSheet.create({
   // The modal IS a card — one white surface edge to edge, so the sheet's
   // rounded corners, the header and the content all read as a single layer.
-  container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: spacing.xl },
-  flex: { flex: 1 },
+  // NOTE: horizontal padding lives on the inner view, NOT the SafeAreaView —
+  // RN's SafeAreaView overwrites style padding with its computed insets
+  // (0 on the sides), silently killing it.
+  container: { flex: 1, backgroundColor: colors.surface },
+  flex: { flex: 1, paddingHorizontal: spacing.xl },
   header: { paddingTop: spacing.xl, paddingBottom: spacing.lg, alignItems: 'center' },
   headerTop: { width: '100%', alignItems: 'center', justifyContent: 'center', minHeight: 34 },
   closeButton: {
@@ -396,7 +399,7 @@ const styles = StyleSheet.create({
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   disabled: { opacity: 0.5 },
   shareText: { color: colors.onAccent, fontWeight: '600', fontSize: 15 },
-  successScroll: { flexGrow: 1, justifyContent: 'center', paddingVertical: spacing.xxl },
+  successScroll: { flexGrow: 1, justifyContent: 'center', paddingVertical: spacing.xxl, paddingHorizontal: spacing.xl },
   successHeader: { alignItems: 'center' },
   successBadge: {
     width: 80,
