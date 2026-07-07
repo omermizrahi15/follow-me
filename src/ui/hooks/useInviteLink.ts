@@ -16,7 +16,7 @@ export function buildJoinLink(publisherId: string): string {
 }
 
 export function buildInviteMessage(joinLink: string): string {
-  return `Follow me on Follow Me! You'll receive my photos on WhatsApp: ${joinLink}`;
+  return `Follow me on Follow Me!\n${joinLink}\n\nYou'll receive my photos on WhatsApp`;
 }
 
 interface InviteLink {
