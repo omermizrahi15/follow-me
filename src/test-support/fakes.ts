@@ -25,6 +25,10 @@ import type {
   INotificationLog,
   NotificationLogEntry,
   RecordedNotificationLogEntry,
+  INotificationLogger,
+  NotificationDelivery,
+  RecordedNotificationDelivery,
+  DeliveryStatus,
 } from '../domain/interfaces';
 
 export class InMemoryMediaRepository implements IMediaRepository {
@@ -134,14 +138,96 @@ export class InMemoryNotificationLog implements INotificationLog {
 
 export class InMemoryNotifier implements INotifier {
   sent: Array<{ subscriber: Subscriber; media: Media[] }> = [];
+  private failingSubscriberIds = new Set<string>();
+
+  /** Every notify() for this subscriber rejects, like an unreachable number. */
+  failFor(subscriberId: string): void {
+    this.failingSubscriberIds.add(subscriberId);
+  }
 
   notify(subscriber: Subscriber, media: Media[]): Promise<void> {
+    if (this.failingSubscriberIds.has(subscriber.id)) {
+      return Promise.reject(new Error(`delivery failed for ${subscriber.id}`));
+    }
     this.sent.push({ subscriber, media });
     return Promise.resolve();
   }
 
   wasNotified(subscriberId: string): boolean {
     return this.sent.some(n => n.subscriber.id === subscriberId);
+  }
+}
+
+export class InMemoryNotificationLogger implements INotificationLogger {
+  private deliveries = new Map<string, RecordedNotificationDelivery>();
+  // Fixed clock so recorded timestamps are deterministic in tests.
+  private now = '2026-01-01T00:00:00.000Z';
+  /** When set, every logger method rejects — simulates a broken log store. */
+  failing = false;
+
+  private key(photoId: string, subscriberId: string): string {
+    return `${photoId}|${subscriberId}`;
+  }
+
+  private guard(): void {
+    if (this.failing) throw new Error('notification log unavailable');
+  }
+
+  logPending(deliveries: NotificationDelivery[]): Promise<void> {
+    this.guard();
+    for (const d of deliveries) {
+      this.deliveries.set(this.key(d.photoId, d.subscriberId), {
+        ...d,
+        status: 'pending',
+        attempts: 0,
+        lastAttemptedAt: null,
+      });
+    }
+    return Promise.resolve();
+  }
+
+  recordAttempt(photoIds: string[], subscriberId: string, attempt: number): Promise<void> {
+    this.guard();
+    for (const photoId of photoIds) {
+      const entry = this.deliveries.get(this.key(photoId, subscriberId));
+      if (entry != null) {
+        entry.attempts = attempt;
+        entry.lastAttemptedAt = this.now;
+      }
+    }
+    return Promise.resolve();
+  }
+
+  markSent(photoIds: string[], subscriberId: string): Promise<void> {
+    this.guard();
+    this.setStatus(photoIds, subscriberId, 'sent');
+    return Promise.resolve();
+  }
+
+  markFailed(photoIds: string[], subscriberId: string): Promise<void> {
+    this.guard();
+    this.setStatus(photoIds, subscriberId, 'failed');
+    return Promise.resolve();
+  }
+
+  findByPhoto(photoId: string): Promise<RecordedNotificationDelivery[]> {
+    this.guard();
+    return Promise.resolve([...this.deliveries.values()].filter(d => d.photoId === photoId));
+  }
+
+  private setStatus(photoIds: string[], subscriberId: string, status: DeliveryStatus): void {
+    for (const photoId of photoIds) {
+      const entry = this.deliveries.get(this.key(photoId, subscriberId));
+      if (entry != null) entry.status = status;
+    }
+  }
+
+  statusOf(photoId: string, subscriberId: string): DeliveryStatus | undefined {
+    return this.deliveries.get(this.key(photoId, subscriberId))?.status;
+  }
+
+  all(): RecordedNotificationDelivery[] {
+    return [...this.deliveries.values()];
   }
 }
 
