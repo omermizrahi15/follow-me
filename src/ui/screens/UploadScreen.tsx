@@ -229,8 +229,10 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
                 activeOpacity={0.7}
                 accessibilityLabel="Change selection"
               >
-                <Ionicons name="add" size={26} color={colors.accent} />
-                <Text style={styles.addTileText}>Change</Text>
+                <View style={styles.addTileInner}>
+                  <Ionicons name="add" size={24} color={colors.accent} />
+                  <Text style={styles.addTileText}>Change</Text>
+                </View>
               </TouchableOpacity>
             </ScrollView>
 
@@ -366,11 +368,15 @@ const styles = StyleSheet.create({
     borderWidth: 1.5,
     borderColor: colors.border,
     borderStyle: 'dashed',
+  },
+  // Absolute fill guarantees dead-center content regardless of how the
+  // touchable lays out its children.
+  addTileInner: {
+    ...StyleSheet.absoluteFillObject,
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 2,
   },
-  addTileText: { ...typography.caption, fontSize: 11, color: colors.accent, fontWeight: '600' },
+  addTileText: { ...typography.caption, fontSize: 11, lineHeight: 14, color: colors.accent, fontWeight: '600', textAlign: 'center' },
   // Footer
   footer: { paddingVertical: spacing.md },
   placeRow: {
