@@ -1,19 +1,24 @@
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   Image,
   ScrollView,
   ActivityIndicator,
   StyleSheet,
   SafeAreaView,
+  KeyboardAvoidingView,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import type { RootNavigationProp } from '../navigation/types';
 import { gpsFromExif } from '../../domain/services/exifGps';
 import type { GpsExif } from '../../domain/services/exifGps';
+import type { Coordinate } from '../../domain/interfaces';
+import { resolvePlaceForCoordinates } from '../../composition/container';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { useSubscribers } from '../hooks/useSubscribers';
 import { usePublisherId } from '../context/AuthContext';
@@ -29,7 +34,7 @@ type Props = {
 const FEW_FOLLOWERS_THRESHOLD = 3;
 
 export function UploadScreen({ navigation }: Props): React.JSX.Element {
-  const { share } = useShareMedia();
+  const { share, progress: shareProgress } = useShareMedia();
   const publisherId = usePublisherId();
   const { subscribers, loading: subscribersLoading } = useSubscribers(publisherId);
   const [pickedAssets, setPickedAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
@@ -37,9 +42,38 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [promptDismissed, setPromptDismissed] = useState(false);
+  // Posting place — auto-resolved from the picked photos' EXIF GPS, editable.
+  const [place, setPlace] = useState('');
+  const [placeLoading, setPlaceLoading] = useState(false);
+  const placeEditedRef = useRef(false);
 
   const showInvitePrompt =
     !promptDismissed && !subscribersLoading && subscribers.length < FEW_FOLLOWERS_THRESHOLD;
+
+  // Resolve the place whenever the selection changes; a manual edit wins.
+  useEffect(() => {
+    if (pickedAssets.length === 0) {
+      if (!placeEditedRef.current) setPlace('');
+      return;
+    }
+    const run = { cancelled: false };
+    void (async (): Promise<void> => {
+      setPlaceLoading(true);
+      try {
+        const coordinates = pickedAssets
+          .map(a => gpsFromExif(a.exif as GpsExif | null | undefined))
+          .filter((c): c is Coordinate => c != null);
+        // Checked via a function call so lint doesn't flow-narrow across awaits.
+        const isStale = (): boolean => run.cancelled || placeEditedRef.current;
+        if (isStale()) return;
+        const resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
+        if (!isStale()) setPlace(resolved ?? '');
+      } finally {
+        if (!run.cancelled) setPlaceLoading(false);
+      }
+    })();
+    return () => { run.cancelled = true; };
+  }, [pickedAssets]);
 
   function handlePickMedia(): void {
     void (async (): Promise<void> => {
@@ -72,7 +106,9 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
             ...(coordinate != null ? { coordinate } : {}),
           };
         });
-        await share(items, publisherId);
+        // The displayed/edited place is the source of truth; while it's still
+        // resolving, let the use case auto-resolve from GPS.
+        await share(items, publisherId, placeLoading ? undefined : place);
         setDone(true);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Upload failed');
@@ -144,65 +180,125 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
 
   return (
     <SafeAreaView style={styles.container}>
-      <View style={styles.header}>
-        <View style={styles.headerTop}>
-          <Text style={styles.title}>New post</Text>
-          <TouchableOpacity
-            onPress={() => navigation.goBack()}
-            accessibilityLabel="Close"
-            hitSlop={8}
-            style={styles.closeButton}
-          >
-            <Ionicons name="close" size={22} color={colors.textSecondary} />
-          </TouchableOpacity>
-        </View>
-        <Text style={styles.subtitle}>
-          Pick photos to send to your followers immediately
-        </Text>
-      </View>
-
-      <TouchableOpacity style={styles.pickButton} onPress={handlePickMedia} activeOpacity={0.8}>
-        <Ionicons name="add" size={28} color={colors.accent} />
-        <Text style={styles.pickText}>
-          {pickedAssets.length > 0
-            ? `${pickedAssets.length} item${pickedAssets.length > 1 ? 's' : ''} selected — tap to change`
-            : 'Select photos'}
-        </Text>
-      </TouchableOpacity>
-
-      {pickedAssets.length > 0 && (
-        <ScrollView horizontal style={styles.preview} showsHorizontalScrollIndicator={false}>
-          {pickedAssets.map((asset, i) => (
-            <Image key={i} source={{ uri: asset.uri }} style={styles.thumb} />
-          ))}
-        </ScrollView>
-      )}
-
-      {pickedAssets.length > 0 && (
-        <View style={styles.footer}>
-          {error != null && <Text style={styles.errorNote}>{error}</Text>}
-          <Text style={styles.followerNote}>
-            Will be sent to all your active followers via WhatsApp
+      <KeyboardAvoidingView
+        style={styles.flex}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <View style={styles.header}>
+          <View style={styles.headerTop}>
+            <Text style={styles.title}>New post</Text>
+            <TouchableOpacity
+              onPress={() => navigation.goBack()}
+              accessibilityLabel="Close"
+              hitSlop={8}
+              style={styles.closeButton}
+            >
+              <Ionicons name="close" size={22} color={colors.textSecondary} />
+            </TouchableOpacity>
+          </View>
+          <Text style={styles.subtitle}>
+            Pick photos to send to your followers immediately
           </Text>
-          <TouchableOpacity
-            style={[styles.shareButton, loading && styles.disabled]}
-            onPress={handleShare}
-            disabled={loading}
-          >
-            {loading
-              ? <ActivityIndicator color={colors.onAccent} />
-              : <Text style={styles.shareText}>Send to followers</Text>
-            }
-          </TouchableOpacity>
         </View>
-      )}
+
+        {pickedAssets.length === 0 ? (
+          /* Empty state — one big centered picker target. */
+          <View style={styles.emptyState}>
+            <TouchableOpacity style={styles.pickButton} onPress={handlePickMedia} activeOpacity={0.8}>
+              <View style={styles.pickIcon}>
+                <Ionicons name="images-outline" size={30} color={colors.accent} />
+              </View>
+              <Text style={styles.pickTitle}>Select photos</Text>
+              <Text style={styles.pickHint}>Choose from your library</Text>
+            </TouchableOpacity>
+          </View>
+        ) : (
+          <>
+            <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
+              {pickedAssets.map((asset, i) => (
+                <Image key={`${asset.assetId ?? asset.uri}-${i}`} source={{ uri: asset.uri }} style={styles.gridThumb} />
+              ))}
+              <TouchableOpacity
+                style={styles.addTile}
+                onPress={handlePickMedia}
+                activeOpacity={0.7}
+                accessibilityLabel="Change selection"
+              >
+                <Ionicons name="add" size={26} color={colors.accent} />
+                <Text style={styles.addTileText}>Change</Text>
+              </TouchableOpacity>
+            </ScrollView>
+
+            <View style={styles.footer}>
+              {error != null && <Text style={styles.errorNote}>{error}</Text>}
+              <View style={styles.placeRow}>
+                <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
+                <TextInput
+                  style={styles.placeInput}
+                  value={place}
+                  onChangeText={text => {
+                    placeEditedRef.current = true;
+                    setPlace(text);
+                  }}
+                  placeholder={placeLoading ? 'Finding the place…' : 'Add a place (optional)'}
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  accessibilityLabel="Posting place"
+                />
+                {placeLoading ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : place !== '' ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      placeEditedRef.current = true;
+                      setPlace('');
+                    }}
+                    hitSlop={8}
+                    accessibilityLabel="Clear place"
+                  >
+                    <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
+              <Text style={styles.followerNote}>
+                Will be sent to all your active followers via WhatsApp
+              </Text>
+              <TouchableOpacity
+                style={[styles.shareButton, loading && styles.disabled]}
+                onPress={handleShare}
+                disabled={loading}
+              >
+                {loading ? (
+                  <View style={styles.progressRow}>
+                    <ActivityIndicator color={colors.onAccent} />
+                    <Text style={styles.shareText}>
+                      {shareProgress?.stage === 'uploading'
+                        ? `Uploading ${Math.min(shareProgress.done + 1, shareProgress.total)}/${shareProgress.total}…`
+                        : shareProgress?.stage === 'notifying'
+                        ? 'Sending to followers…'
+                        : 'Posting…'}
+                    </Text>
+                  </View>
+                ) : (
+                  <Text style={styles.shareText}>
+                    Send {pickedAssets.length} photo{pickedAssets.length === 1 ? '' : 's'}
+                  </Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </>
+        )}
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background, paddingHorizontal: spacing.xl },
-  header: { paddingTop: spacing.lg, paddingBottom: spacing.xxl },
+  flex: { flex: 1 },
+  header: { paddingTop: spacing.lg, paddingBottom: spacing.lg },
   headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   closeButton: {
     width: 36,
@@ -214,20 +310,72 @@ const styles = StyleSheet.create({
   },
   title: { ...typography.title, color: colors.text },
   subtitle: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
+  // Empty state
+  emptyState: { flex: 1, justifyContent: 'center', paddingBottom: spacing.xxl * 2 },
   pickButton: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
     borderWidth: 1.5,
     borderColor: colors.border,
     borderStyle: 'dashed',
-    padding: spacing.xxl,
+    paddingVertical: spacing.xxl * 1.5,
     alignItems: 'center',
+    justifyContent: 'center',
     gap: spacing.sm,
   },
-  pickText: { color: colors.textSecondary, fontSize: 14, textAlign: 'center' },
-  preview: { marginTop: spacing.lg, flexGrow: 0 },
-  thumb: { width: 80, height: 80, borderRadius: radius.sm, marginRight: spacing.sm },
-  footer: { position: 'absolute', bottom: 120, left: spacing.xl, right: spacing.xl },
+  pickIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: spacing.xs,
+  },
+  pickTitle: { fontSize: 16, fontWeight: '600', color: colors.text },
+  pickHint: { ...typography.caption, color: colors.textMuted },
+  // Selection grid
+  grid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: spacing.sm,
+    paddingBottom: spacing.lg,
+  },
+  gridThumb: {
+    width: '31.5%',
+    aspectRatio: 1,
+    borderRadius: radius.md,
+    backgroundColor: colors.surfaceAlt,
+  },
+  addTile: {
+    width: '31.5%',
+    aspectRatio: 1,
+    borderRadius: radius.md,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    borderStyle: 'dashed',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+  },
+  addTileText: { ...typography.caption, fontSize: 11, color: colors.accent, fontWeight: '600' },
+  // Footer
+  footer: { paddingVertical: spacing.md },
+  placeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  placeInput: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    fontSize: 14,
+    color: colors.text,
+  },
   errorNote: { color: colors.danger, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm },
   followerNote: { color: colors.textMuted, fontSize: 12, textAlign: 'center', marginBottom: spacing.md },
   shareButton: {
@@ -236,6 +384,7 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     alignItems: 'center',
   },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   disabled: { opacity: 0.5 },
   shareText: { color: colors.onAccent, fontWeight: '600', fontSize: 15 },
   successScroll: { flexGrow: 1, justifyContent: 'center', paddingVertical: spacing.xxl },
