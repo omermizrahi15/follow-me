@@ -11,6 +11,7 @@ import {
   SafeAreaView,
   KeyboardAvoidingView,
   Platform,
+  useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -35,6 +36,10 @@ const FEW_FOLLOWERS_THRESHOLD = 3;
 
 export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const { share, progress: shareProgress } = useShareMedia();
+  // Exact pixel size for the 3-column grid — %-width + aspectRatio collapses
+  // inside the KeyboardAvoidingView/ScrollView chain on iOS.
+  const { width: windowWidth } = useWindowDimensions();
+  const tileSize = Math.floor((windowWidth - spacing.xl * 2 - spacing.sm * 2) / 3);
   const publisherId = usePublisherId();
   const { subscribers, loading: subscribersLoading } = useSubscribers(publisherId);
   const [pickedAssets, setPickedAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
@@ -221,10 +226,14 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           <>
             <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
               {pickedAssets.map((asset, i) => (
-                <Image key={`${asset.assetId ?? asset.uri}-${i}`} source={{ uri: asset.uri }} style={styles.gridThumb} />
+                <Image
+                  key={`${asset.assetId ?? asset.uri}-${i}`}
+                  source={{ uri: asset.uri }}
+                  style={[styles.gridThumb, { width: tileSize, height: tileSize }]}
+                />
               ))}
               <TouchableOpacity
-                style={styles.addTile}
+                style={[styles.addTile, { width: tileSize, height: tileSize }]}
                 onPress={handlePickMedia}
                 activeOpacity={0.7}
                 accessibilityLabel="Change selection"
@@ -356,14 +365,10 @@ const styles = StyleSheet.create({
     paddingBottom: spacing.lg,
   },
   gridThumb: {
-    width: '31.5%',
-    aspectRatio: 1,
     borderRadius: radius.md,
     backgroundColor: colors.surfaceAlt,
   },
   addTile: {
-    width: '31.5%',
-    aspectRatio: 1,
     borderRadius: radius.md,
     borderWidth: 1.5,
     borderColor: colors.border,
