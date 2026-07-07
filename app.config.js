@@ -27,5 +27,16 @@ module.exports = ({ config }) => {
       ...config.ios,
       bundleIdentifier: v.bundleIdentifier,
     },
+    // EAS Update (over-the-air JS updates). Both variants share one EAS project
+    // and update URL; the per-profile `channel` in eas.json routes production vs
+    // staging. runtimeVersion tracks the app version so a native rebuild is only
+    // needed when native code changes.
+    updates: {
+      ...config.updates,
+      url: 'https://u.expo.dev/9e70e6a6-2576-46ae-8160-8703a967f22c',
+    },
+    runtimeVersion: {
+      policy: 'appVersion',
+    },
   };
 };
