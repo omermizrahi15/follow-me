@@ -24,5 +24,6 @@ export function composeAutoPostBody(
     const waPhone = publisherPhone.replace(/^\+/, '');
     lines.push(`Hit the link to reply to ${publisherName}: https://wa.me/${waPhone}`);
   }
-  return lines.join('\n');
+  // Blank line between sections — easier to scan as a WhatsApp message.
+  return lines.join('\n\n');
 }
