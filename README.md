@@ -67,10 +67,29 @@ Two Supabase projects back the app — same schema, same RLS policies (both are 
 | `EXPO_PUBLIC_CLASSIFY_FN_URL` | production functions URL | staging functions URL |
 | `EXPO_PUBLIC_CLOUDINARY_FOLDER` | unset (assets land in the root) | `staging` — isolates test uploads in one folder |
 | EAS build profile | `production` | `preview` |
+| App name on device | Follow Me | Follow Me (Staging) |
+| iOS bundle id | `com.followme.app` | `com.followme.app.staging` |
 
-The anon keys and URLs are public by design (they ship inside the app binary; RLS is the security boundary), which is why the staging values live directly in `eas.json`. `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` / `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` are shared between environments and come from your local `.env` (or EAS project env vars) — the staging `folder` param keeps the uploads apart.
+The anon keys and URLs are public by design (they ship inside the app binary; RLS is the security boundary), which is why both environments' values live directly in `eas.json` (`production.env` and `preview.env`). `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` / `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` are shared between environments and come from your local `.env` (or EAS project env vars) — the staging `folder` param keeps the uploads apart.
 
 To point a local dev build at staging, set the four staging values above in your `.env`. `eas build --profile preview` bakes them in automatically.
+
+### Standalone builds (run the app without a laptop)
+
+The backend (Supabase + deployed Edge Functions + cron) runs 24/7 in the cloud, so the only thing tying the app to your machine is Metro during development. A standalone EAS build embeds the JS bundle, points at a cloud backend via the profile's `env`, and installs on your phone to open anytime.
+
+The two variants install as **separate apps and coexist on one device** — [`app.config.js`](app.config.js) switches the name, bundle id, and URL scheme off the `APP_VARIANT` env var each profile sets ([`app.json`](app.json) holds everything else; `app.config.js` layers on top).
+
+```bash
+# Production app → live prod backend → TestFlight (permanent install, reinstall anytime)
+eas build   --profile production --platform ios
+eas submit  --profile production --platform ios   # → TestFlight
+
+# Staging app → staging backend → TestFlight or internal (ad-hoc) distribution
+eas build   --profile preview    --platform ios
+```
+
+The first iOS build per bundle id prompts once to set up Apple credentials (App ID + provisioning) against your Apple Developer account; EAS stores them for subsequent builds. Each variant also needs its own App Store Connect app record (one per bundle id) before `eas submit`.
 
 Keeping staging in sync after adding a migration:
 
