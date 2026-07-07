@@ -198,7 +198,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
               hitSlop={8}
               style={styles.closeButton}
             >
-              <Ionicons name="close" size={22} color={colors.textSecondary} />
+              <Ionicons name="close" size={20} color={colors.textSecondary} />
             </TouchableOpacity>
           </View>
           <Text style={styles.subtitle}>
@@ -301,24 +301,28 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: colors.background, paddingHorizontal: spacing.xl },
+  // The modal IS a card — one white surface edge to edge, so the sheet's
+  // rounded corners, the header and the content all read as a single layer.
+  container: { flex: 1, backgroundColor: colors.surface, paddingHorizontal: spacing.xl },
   flex: { flex: 1 },
-  header: { paddingTop: spacing.lg, paddingBottom: spacing.lg },
-  headerTop: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
+  header: { paddingTop: spacing.xl, paddingBottom: spacing.lg, alignItems: 'center' },
+  headerTop: { width: '100%', alignItems: 'center', justifyContent: 'center', minHeight: 34 },
   closeButton: {
-    width: 36,
-    height: 36,
+    position: 'absolute',
+    right: 0,
+    width: 34,
+    height: 34,
     borderRadius: radius.pill,
     backgroundColor: colors.surfaceAlt,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  title: { ...typography.title, color: colors.text },
-  subtitle: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.xs },
+  title: { ...typography.title, fontSize: 17, color: colors.text, textAlign: 'center' },
+  subtitle: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm, textAlign: 'center' },
   // Empty state
   emptyState: { flex: 1, justifyContent: 'center', paddingBottom: spacing.xxl * 2 },
   pickButton: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.background,
     borderRadius: radius.lg,
     borderWidth: 1.5,
     borderColor: colors.border,
