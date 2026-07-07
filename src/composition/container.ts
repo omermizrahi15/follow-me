@@ -14,7 +14,8 @@ import { GeminiPhotoClassifier } from '../infrastructure/classifiers/GeminiPhoto
 import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri } from '../infrastructure/media/ExpoMediaLibrary';
 import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotificationScheduler';
 import { registerExpoPushToken } from '../infrastructure/notifiers/ExpoPushToken';
-import type { ISentPhotoTracker } from '../domain/interfaces';
+import type { Coordinate, ISentPhotoTracker } from '../domain/interfaces';
+import { resolvePostingPlace } from '../application/services/resolvePostingPlace';
 import { ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
 import { WhatsAppEdgeNotifier } from '../infrastructure/notifiers/WhatsAppEdgeNotifier';
 import { SupabaseAuthService } from '../infrastructure/auth/SupabaseAuthService';
@@ -65,6 +66,10 @@ const sentPhotoTracker: ISentPhotoTracker = {
 };
 // Names the posting's place ("Lisbon, Portugal") from the batch's EXIF GPS.
 const geocoder = new BigDataCloudGeocoder();
+
+/** Pre-resolves the posting's place so the review screen can show/edit it. */
+export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<string | null> =>
+  resolvePostingPlace(geocoder, coordinates);
 
 export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage, geocoder);
 export const listFeed = new ListFeedUseCase(mediaRepo);

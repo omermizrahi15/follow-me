@@ -58,3 +58,13 @@ export function representativeCoordinates(coordinates: Coordinate[], max = 3): C
     .map(members => representativeCoordinate(members))
     .filter((c): c is Coordinate => c != null);
 }
+
+/** "A" / "A & B" / "A, B & C" — how a posting names its place(s). */
+export function formatPlaceList(places: string[]): string | null {
+  const [first, second, third] = places;
+  if (first == null) return null;
+  if (second == null) return first;
+  if (third == null) return `${first} & ${second}`;
+  return `${first}, ${second} & ${third}`;
+}
+

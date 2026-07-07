@@ -150,6 +150,20 @@ describe('ShareMediaUseCase — posting location', () => {
     expect(mediaRepo.all().every(m => m.location === 'Lisbon, Portugal, Madrid, Spain & Rome, Italy')).toBe(true);
   });
 
+  it('uses the publisher-edited place verbatim and skips geocoding', async (): Promise<void> => {
+    const { useCase, mediaRepo, geocoder } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: lisbonItems, location: 'Secret beach 🏖️' });
+    expect(geocoder.calls).toHaveLength(0);
+    expect(mediaRepo.all().every(m => m.location === 'Secret beach 🏖️')).toBe(true);
+  });
+
+  it('treats an explicitly cleared place (empty string) as no place', async (): Promise<void> => {
+    const { useCase, mediaRepo, geocoder } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: lisbonItems, location: '' });
+    expect(geocoder.calls).toHaveLength(0);
+    expect(mediaRepo.all().every(m => m.location == null)).toBe(true);
+  });
+
   it('dedupes clusters that resolve to the same place name', async (): Promise<void> => {
     const { useCase, mediaRepo, geocoder } = makeSut();
     geocoder.returns('Lisbon, Portugal'); // both clusters resolve identically

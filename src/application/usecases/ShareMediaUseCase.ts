@@ -7,7 +7,7 @@ import type {
   INotifier,
   IStorageService,
 } from '../../domain/interfaces';
-import { representativeCoordinates } from '../../domain/services/postingLocation';
+import { resolvePostingPlace } from '../services/resolvePostingPlace';
 import { MediaMapper } from '../mappers/MediaMapper';
 import type { MediaDto } from '../dtos';
 
@@ -22,6 +22,12 @@ interface MediaItem {
 export interface ShareMediaInput {
   ownerId: string;
   items: MediaItem[];
+  /**
+   * Explicit place chosen/edited by the publisher. When set it is used as-is
+   * ('' or whitespace → no place); when undefined the place is auto-resolved
+   * from the items' GPS coordinates.
+   */
+  location?: string | null;
 }
 
 export interface ShareProgress {
@@ -49,7 +55,7 @@ export class ShareMediaUseCase {
     onProgress?.({ stage: 'uploading', done: 0, total: input.items.length });
     // The place lookup runs alongside the uploads — neither waits on the other.
     const [location, uploads] = await Promise.all([
-      this.resolveLocation(input.items),
+      this.resolveLocation(input),
       Promise.all(
         input.items.map(async (item) => {
           // Photos from the server-push cache are already hosted remotely — skip re-uploading.
@@ -93,27 +99,16 @@ export class ShareMediaUseCase {
    * GPS, no geocoder is wired, or the lookup fails — sharing must not block
    * on naming the place.
    */
-  private async resolveLocation(items: MediaItem[]): Promise<string | null> {
-    if (this.geocoder == null) return null;
-    // Up to 3 major places (largest photo groups first) — a batch spanning
-    // two cities names both, e.g. "Lisbon, Portugal & Porto, Portugal".
-    const representatives = representativeCoordinates(
-      items.map(i => i.coordinate).filter((c): c is Coordinate => c != null),
-      3,
-    );
-    const places: string[] = [];
-    for (const coordinate of representatives) {
-      try {
-        const place = await this.geocoder.reverseGeocode(coordinate);
-        // Nearby clusters can resolve to the same "City, Country" — dedupe.
-        if (place != null && !places.includes(place)) places.push(place);
-      } catch {
-        // A failed lookup skips one place, never the whole posting.
-      }
+  private async resolveLocation(input: ShareMediaInput): Promise<string | null> {
+    // The publisher's explicit choice wins over GPS auto-resolution.
+    if (input.location !== undefined) {
+      const trimmed = input.location?.trim() ?? '';
+      return trimmed === '' ? null : trimmed;
     }
-    if (places.length === 0) return null;
-    if (places.length === 1) return places[0] ?? null;
-    if (places.length === 2) return `${places[0]} & ${places[1]}`;
-    return `${places[0]}, ${places[1]} & ${places[2]}`;
+    if (this.geocoder == null) return null;
+    return resolvePostingPlace(
+      this.geocoder,
+      input.items.map(i => i.coordinate).filter((c): c is Coordinate => c != null),
+    );
   }
 }

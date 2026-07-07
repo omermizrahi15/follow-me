@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
+  TextInput,
   TouchableOpacity,
   Image,
   ScrollView,
@@ -17,6 +18,7 @@ import { useShareMedia } from '../hooks/useShareMedia';
 import { usePublisherId } from '../context/AuthContext';
 import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
 import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
+import { resolvePlaceForCoordinates } from '../../composition/container';
 import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
@@ -135,6 +137,13 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
   const [excluded, setExcluded] = useState<Set<string>>(new Set());
   const [done, setDone] = useState(false);
   const slotsInitRef = useRef(false);
+  // Posting place — auto-resolved from the batch's GPS, editable by the user.
+  const [place, setPlace] = useState('');
+  const [placeLoading, setPlaceLoading] = useState(false);
+  const placeEditedRef = useRef(false);
+  // GPS per asset id (undefined = probed, no GPS), fetched once for the
+  // place preview and reused on post.
+  const coordsRef = useRef<Map<string, Coordinate | undefined>>(new Map());
 
   // Initialise slots from batch when done; reset if the user re-scans.
   useEffect(() => {
@@ -142,12 +151,53 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
       slotsInitRef.current = false;
       setSlots([]);
       setExcluded(new Set());
+      placeEditedRef.current = false;
+      coordsRef.current.clear();
+      setPlace('');
     }
     if (phase === 'done' && !slotsInitRef.current && batch.length > 0) {
       slotsInitRef.current = true;
       setSlots(batch.slice(0, photosPerPost).map(c => c.candidate.id));
     }
   }, [phase, batch, photosPerPost]);
+
+  // Resolve the batch's GPS → place name whenever the selection changes, so
+  // the user sees (and can edit) the place before posting. Their manual edit
+  // always wins over re-resolution.
+  useEffect(() => {
+    if (phase !== 'done' || slots.length === 0) return;
+    // Object property (not a local) so eslint doesn't flow-narrow it — the
+    // cleanup closure flips it after this effect body has been analysed.
+    const run = { cancelled: false };
+    void (async (): Promise<void> => {
+      setPlaceLoading(true);
+      try {
+        const coordinates: Coordinate[] = [];
+        for (const id of slots) {
+          let coordinate = coordsRef.current.get(id);
+          if (coordinate == null && !coordsRef.current.has(id)) {
+            try {
+              const info = await MediaLibrary.getAssetInfoAsync(id);
+              coordinate = info.location != null
+                ? { latitude: info.location.latitude, longitude: info.location.longitude }
+                : undefined;
+            } catch { /* asset without GPS */ }
+            // Cache misses too (undefined) so we don't refetch per selection change.
+            coordsRef.current.set(id, coordinate);
+          }
+          if (coordinate != null) coordinates.push(coordinate);
+        }
+        // Checked via a function call so lint doesn't flow-narrow across awaits.
+        const isStale = (): boolean => run.cancelled || placeEditedRef.current;
+        if (isStale()) return;
+        const resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
+        if (!isStale()) setPlace(resolved ?? '');
+      } finally {
+        if (!run.cancelled) setPlaceLoading(false);
+      }
+    })();
+    return () => { run.cancelled = true; };
+  }, [phase, slots]);
 
   const photoById = useMemo(() => {
     const map = new Map<string, PhotoClassification>();
@@ -208,15 +258,17 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           // (ShareMediaUseCase skips re-uploading those).
           const isRemote = c.candidate.uri.startsWith('http');
           const localUri = isRemote ? c.candidate.uri : await expoResolveLocalUri(c.candidate);
-          // EXIF GPS so the posting gets a place name — the candidate id is
-          // the library asset id even for server-cached (remote) photos.
-          let coordinate: Coordinate | undefined;
-          try {
-            const info = await MediaLibrary.getAssetInfoAsync(c.candidate.id);
-            if (info.location != null) {
-              coordinate = { latitude: info.location.latitude, longitude: info.location.longitude };
-            }
-          } catch { /* no GPS — the posting just goes out without a place */ }
+          // EXIF GPS so the posting gets a place name — usually already
+          // fetched by the place-preview effect; fetch here as a fallback.
+          let coordinate: Coordinate | undefined = coordsRef.current.get(c.candidate.id);
+          if (coordinate == null && !coordsRef.current.has(c.candidate.id)) {
+            try {
+              const info = await MediaLibrary.getAssetInfoAsync(c.candidate.id);
+              if (info.location != null) {
+                coordinate = { latitude: info.location.latitude, longitude: info.location.longitude };
+              }
+            } catch { /* no GPS — the posting just goes out without a place */ }
+          }
           return {
             mediaId: c.candidate.id,
             localUri,
@@ -225,8 +277,14 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           };
         }),
       );
+      if (__DEV__) {
+        const withGps = items.filter(i => i.coordinate != null).length;
+        console.log(`[share] GPS found on ${withGps}/${items.length} photos`);
+      }
       try {
-        await share(items, publisherId);
+        // The displayed/edited place is the source of truth; while it's still
+        // resolving (e.g. instant auto-confirm) let the use case auto-resolve.
+        await share(items, publisherId, placeLoading ? undefined : place);
         // Posted — this batch is spent; next visit should compute a fresh one.
         void SuggestionCache.clear(publisherId).catch(() => undefined);
         setDone(true);
@@ -234,7 +292,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         /* surfaced via shareError */
       }
     })();
-  }, [kept, share, publisherId]);
+  }, [kept, share, publisherId, place, placeLoading]);
 
   // "Post now" notification action: auto-post as soon as the batch is ready.
   const confirmedRef = useRef(false);
@@ -400,6 +458,37 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           {phase === 'done' && kept.length > 0 && (
             <View style={innerStyles.footer}>
               {shareError != null && <Text style={innerStyles.errorNote}>{shareError}</Text>}
+              <View style={innerStyles.placeRow}>
+                <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
+                <TextInput
+                  style={innerStyles.placeInput}
+                  value={place}
+                  onChangeText={text => {
+                    placeEditedRef.current = true;
+                    setPlace(text);
+                  }}
+                  placeholder={placeLoading ? 'Finding the place…' : 'Add a place (optional)'}
+                  placeholderTextColor={colors.textMuted}
+                  autoCapitalize="words"
+                  autoCorrect={false}
+                  returnKeyType="done"
+                  accessibilityLabel="Posting place"
+                />
+                {placeLoading ? (
+                  <ActivityIndicator size="small" color={colors.accent} />
+                ) : place !== '' ? (
+                  <TouchableOpacity
+                    onPress={() => {
+                      placeEditedRef.current = true;
+                      setPlace('');
+                    }}
+                    hitSlop={8}
+                    accessibilityLabel="Clear place"
+                  >
+                    <Ionicons name="close-circle" size={18} color={colors.textMuted} />
+                  </TouchableOpacity>
+                ) : null}
+              </View>
               <TouchableOpacity
                 style={[innerStyles.confirmButton, sharing && innerStyles.disabled]}
                 onPress={handleConfirm}
@@ -475,6 +564,21 @@ const innerStyles = StyleSheet.create({
   scanningRow: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, minHeight: 160, width: '100%' },
   hint: { ...typography.caption, color: colors.textSecondary },
   footer: { paddingVertical: spacing.md },
+  placeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.sm,
+  },
+  placeInput: {
+    flex: 1,
+    paddingVertical: spacing.md,
+    fontSize: 14,
+    color: colors.text,
+  },
   rescanLink: { ...typography.caption, fontSize: 12, color: colors.accent, marginBottom: spacing.xs, textDecorationLine: 'underline' },
   errorNote: { color: colors.danger, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm },
   confirmButton: {

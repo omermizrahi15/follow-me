@@ -19,7 +19,7 @@ interface ShareMediaState {
   progress: ShareProgress | null;
 }
 
-export function useShareMedia(): ShareMediaState & { share: (items: MediaItem[], ownerId: string) => Promise<void> } {
+export function useShareMedia(): ShareMediaState & { share: (items: MediaItem[], ownerId: string, location?: string | null) => Promise<void> } {
   const [state, setState] = useState<ShareMediaState>({
     loading: false,
     error: null,
@@ -27,12 +27,15 @@ export function useShareMedia(): ShareMediaState & { share: (items: MediaItem[],
     progress: null,
   });
 
-  async function share(items: MediaItem[], ownerId: string): Promise<void> {
+  async function share(items: MediaItem[], ownerId: string, location?: string | null): Promise<void> {
     setState({ loading: true, error: null, result: null, progress: null });
     try {
-      const dtos = await shareMedia.share({ ownerId, items }, progress => {
-        setState(s => ({ ...s, progress }));
-      });
+      const dtos = await shareMedia.share(
+        { ownerId, items, ...(location !== undefined ? { location } : {}) },
+        progress => {
+          setState(s => ({ ...s, progress }));
+        },
+      );
       setState({ loading: false, error: null, result: dtos, progress: null });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Something went wrong';
