@@ -40,6 +40,9 @@ export class ExpoMediaLibrary implements IMediaLibrary {
       });
 
       for (const asset of page.assets) {
+        // Screenshots are never post-worthy — drop them at the source so they
+        // don't reach classification, suggestions, or the cloud sync.
+        if (asset.mediaSubtypes?.includes('screenshot')) continue;
         results.push({
           id: asset.id,
           uri: asset.uri,
