@@ -1,0 +1,76 @@
+name: E2E UI (Maestro)
+
+# Simulator E2E is slow and costs ~10x macOS-runner minutes, so it does NOT run
+# on every push/PR. Trigger it on demand (Actions tab -> Run workflow) or let the
+# nightly schedule catch regressions. To gate it on PRs later, uncomment the
+# pull_request trigger below.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *' # 06:00 UTC nightly
+  # pull_request:
+  #   branches: [main]
+
+jobs:
+  maestro:
+    name: Maestro flows (iOS simulator)
+    runs-on: macos-14
+    timeout-minutes: 45
+    env:
+      LANG: en_US.UTF-8 # CocoaPods unicode-normalize guard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The app bakes EXPO_PUBLIC_* into the JS bundle at build time; without a
+      # valid Supabase URL the app white-screens and even the no-backend smoke
+      # flow fails. Configure these as repo secrets (Settings -> Secrets -> Actions).
+      - name: Write .env
+        run: |
+          {
+            echo "EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}"
+            echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}"
+          } > .env
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL https://get.maestro.mobile.dev | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      # expo run:ios runs prebuild + pod install, boots a simulator, then builds
+      # and installs the Release app (JS bundle embedded, no Metro at test time).
+      - name: Build & install app on simulator
+        run: npx expo run:ios --configuration Release --no-bundler
+
+      - name: Run smoke flows (no backend)
+        run: npm run e2e:ui:smoke
+
+      # Auth flows need a Supabase test-OTP pair (Dashboard -> Auth -> Providers ->
+      # Phone -> Test OTPs) stored as secrets. Skipped automatically if unset.
+      - name: Run auth flows
+        env:
+          E2E_PHONE: ${{ secrets.E2E_PHONE }}
+          E2E_OTP: ${{ secrets.E2E_OTP }}
+        run: |
+          if [ -n "$E2E_PHONE" ] && [ -n "$E2E_OTP" ]; then
+            npm run e2e:ui -- -e E2E_PHONE="$E2E_PHONE" -e E2E_OTP="$E2E_OTP"
+          else
+            echo "E2E_PHONE/E2E_OTP not set — skipping auth flows (smoke only)."
+          fi
+
+      # Screenshots + logs from any failed flow, for debugging without a local run.
+      - name: Upload Maestro artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-output
+          path: ~/.maestro/tests/
+          if-no-files-found: ignore

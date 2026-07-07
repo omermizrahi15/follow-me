@@ -56,7 +56,26 @@ The heavy lifting is meant to be done by Claude Code via the [`e2e-ui` skill](..
 
 Conventions (also enforced by the skill): select by `testID` (`id:` in Maestro), one journey per file, tag `smoke`/`auth`/`ai`, `extendedWaitUntil` for network waits.
 
+## CI
+
+A GitHub Actions job runs the flows on a macOS runner so nobody has to run them by hand — see [`.github/workflows/e2e-ui.yml`](../.github/workflows/e2e-ui.yml). It builds the Release app, boots a simulator, runs the smoke flows, and runs the auth flows when the test-OTP secrets are present.
+
+Simulator E2E is slow and costs ~10x macOS-runner minutes, so it is **not** wired to every push/PR. It runs:
+
+- **On demand** — Actions tab → *E2E UI (Maestro)* → *Run workflow*.
+- **Nightly** — 06:00 UTC, to catch regressions.
+
+To also gate PRs on it, uncomment the `pull_request` trigger in the workflow.
+
+### Required repo secrets
+
+| Secret | Needed for | Notes |
+| --- | --- | --- |
+| `EXPO_PUBLIC_SUPABASE_URL` | all flows | Baked into the bundle; without it the app white-screens and even smoke fails |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | all flows | Same |
+| `E2E_PHONE` | auth flows | Supabase **test OTP** number; auth flows are skipped if unset |
+| `E2E_OTP` | auth flows | The fixed code paired with `E2E_PHONE` |
+
 ## Not covered (yet)
 
-- CI on macOS runners — tracked as a follow-up in [#48](https://github.com/omermizrahi15/follow-me/issues/48).
 - Photo picking/upload past the system photo picker (Maestro can tap into it, but the flow stops at the modal for now).
