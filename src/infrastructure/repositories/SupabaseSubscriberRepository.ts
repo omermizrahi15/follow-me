@@ -58,6 +58,15 @@ export class SupabaseSubscriberRepository implements ISubscriberRepository {
     return data.map(rowToSubscriber);
   }
 
+  async findByPublisher(publisherId: string): Promise<Subscriber[]> {
+    const { data, error } = await this.client
+      .from('subscribers')
+      .select('*')
+      .eq('publisher_id', publisherId);
+    if (error != null) throw new Error(error.message);
+    return data.map(rowToSubscriber);
+  }
+
   async findById(id: string): Promise<Subscriber | null> {
     const { data, error } = await this.client
       .from('subscribers')

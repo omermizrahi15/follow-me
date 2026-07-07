@@ -5,7 +5,10 @@ export class ListSubscribersUseCase {
   constructor(private readonly subscriberRepo: ISubscriberRepository) {}
 
   async list(publisherId: string): Promise<SubscriberDto[]> {
-    const subscribers = await this.subscriberRepo.findActiveByPublisher(publisherId);
+    // Unreachable numbers stay visible so the publisher knows delivery is
+    // failing (issue #24); revoked (opted-out) subscriptions stay hidden.
+    const subscribers = (await this.subscriberRepo.findByPublisher(publisherId))
+      .filter(s => s.isActive() || s.isUnreachable());
     return subscribers.map(s => ({
       id: s.id,
       publisherId: s.publisherId,

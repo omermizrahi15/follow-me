@@ -12,9 +12,18 @@
  *
  * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (auto-injected),
  *      TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM.
+ * Optional: TWILIO_API_KEY_SID / TWILIO_API_KEY_SECRET (preferred auth),
+ *      TWILIO_STATUS_CALLBACK_URL (delivery tracking via twilio-status).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { sendBatch, sendWhatsApp, whatsappSafeMediaUrl, type TwilioCreds } from '../_shared/twilio.ts';
+import {
+  credsFromEnv,
+  sendBatch,
+  sendWhatsApp,
+  whatsappSafeMediaUrl,
+  TwilioSendError,
+} from '../_shared/twilio.ts';
+import { logAcceptedSend, logRejectedSend, markSubscriberUnreachable } from '../_shared/messageLog.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
@@ -24,11 +33,7 @@ declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | unde
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const TWILIO: TwilioCreds = {
-  accountSid: Deno.env.get('TWILIO_ACCOUNT_SID') ?? '',
-  authToken: Deno.env.get('TWILIO_AUTH_TOKEN') ?? '',
-  fromNumber: Deno.env.get('TWILIO_WHATSAPP_FROM') ?? '',
-};
+const TWILIO = credsFromEnv(Deno.env);
 
 const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -87,12 +92,30 @@ Deno.serve(async req => {
   // Preferred path: the whole batch as ONE message — a Cloudinary-composed
   // grid collage with the caption. Falls through to per-photo sends when the
   // URLs can't be collaged (non-Cloudinary source).
+  // On a permanent Twilio failure (invalid/blocked number) the subscriber is
+  // marked unreachable so future posts skip them and the app can surface it.
+  async function recordPermanentFailure(err: TwilioSendError): Promise<void> {
+    await logRejectedSend(supabase, { publisherId: publisherId!, contactHandle: to!, error: err });
+    await markSubscriberUnreachable(supabase, publisherId!, to!);
+  }
+
+  async function recordAccepted(sid: string | null): Promise<void> {
+    if (sid != null) {
+      await logAcceptedSend(supabase, { sid, publisherId: publisherId!, contactHandle: to! });
+    }
+  }
+
   const collage = collageUrl(mediaUrls);
   if (collage != null) {
     try {
-      await sendWhatsApp(TWILIO, to, caption, collage);
+      const { sid } = await sendWhatsApp(TWILIO, to, caption, collage);
+      await recordAccepted(sid);
     } catch (err) {
       console.error(`send-post collage to ${to} failed:`, err);
+      if (err instanceof TwilioSendError && err.permanent) {
+        await recordPermanentFailure(err);
+        return json({ error: err.message, unreachable: true }, 502);
+      }
       return json({ error: err instanceof Error ? err.message : 'send failed' }, 502);
     }
     return json({ sent: 1, photos: mediaUrls.length, collage: true });
@@ -103,16 +126,23 @@ Deno.serve(async req => {
   // background, paced ~1 msg/sec to respect Twilio's WhatsApp throttle.
   const [first, ...rest] = mediaUrls;
   try {
-    await sendWhatsApp(TWILIO, to, caption, whatsappSafeMediaUrl(first ?? ''));
+    const { sid } = await sendWhatsApp(TWILIO, to, caption, whatsappSafeMediaUrl(first ?? ''));
+    await recordAccepted(sid);
   } catch (err) {
     console.error(`send-post to ${to} failed:`, err);
+    if (err instanceof TwilioSendError && err.permanent) {
+      await recordPermanentFailure(err);
+      return json({ error: err.message, unreachable: true }, 502);
+    }
     return json({ error: err instanceof Error ? err.message : 'send failed' }, 502);
   }
 
   if (rest.length > 0) {
     const sendRest = new Promise(resolve => setTimeout(resolve, 1100))
       .then(() => sendBatch(TWILIO, to, '', rest))
-      .then(result => {
+      .then(async result => {
+        for (const sid of result.sids) await recordAccepted(sid);
+        if (result.permanentError != null) await recordPermanentFailure(result.permanentError);
         if (result.failed > 0) {
           console.error(`send-post to ${to}: ${result.failed}/${rest.length} background sends failed:`, result.errors);
         }
