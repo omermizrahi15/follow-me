@@ -91,7 +91,7 @@ What the code does now:
   (0.5s → 1s → 2s). Permanent 4xx failures (invalid number, blocked
   recipient, auth) are never retried.
 - **Delivery tracking** — each accepted message is recorded in `message_logs`
-  (migration `20240016`) keyed by Twilio message SID; the `twilio-status`
+  (migration `20240017`) keyed by Twilio message SID; the `twilio-status`
   edge function receives Twilio StatusCallback events (signature-verified)
   and updates the row through queued → sent → delivered / failed.
 - **Unreachable subscribers** — a permanent send failure, or a delivery
@@ -103,7 +103,7 @@ What the code does now:
 
 Setup:
 
-1. Apply migration `20240016_message_logs.sql`.
+1. Apply migration `20240017_message_logs.sql`.
 2. Deploy `twilio-status` and set the secret
    `TWILIO_STATUS_CALLBACK_URL=https://<project>.functions.supabase.co/twilio-status`
    on `send-post`, `auto-post`, `subscribe` AND `twilio-status` itself (it
@@ -125,7 +125,7 @@ Setup:
 
 ## Ops checklist before enabling autonomous mode in production
 
-1. Migrations up to `20240016` applied (`supabase db push`).
+1. Migrations up to `20240017` applied (`supabase db push`).
 2. `classify-photos` deployed with `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`).
 3. `auto-post` deployed with `CRON_SECRET` + Twilio secrets; `send-post` and
    `twilio-status` deployed (same Twilio secrets +
