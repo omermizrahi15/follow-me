@@ -7,12 +7,11 @@ const xcode = require('../node_modules/xcode');
 const fs = require('fs');
 const path = require('path');
 
+const { deriveNativeSettings } = require('./projectSettings');
+
 const PROJ_PATH = path.join(__dirname, '../ios/FollowMe.xcodeproj/project.pbxproj');
-const MAIN_BUNDLE_ID = 'com.urishiber.followmedev17';
-const EXT_BUNDLE_ID = `${MAIN_BUNDLE_ID}.NotificationContent`;
 const EXT_TARGET = 'NotificationContentExtension';
 const SWIFT_FILE = 'NotificationViewController.swift';
-const DEV_TEAM = '458VBLF2C4';
 
 // Copy the extension sources from the tracked native/ folder into the
 // gitignored ios/ directory (refreshed on every run, so edits to native/
@@ -27,6 +26,11 @@ console.log(`Copied ${EXT_TARGET} sources from native/ into ios/.`);
 
 const project = xcode.project(PROJ_PATH);
 project.parseSync();
+
+// Bundle id + dev team come from env vars or the main target's own settings —
+// never hardcoded, so the scripts work for any contributor.
+const { bundleId: MAIN_BUNDLE_ID, devTeam: DEV_TEAM } = deriveNativeSettings(project);
+const EXT_BUNDLE_ID = `${MAIN_BUNDLE_ID}.NotificationContent`;
 
 // Guard: don't add twice.
 if (project.pbxTargetByName(EXT_TARGET)) {

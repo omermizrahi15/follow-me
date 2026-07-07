@@ -11,8 +11,13 @@
  *        [{ "file": "food.jpg", "expected": "food" }, ...]
  *   3. Export the function URL + key, then run the suite:
  *        export CLASSIFY_FN_URL="https://<project>.functions.supabase.co/classify-photos"
- *        export CLASSIFY_FN_KEY="<supabase anon key>"
+ *        export CLASSIFY_FN_KEY="<a signed-in user's access token>"
  *        npm run test:integration
+ *
+ *   NOTE: the function requires an authenticated user's JWT (the bare anon
+ *   key is rejected with 401). Get a token by signing in via the app and
+ *   logging authService.getSession(), or via supabase.auth.signInWithPassword
+ *   in a scratch script.
  *
  * It auto-skips (so CI stays green) when the env vars or fixtures are absent.
  */

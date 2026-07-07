@@ -22,6 +22,7 @@ import {
   deviceTimezone,
   scheduleTestNotification,
   recentCandidateUrls,
+  deleteUploadedPhotos,
 } from '../../../composition/container';
 import { PublisherConfig } from '../../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
@@ -389,6 +390,30 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
     }
   }
 
+  function handleDeleteUploaded(): void {
+    Alert.alert(
+      'Delete uploaded photos?',
+      'This removes every photo the app has uploaded to your private cloud space. Auto-posting and notification previews will need a fresh sync (happens on your next Save).',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: () => {
+            void (async (): Promise<void> => {
+              try {
+                const { deletedRows } = await deleteUploadedPhotos();
+                Alert.alert('Deleted', `${deletedRows} uploaded photo${deletedRows === 1 ? '' : 's'} removed.`);
+              } catch (e) {
+                Alert.alert('Delete failed', e instanceof Error ? e.message : 'Something went wrong');
+              }
+            })();
+          },
+        },
+      ],
+    );
+  }
+
   function handleTestNotification(): void {
     void fireTestNotification(120);
   }
@@ -529,6 +554,11 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           ios_backgroundColor={colors.border}
         />
       </View>
+
+      {/* Privacy: user-initiated wipe of the cloud photo pool. */}
+      <TouchableOpacity onPress={handleDeleteUploaded} hitSlop={8}>
+        <Text style={styles.deleteUploadedLink}>Delete my uploaded photos</Text>
+      </TouchableOpacity>
 
       <TouchableOpacity
         style={[styles.saveButton, saving && styles.saveButtonDisabled]}
@@ -682,5 +712,12 @@ const styles = StyleSheet.create({
     borderColor: '#4a4a8a',
   },
   devButtonFull: { flex: 1 },
+  deleteUploadedLink: {
+    ...typography.caption,
+    fontSize: 12,
+    color: colors.danger,
+    textAlign: 'center',
+    textDecorationLine: 'underline',
+  },
   devText: { color: '#a0a0ff', fontWeight: '600', fontSize: 13 },
 });

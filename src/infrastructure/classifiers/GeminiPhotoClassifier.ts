@@ -58,6 +58,12 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     private readonly functionUrl: string,
     private readonly authKey: string,
     private readonly resolve: ResolvePayload = defaultResolve,
+    /**
+     * Supplies the signed-in user's JWT — the classify function rejects the
+     * bare anon key (quota/cost-sensitive endpoint). Falls back to authKey
+     * when absent (tests / integration harness).
+     */
+    private readonly getAccessToken?: () => Promise<string | null>,
   ) {}
 
   async classify(
@@ -72,7 +78,9 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
 
     return new Promise<PhotoClassification[]>(resolve => {
       let nextIdx = 0;
-      let inFlight = 0;
+      // Every candidate ends in exactly one `completed++`, so the promise
+      // provably settles when completed reaches total (or on early stop).
+      let completed = 0;
       let settled = false;
 
       const finish = (): void => {
@@ -82,15 +90,19 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         }
       };
 
-      const startNext = (): void => {
-        // Fill all free slots up to CONCURRENCY.
-        while (!settled && inFlight < GeminiPhotoClassifier.CONCURRENCY && nextIdx < candidates.length) {
+      const inFlight = (): number => nextIdx - completed;
+
+      const launch = (): void => {
+        while (!settled && inFlight() < GeminiPhotoClassifier.CONCURRENCY && nextIdx < total) {
           const candidate = candidates[nextIdx++];
-          if (candidate == null) continue;
-          inFlight++;
+          if (candidate == null) {
+            // Impossible for a dense array, but keeps the completed invariant.
+            completed++;
+            continue;
+          }
 
           void this.classifyOne(candidate).then(result => {
-            inFlight--;
+            completed++;
             if (settled) return;
 
             if (result != null) {
@@ -98,19 +110,18 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
               onEach?.(result, results.length, total);
             }
 
-            if ((shouldStop?.() ?? false) || (inFlight === 0 && nextIdx >= candidates.length)) {
+            if ((shouldStop?.() ?? false) || completed >= total) {
               finish();
             } else {
-              startNext();
+              launch();
             }
           });
         }
 
-        // Edge case: all candidates exhausted before all slots fired.
-        if (!settled && inFlight === 0 && nextIdx >= candidates.length) finish();
+        if (!settled && completed >= total) finish();
       };
 
-      startNext();
+      launch();
     });
   }
 
@@ -124,6 +135,8 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     if (payload == null) return null;
 
     const body = JSON.stringify({ photos: [payload] });
+    const userToken = (await this.getAccessToken?.().catch(() => null)) ?? null;
+    const bearer = userToken ?? this.authKey;
 
     for (let attempt = 1; attempt <= GeminiPhotoClassifier.MAX_ATTEMPTS; attempt++) {
       try {
@@ -131,7 +144,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            Authorization: `Bearer ${this.authKey}`,
+            Authorization: `Bearer ${bearer}`,
             apikey: this.authKey,
           },
           body,

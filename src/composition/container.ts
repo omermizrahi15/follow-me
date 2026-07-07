@@ -57,6 +57,9 @@ const photoClassifier = new GeminiPhotoClassifier(
   requireEnv('EXPO_PUBLIC_CLASSIFY_FN_URL'),
   supabaseKey,
   expoResolvePayload,
+  // The classify function requires a signed-in user's JWT (anon key rejected).
+  // authService is declared below — the closure runs long after module init.
+  async () => (await authService.getSession())?.access_token ?? null,
 );
 const notificationScheduler = new ExpoNotificationScheduler();
 // Already-sent = anything recorded in `media` for this publisher (id == asset id).
@@ -106,3 +109,19 @@ export const scheduleTestNotification = (seconds: number, localAttachmentUris: s
 /** DEV ONLY — recent cloud-synced photo URLs (Cloudinary) for notification tests. */
 export const recentCandidateUrls = (publisherId: string, limit: number): Promise<string[]> =>
   candidateRepo.recentUrls(publisherId, limit);
+
+/**
+ * "Delete my uploaded photos" — server-side wipe of the signed-in user's
+ * candidate_photos rows (+ best-effort Cloudinary asset cleanup). Requires an
+ * authenticated session; the server only deletes the caller's own photos.
+ */
+export const deleteUploadedPhotos = async (): Promise<{ deletedRows: number }> => {
+  const token = (await authService.getSession())?.access_token;
+  if (token == null) throw new Error('Not signed in');
+  const res = await fetch(`${supabaseUrl}/functions/v1/delete-candidates`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, apikey: supabaseKey },
+  });
+  if (!res.ok) throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
+  return (await res.json()) as { deletedRows: number };
+};

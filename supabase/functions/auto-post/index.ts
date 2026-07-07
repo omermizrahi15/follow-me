@@ -407,6 +407,18 @@ Deno.serve(async (req: Request) => {
   }
 
   const now = new Date();
+
+  // Retention: candidate photos exist only to serve the lookback window —
+  // garbage-collect anything older than the longest window (+ slack) on every
+  // cron tick. (Cloudinary assets are cleaned by delete-candidates / manually.)
+  const RETENTION_DAYS = 35;
+  const cutoff = new Date(now.getTime() - RETENTION_DAYS * MS_PER_DAY).toISOString();
+  const { error: pruneError } = await supabase
+    .from('candidate_photos')
+    .delete()
+    .lt('created_at', cutoff);
+  if (pruneError != null) console.error('candidate_photos retention prune failed:', pruneError.message);
+
   const { data: configs, error } = await supabase
     .from('publisher_config')
     .select(

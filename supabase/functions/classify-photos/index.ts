@@ -9,11 +9,37 @@
  * or as base64 (the app reads local library photos this way, avoiding an upload
  * just to classify). Swapping providers means rewriting only this file.
  *
- * Env: GEMINI_API_KEY (required), GEMINI_MODEL (optional, default gemini-2.0-flash)
+ * Auth: requires a signed-in user's JWT (the anon key alone is rejected) —
+ * the endpoint is quota/cost-sensitive. Per-user daily quota enforced via
+ * increment_classify_quota() (migration 20240015).
+ *
+ * Env: GEMINI_API_KEY (required), GEMINI_MODEL (optional, default gemini-2.0-flash),
+ *      SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (auto-injected).
  */
+import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.0-flash';
+const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
+const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
+
+const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
+
+/** Guards against runaway clients: request size cap + per-user daily quota. */
+const MAX_PHOTOS_PER_REQUEST = 3;
+const DAILY_QUOTA = 500;
+
+/** Resolves the calling user's id, or null when the token isn't a signed-in user. */
+async function authenticatedUserId(req: Request): Promise<string | null> {
+  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
+  if (token === '') return null;
+  try {
+    const { data } = await admin.auth.getUser(token);
+    return data.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
 
 const CATEGORIES = [
   'selfie_with_view',
@@ -183,6 +209,10 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
   if (!GEMINI_API_KEY) return json({ error: 'Server not configured' }, 500);
 
+  // The anon key alone is not enough — a signed-in user must be behind the call.
+  const userId = await authenticatedUserId(req);
+  if (userId == null) return json({ error: 'Authentication required' }, 401);
+
   let body: { photos?: PhotoInput[] };
   try {
     body = await req.json();
@@ -192,6 +222,19 @@ Deno.serve(async (req: Request) => {
 
   const photos = Array.isArray(body.photos) ? body.photos : [];
   if (photos.length === 0) return json({ classifications: [] });
+  if (photos.length > MAX_PHOTOS_PER_REQUEST) {
+    return json({ error: `Too many photos per request (max ${MAX_PHOTOS_PER_REQUEST})` }, 400);
+  }
+
+  // Per-user daily quota. Fails open on infra errors (logged) — a broken
+  // counter must not take the feature down — but rejects over-quota users.
+  const quota = await admin.rpc('increment_classify_quota', { p_user: userId, p_inc: photos.length });
+  if (quota.error != null) {
+    console.error('classify quota check failed:', quota.error.message);
+  } else if (typeof quota.data === 'number' && quota.data > DAILY_QUOTA) {
+    console.warn(`classify quota exceeded: user ${userId} at ${quota.data}/${DAILY_QUOTA}`);
+    return json({ error: 'Daily classification quota exceeded' }, 429);
+  }
 
   // Classify sequentially (called one photo at a time by the app) so a single
   // large batch never hits worker memory limits.
