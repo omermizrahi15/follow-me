@@ -172,21 +172,28 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
     void (async (): Promise<void> => {
       setPlaceLoading(true);
       try {
-        const coordinates: Coordinate[] = [];
-        for (const id of slots) {
-          let coordinate = coordsRef.current.get(id);
-          if (coordinate == null && !coordsRef.current.has(id)) {
+        // All lookups in parallel — sequential awaits made the first
+        // resolution take many seconds on iCloud-backed libraries.
+        await Promise.all(
+          slots.map(async id => {
+            if (coordsRef.current.has(id)) return;
             try {
               const info = await MediaLibrary.getAssetInfoAsync(id);
-              coordinate = info.location != null
-                ? { latitude: info.location.latitude, longitude: info.location.longitude }
-                : undefined;
-            } catch { /* asset without GPS */ }
-            // Cache misses too (undefined) so we don't refetch per selection change.
-            coordsRef.current.set(id, coordinate);
-          }
-          if (coordinate != null) coordinates.push(coordinate);
-        }
+              // Cache misses too (undefined) so we don't refetch per selection change.
+              coordsRef.current.set(
+                id,
+                info.location != null
+                  ? { latitude: info.location.latitude, longitude: info.location.longitude }
+                  : undefined,
+              );
+            } catch {
+              coordsRef.current.set(id, undefined);
+            }
+          }),
+        );
+        const coordinates = slots
+          .map(id => coordsRef.current.get(id))
+          .filter((c): c is Coordinate => c != null);
         // Checked via a function call so lint doesn't flow-narrow across awaits.
         const isStale = (): boolean => run.cancelled || placeEditedRef.current;
         if (isStale()) return;
