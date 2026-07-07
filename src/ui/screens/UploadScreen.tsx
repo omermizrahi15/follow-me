@@ -106,9 +106,14 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
             ...(coordinate != null ? { coordinate } : {}),
           };
         });
-        // The displayed/edited place is the source of truth; while it's still
-        // resolving, let the use case auto-resolve from GPS.
-        await share(items, publisherId, placeLoading ? undefined : place);
+        // The user's explicit edit always wins (clearing = post with no place).
+        // An untouched empty/loading field falls back to GPS auto-resolution.
+        const location = placeEditedRef.current
+          ? place
+          : placeLoading || place === ''
+          ? undefined
+          : place;
+        await share(items, publisherId, location);
         setDone(true);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Upload failed');

@@ -281,10 +281,18 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         const withGps = items.filter(i => i.coordinate != null).length;
         console.log(`[share] GPS found on ${withGps}/${items.length} photos`);
       }
+      // The user's explicit edit always wins (clearing = post with no place).
+      // Otherwise pass the resolved text when we have it, and when the field
+      // is still empty/loading pass undefined so the use case auto-resolves —
+      // an untouched empty field must never suppress the place.
+      const location = placeEditedRef.current
+        ? place
+        : placeLoading || place === ''
+        ? undefined
+        : place;
+      if (__DEV__) console.log(`[share] place: ${JSON.stringify(location)} (edited: ${placeEditedRef.current}, loading: ${placeLoading})`);
       try {
-        // The displayed/edited place is the source of truth; while it's still
-        // resolving (e.g. instant auto-confirm) let the use case auto-resolve.
-        await share(items, publisherId, placeLoading ? undefined : place);
+        await share(items, publisherId, location);
         // Posted — this batch is spent; next visit should compute a fresh one.
         void SuggestionCache.clear(publisherId).catch(() => undefined);
         setDone(true);
