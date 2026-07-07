@@ -55,6 +55,35 @@ npm run test:integration  # requires real credentials in .env
 
 ---
 
+## Environments
+
+Two Supabase projects back the app — same schema, same RLS policies (both are built from [`supabase/migrations/`](supabase/migrations)):
+
+| | Production | Staging |
+|---|---|---|
+| Supabase project | `follow-me` (`eigvoazyrimzbzcjlscp`) | `follow-me-staging` (`xszvrvnxduwpymyabvcg`) |
+| `EXPO_PUBLIC_SUPABASE_URL` | `https://eigvoazyrimzbzcjlscp.supabase.co` | `https://xszvrvnxduwpymyabvcg.supabase.co` |
+| `EXPO_PUBLIC_SUPABASE_ANON_KEY` | production anon key | staging anon key (see `eas.json` → `preview.env`) |
+| `EXPO_PUBLIC_CLASSIFY_FN_URL` | production functions URL | staging functions URL |
+| `EXPO_PUBLIC_CLOUDINARY_FOLDER` | unset (assets land in the root) | `staging` — isolates test uploads in one folder |
+| EAS build profile | `production` | `preview` |
+
+The anon keys and URLs are public by design (they ship inside the app binary; RLS is the security boundary), which is why the staging values live directly in `eas.json`. `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` / `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` are shared between environments and come from your local `.env` (or EAS project env vars) — the staging `folder` param keeps the uploads apart.
+
+To point a local dev build at staging, set the four staging values above in your `.env`. `eas build --profile preview` bakes them in automatically.
+
+Keeping staging in sync after adding a migration:
+
+```bash
+supabase db push --db-url "$STAGING_DB_URL"   # session-pooler connection string of follow-me-staging
+```
+
+Edge Functions are deployed per environment with `supabase functions deploy --project-ref <ref>`; their secrets (Twilio, Gemini) are set per project via `supabase secrets set --project-ref <ref>`.
+
+CI runs the integration suite against **staging** on every PR that touches `src/infrastructure/` or `supabase/` (see [`.github/workflows/integration.yml`](.github/workflows/integration.yml)) — production credentials never appear in CI.
+
+---
+
 ## Running on iOS
 
 You'll need Xcode (from the App Store) and CocoaPods installed once per machine:

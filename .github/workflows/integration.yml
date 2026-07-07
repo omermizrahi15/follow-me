@@ -1,0 +1,41 @@
+name: Integration (staging)
+
+# Integration tests hit the real staging Supabase project, so only run them
+# when infrastructure actually changed — unit tests cover everything else.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'src/infrastructure/**'
+      - 'supabase/**'
+      - '.github/workflows/integration.yml'
+
+jobs:
+  integration:
+    name: Integration tests against staging
+    runs-on: ubuntu-latest
+    # Secrets are unavailable to PRs from forks; skip instead of failing red.
+    if: github.event.pull_request.head.repo.full_name == github.repository
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # Tests that need credentials beyond these (Twilio, auth test phone)
+      # self-skip via describeIf — see the *.integration.test.ts files.
+      - name: Run integration tests
+        run: npm run test:integration
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ${{ secrets.STAGING_SUPABASE_URL }}
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.STAGING_SUPABASE_ANON_KEY }}
+          # Staging service-role key — lets the subscriber-repo suite seed
+          # data the way the join-webhook does. Never the production key.
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.STAGING_SUPABASE_SERVICE_ROLE_KEY }}
