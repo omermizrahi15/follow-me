@@ -169,6 +169,22 @@ describe('PhotoSelectionService — filtering', () => {
     expect(ids(batch).slice(0, 2)).not.toContain('b');
   });
 
+  it('never dedups photos with blank or whitespace-only scenes', () => {
+    // Blank scenes carry no visual-similarity signal — three photos with
+    // empty/whitespace scenes must all be selectable, not collapse into one.
+    const cfg = config({ enabledCategories: ['view_only'], photosPerPost: 5 });
+    const batch = service.selectBatch(
+      [
+        { ...make({ id: 'a', category: 'view_only', quality: 0.9 }), scene: '' },
+        { ...make({ id: 'b', category: 'view_only', quality: 0.8 }), scene: '   ' },
+        { ...make({ id: 'c', category: 'view_only', quality: 0.7 }), scene: '' },
+      ],
+      cfg,
+      new Set(),
+    );
+    expect(ids(batch)).toEqual(['a', 'b', 'c']);
+  });
+
   it('respects scene dedup when the quota is already met by diverse photos', () => {
     // 5 distinct-scene photos fill quota=5 in pass 1; the same-scene extra is never pulled in.
     const cfg = config({ enabledCategories: ['view_only'], photosPerPost: 5 });
