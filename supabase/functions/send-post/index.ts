@@ -60,14 +60,14 @@ async function publisherIdentity(publisherId: string): Promise<{ name: string; p
 Deno.serve(async req => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  let body: { publisherId?: string; to?: string; mediaUrls?: string[] };
+  let body: { publisherId?: string; to?: string; mediaUrls?: string[]; place?: string };
   try {
     body = await req.json();
   } catch {
     return json({ error: 'Invalid JSON' }, 400);
   }
 
-  const { publisherId, to, mediaUrls } = body;
+  const { publisherId, to, mediaUrls, place } = body;
   if (!publisherId || !to || !Array.isArray(mediaUrls) || mediaUrls.length === 0) {
     return json({ error: 'publisherId, to and non-empty mediaUrls are required' }, 400);
   }
@@ -81,6 +81,7 @@ Deno.serve(async req => {
     name,
     phone,
     galleryUrl != null ? { url: galleryUrl, photoCount: mediaUrls.length } : null,
+    place,
   );
 
   // Preferred path: the whole batch as ONE message — a Cloudinary-composed

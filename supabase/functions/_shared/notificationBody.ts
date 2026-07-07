@@ -11,8 +11,12 @@ export function composeAutoPostBody(
   publisherName: string,
   publisherPhone?: string,
   gallery?: GalleryLink | null,
+  place?: string | null,
 ): string {
-  const lines = [`Check out ${publisherName}'s latest photos 📸`];
+  const headline = place != null && place.trim() !== ''
+    ? `Check out ${publisherName}'s latest photos from ${place.trim()} 📸`
+    : `Check out ${publisherName}'s latest photos 📸`;
+  const lines = [headline];
   if (gallery != null) {
     lines.push(`See all ${gallery.photoCount} photos: ${gallery.url}`);
   }

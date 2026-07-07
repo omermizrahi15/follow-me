@@ -27,6 +27,9 @@ export class WhatsAppEdgeNotifier implements INotifier {
         publisherId: first.ownerId,
         to: subscriber.contactHandle,
         mediaUrls: media.map(m => m.url),
+        // The posting's place — the server weaves it into the caption
+        // ("Check out X's latest photos from Lisbon, Portugal 📸").
+        ...(first.location != null ? { place: first.location } : {}),
       }),
     });
     if (!res.ok) {
