@@ -1,0 +1,20 @@
+appId: com.followme.app
+name: onboarding
+tags:
+  - smoke
+---
+# Fresh install → onboarding intro → Get started lands on phone sign-in.
+# No backend needed: stops before any OTP is sent.
+- launchApp:
+    clearState: true
+- assertVisible: "Your AI photographer"
+- assertVisible:
+    id: "onboarding-skip"
+- tapOn:
+    id: "onboarding-get-started"
+# Step 2 reuses the phone sign-in screen.
+- assertVisible: "Your WhatsApp number"
+- assertVisible:
+    id: "signin-phone-input"
+- assertVisible:
+    id: "signin-send-button"

@@ -34,6 +34,7 @@ export function SectionNav({ active, onChange }: Props): React.JSX.Element {
           return (
             <TouchableOpacity
               key={item.key}
+              testID={`section-nav-${item.key}`}
               accessibilityRole="button"
               accessibilityState={isActive ? { selected: true } : {}}
               accessibilityLabel={item.label}

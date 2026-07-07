@@ -1,0 +1,16 @@
+appId: com.followme.app
+name: ai-visual-check
+tags:
+  - ai
+---
+# Fuzzy visual checks via Maestro's AI assertions. Needs MAESTRO_CLI_AI_KEY
+# (OpenAI or Anthropic key) in the environment; excluded from the default
+# suite for that reason — run with: npm run e2e:ui:ai
+- launchApp:
+    clearState: true
+- assertWithAI:
+    assertion: "An onboarding screen introducing an AI photographer app, with a progress indicator, a prominent 'Get started' button and a 'Skip' link. Nothing looks clipped, overlapping or unstyled."
+- tapOn:
+    id: "onboarding-get-started"
+- assertWithAI:
+    assertion: "A phone sign-in screen asking for a WhatsApp number in international format, with a text field and a 'Send code' button. Nothing looks clipped, overlapping or unstyled."

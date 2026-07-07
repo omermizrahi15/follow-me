@@ -1,0 +1,34 @@
+appId: com.followme.app
+name: sign-in
+tags:
+  - auth
+---
+# Signs in with a Supabase *test OTP* phone number (Dashboard → Auth →
+# Providers → Phone → Test OTPs), so no real WhatsApp message is sent.
+# Run with: maestro test -e E2E_PHONE=+15005550006 -e E2E_OTP=123456 .maestro
+- launchApp:
+    clearState: true
+# Fresh state lands on onboarding; skip straight to sign-in.
+- runFlow:
+    when:
+      visible:
+        id: "onboarding-skip"
+    commands:
+      - tapOn:
+          id: "onboarding-skip"
+- tapOn:
+    id: "signin-phone-input"
+- inputText: ${E2E_PHONE}
+- tapOn:
+    id: "signin-send-button"
+- assertVisible: "Enter the code"
+- tapOn:
+    id: "signin-otp-input"
+- inputText: ${E2E_OTP}
+- tapOn:
+    id: "signin-verify-button"
+# Home = the Me page; the settings gear only exists there.
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000

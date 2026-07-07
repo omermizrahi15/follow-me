@@ -1,0 +1,12 @@
+# Maestro workspace config — see docs/E2E.md for setup and usage.
+flows:
+  - "flows/*.yaml"
+
+# Flows build on each other: sign-in leaves a persisted session that
+# navigation reuses, so order matters.
+executionOrder:
+  continueOnFailure: false
+  flowsOrder:
+    - onboarding
+    - sign-in
+    - navigation

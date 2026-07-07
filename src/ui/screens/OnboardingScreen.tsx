@@ -108,17 +108,17 @@ export function OnboardingScreen({ onDone }: Props): React.JSX.Element {
 
       {step === 1 && (
         <View style={styles.footer}>
-          <TouchableOpacity style={styles.primary} onPress={() => setStep(2)} activeOpacity={0.85}>
+          <TouchableOpacity testID="onboarding-get-started" style={styles.primary} onPress={() => setStep(2)} activeOpacity={0.85}>
             <Text style={styles.primaryText}>Get started</Text>
           </TouchableOpacity>
-          <TouchableOpacity onPress={onDone} hitSlop={8}>
+          <TouchableOpacity testID="onboarding-skip" onPress={onDone} hitSlop={8}>
             <Text style={styles.skip}>Skip</Text>
           </TouchableOpacity>
         </View>
       )}
       {step === 5 && (
         <View style={styles.footer}>
-          <TouchableOpacity style={styles.primary} onPress={onDone} activeOpacity={0.85}>
+          <TouchableOpacity testID="onboarding-done" style={styles.primary} onPress={onDone} activeOpacity={0.85}>
             <Text style={styles.primaryText}>Go to my page</Text>
           </TouchableOpacity>
         </View>

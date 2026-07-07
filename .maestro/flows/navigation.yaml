@@ -1,0 +1,42 @@
+appId: com.followme.app
+name: navigation
+tags:
+  - auth
+---
+# Walks the signed-in surface: Settings, Edit profile, the Upload modal and
+# the section nav. Reuses the session persisted by sign-in (no clearState).
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000
+
+# Home → Settings → Edit profile → back → back
+- tapOn:
+    id: "home-settings-button"
+- assertVisible: "Edit profile"
+- tapOn:
+    id: "settings-edit-profile"
+- assertVisible: "Your name"
+- tapOn:
+    id: "header-back"
+- assertVisible: "Sign out"
+- tapOn:
+    id: "header-back"
+
+# Home → Upload modal → close
+- tapOn:
+    id: "home-add-post"
+- assertVisible: "New post"
+- tapOn:
+    id: "upload-close"
+
+# Section nav swaps the bottom-sheet content and comes back to Me.
+- tapOn:
+    id: "section-nav-followers"
+- tapOn:
+    id: "section-nav-auto"
+- tapOn:
+    id: "section-nav-me"
+- assertVisible:
+    id: "home-add-post"
