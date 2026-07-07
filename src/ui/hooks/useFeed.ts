@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { listFeed } from '../../composition/container';
 import type { FeedPosting } from '../components/PhotoFeed';
 import type { FeedPostingDto } from '../../application/dtos';
@@ -48,9 +49,14 @@ export function useFeed(publisherId: string | null): UseFeed {
     }
   }, [publisherId]);
 
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  // Refetch on every focus, not just mount — the Home screen stays mounted
+  // under pushed screens (Upload, review), so returning from a post would
+  // otherwise show a stale feed.
+  useFocusEffect(
+    useCallback(() => {
+      void reload();
+    }, [reload]),
+  );
 
   return { ...state, reload };
 }

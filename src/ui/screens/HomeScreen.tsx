@@ -19,6 +19,7 @@ import { SectionNav, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
 import { PhotoFeed } from '../components/PhotoFeed';
 import { AutoPostingSection } from './sections/AutoPostingSection';
+import { ReviewSuggestionContent } from './ReviewSuggestionScreen';
 import { FollowersSection } from './sections/FollowersSection';
 import { useInviteLink } from '../hooks/useInviteLink';
 import { useFeed } from '../hooks/useFeed';
@@ -54,6 +55,8 @@ export function HomeScreen(): React.JSX.Element {
   const { postings, loading: feedLoading, reload: reloadFeed } = useFeed(publisherId);
   const [section, setSection] = useState<HomeSection>('me');
   const [bioExpanded, setBioExpanded] = useState(false);
+  const [showingSuggestions, setShowingSuggestions] = useState(false);
+  const [suggestionKey, setSuggestionKey] = useState(0);
 
   // Real profile when set up; gracefully fall back when name/photo/bio are missing.
   const displayName = profile?.displayName ?? 'Your name';
@@ -112,12 +115,24 @@ export function HomeScreen(): React.JSX.Element {
   ).current;
 
   function selectSection(next: HomeSection): void {
+    setShowingSuggestions(false);
     setSection(next);
-    // Returning to the Me page: refresh the followers count (e.g. after adding
-    // or removing followers in the Followers section).
     if (next === 'me') void reloadSubscribers();
-    // Open every section at the medium anchor; the user can drag to full for long content.
     snapTo(MEDIUM_H);
+  }
+
+  function handlePreview(): void {
+    setSuggestionKey(k => k + 1);
+    setShowingSuggestions(true);
+    snapTo(FULL_H);
+  }
+
+  function closeSuggestions(): void {
+    setShowingSuggestions(false);
+    snapTo(MEDIUM_H);
+    // The sheet lives inside Home (no focus change), so refresh the feed
+    // explicitly — the user may have just posted from it.
+    void reloadFeed();
   }
 
   // The sheet stays docked to the bottom; its lowest band (behind the nav) is left
@@ -193,7 +208,14 @@ export function HomeScreen(): React.JSX.Element {
           <View style={styles.handle} />
         </View>
         <View style={styles.sheetBody}>
-          {section === 'me' && (
+          {showingSuggestions && (
+            <ReviewSuggestionContent
+              key={suggestionKey}
+              onBack={closeSuggestions}
+              bottomInset={bottomInset}
+            />
+          )}
+          {!showingSuggestions && section === 'me' && (
             <ScrollView
               showsVerticalScrollIndicator={false}
               contentContainerStyle={[styles.meContent, { paddingBottom: bottomInset }]}
@@ -255,10 +277,14 @@ export function HomeScreen(): React.JSX.Element {
               </View>
             </ScrollView>
           )}
-          {section === 'auto' && (
-            <AutoPostingSection bottomInset={bottomInset} onSaved={() => selectSection('me')} />
+          {!showingSuggestions && section === 'auto' && (
+            <AutoPostingSection
+              bottomInset={bottomInset}
+              onSaved={() => selectSection('me')}
+              onPreview={handlePreview}
+            />
           )}
-          {section === 'followers' && <FollowersSection bottomInset={bottomInset} />}
+          {!showingSuggestions && section === 'followers' && <FollowersSection bottomInset={bottomInset} />}
         </View>
       </Animated.View>
 

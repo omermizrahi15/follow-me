@@ -7,7 +7,6 @@
     "strict": true,
     "esModuleInterop": true,
     "outDir": "dist",
-    "rootDir": "src",
     "strictNullChecks": true,
     "noUncheckedIndexedAccess": true,
     "noImplicitAny": true,
@@ -19,7 +18,13 @@
     "forceConsistentCasingInFileNames": true,
     "exactOptionalPropertyTypes": true,
     "skipLibCheck": true,
-    "typeRoots": ["./node_modules/@types"]
+    "typeRoots": ["./node_modules/@types"],
+    "baseUrl": ".",
+    "paths": {
+      // expo-file-system/legacy ships raw .ts that fails exactOptionalPropertyTypes;
+      // point tsc at our shim (src/types/expo-file-system-legacy.d.ts) instead.
+      "expo-file-system/legacy": ["./src/types/expo-file-system-legacy.d.ts"]
+    }
   },
   "include": ["src"]
 }

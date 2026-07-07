@@ -122,6 +122,61 @@ describe('ShareMediaUseCase — posting location', () => {
     expect(geocoder.calls).toEqual([{ latitude: 38.72, longitude: -9.14 }]);
   });
 
+  it('names both places when the batch spans two cities, largest group first', async (): Promise<void> => {
+    const { useCase, mediaRepo, geocoder } = makeSut();
+    geocoder.returnsInOrder('Lisbon, Portugal', 'Porto, Portugal');
+    await useCase.share({
+      ownerId: 'user-1',
+      items: [
+        { mediaId: 'm1', localUri: 'file:///a.jpg', filename: 'a.jpg', coordinate: { latitude: 38.71, longitude: -9.13 } },
+        { mediaId: 'm2', localUri: 'file:///b.jpg', filename: 'b.jpg', coordinate: { latitude: 38.73, longitude: -9.15 } },
+        { mediaId: 'm3', localUri: 'file:///c.jpg', filename: 'c.jpg', coordinate: { latitude: 41.15, longitude: -8.61 } },
+      ],
+    });
+    expect(mediaRepo.all().every(m => m.location === 'Lisbon, Portugal & Porto, Portugal')).toBe(true);
+  });
+
+  it('names up to three places for a multi-city batch', async (): Promise<void> => {
+    const { useCase, mediaRepo, geocoder } = makeSut();
+    geocoder.returnsInOrder('Lisbon, Portugal', 'Madrid, Spain', 'Rome, Italy');
+    await useCase.share({
+      ownerId: 'user-1',
+      items: [
+        { mediaId: 'm1', localUri: 'file:///a.jpg', filename: 'a.jpg', coordinate: { latitude: 38.72, longitude: -9.14 } },
+        { mediaId: 'm2', localUri: 'file:///b.jpg', filename: 'b.jpg', coordinate: { latitude: 40.42, longitude: -3.70 } },
+        { mediaId: 'm3', localUri: 'file:///c.jpg', filename: 'c.jpg', coordinate: { latitude: 41.90, longitude: 12.50 } },
+      ],
+    });
+    expect(mediaRepo.all().every(m => m.location === 'Lisbon, Portugal, Madrid, Spain & Rome, Italy')).toBe(true);
+  });
+
+  it('uses the publisher-edited place verbatim and skips geocoding', async (): Promise<void> => {
+    const { useCase, mediaRepo, geocoder } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: lisbonItems, location: 'Secret beach 🏖️' });
+    expect(geocoder.calls).toHaveLength(0);
+    expect(mediaRepo.all().every(m => m.location === 'Secret beach 🏖️')).toBe(true);
+  });
+
+  it('treats an explicitly cleared place (empty string) as no place', async (): Promise<void> => {
+    const { useCase, mediaRepo, geocoder } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: lisbonItems, location: '' });
+    expect(geocoder.calls).toHaveLength(0);
+    expect(mediaRepo.all().every(m => m.location == null)).toBe(true);
+  });
+
+  it('dedupes clusters that resolve to the same place name', async (): Promise<void> => {
+    const { useCase, mediaRepo, geocoder } = makeSut();
+    geocoder.returns('Lisbon, Portugal'); // both clusters resolve identically
+    await useCase.share({
+      ownerId: 'user-1',
+      items: [
+        { mediaId: 'm1', localUri: 'file:///a.jpg', filename: 'a.jpg', coordinate: { latitude: 38.72, longitude: -9.14 } },
+        { mediaId: 'm2', localUri: 'file:///b.jpg', filename: 'b.jpg', coordinate: { latitude: 39.40, longitude: -9.14 } },
+      ],
+    });
+    expect(mediaRepo.all().every(m => m.location === 'Lisbon, Portugal')).toBe(true);
+  });
+
   it('does not geocode when no item carries GPS', async (): Promise<void> => {
     const { useCase, mediaRepo, geocoder } = makeSut();
     await useCase.share({ ownerId: 'user-1', items: multipleItems });

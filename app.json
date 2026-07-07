@@ -12,10 +12,23 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.followme.app",
+      "entitlements": {
+        "com.apple.developer.usernotifications.time-sensitive": true
+      },
       "infoPlist": {
-        "ITSAppUsesNonExemptEncryption": false
+        "ITSAppUsesNonExemptEncryption": false,
+        "NSPhotoLibraryUsageDescription": "Follow Me scans your recent photos to suggest a batch for your next post."
       }
     },
+    "plugins": [
+      "expo-notifications",
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Follow Me reads your recent photos to suggest a batch for your next post."
+        }
+      ]
+    ],
     "extra": {
       "eas": {
         "projectId": "9e70e6a6-2576-46ae-8160-8703a967f22c"

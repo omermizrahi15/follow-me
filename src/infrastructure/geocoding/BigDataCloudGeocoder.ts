@@ -27,14 +27,19 @@ export class BigDataCloudGeocoder implements IGeocoder {
         `https://api.bigdatacloud.net/data/reverse-geocode-client?${params}`,
         { signal: controller.signal },
       );
-      if (!response.ok) return null;
+      if (!response.ok) {
+        if (__DEV__) console.warn(`[geocode] HTTP ${response.status} for ${params}`);
+        return null;
+      }
       const data = (await response.json()) as BigDataCloudResponse;
       const city = firstNonEmpty(data.city, data.locality, data.principalSubdivision);
       const country = firstNonEmpty(data.countryName);
+      if (__DEV__) console.log(`[geocode] ${coordinate.latitude},${coordinate.longitude} → ${city ?? '?'}, ${country ?? '?'}`);
       if (city == null && country == null) return null;
       if (city != null && country != null) return `${city}, ${country}`;
       return city ?? country;
-    } catch {
+    } catch (e) {
+      if (__DEV__) console.warn('[geocode] failed:', e instanceof Error ? e.message : e);
       return null;
     } finally {
       clearTimeout(timer);

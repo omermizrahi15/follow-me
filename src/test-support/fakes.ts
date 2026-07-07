@@ -2,6 +2,9 @@ import type { ITwilioClient } from '../infrastructure/notifiers/WhatsAppNotifier
 import type { Media } from '../domain/entities/Media';
 import type { Subscriber } from '../domain/entities/Subscriber';
 import type { PublisherConfig } from '../domain/entities/PublisherConfig';
+import type { PhotoCandidate } from '../domain/entities/PhotoCandidate';
+import type { PhotoClassification } from '../domain/entities/PhotoClassification';
+import type { CandidatePhoto } from '../domain/entities/CandidatePhoto';
 import type { PublisherProfile } from '../domain/entities/PublisherProfile';
 import type {
   Coordinate,
@@ -13,6 +16,12 @@ import type {
   IPublisherConfigRepository,
   IPublisherProfileRepository,
   IConfirmationSender,
+  IMediaLibrary,
+  IPhotoClassifier,
+  ISentPhotoTracker,
+  INotificationScheduler,
+  ReminderSchedule,
+  ICandidatePhotoRepository,
   INotificationLog,
   NotificationLogEntry,
   RecordedNotificationLogEntry,
@@ -145,9 +154,12 @@ export class InMemoryStorageService implements IStorageService {
 export class FakeGeocoder implements IGeocoder {
   calls: Coordinate[] = [];
   private result: string | null = 'Lisbon, Portugal';
+  private queue: Array<string | null> = [];
   private shouldThrow = false;
 
   returns(place: string | null): void { this.result = place; }
+  /** Results for the next calls, in order; falls back to `returns` after. */
+  returnsInOrder(...places: Array<string | null>): void { this.queue = places; }
   failOnNextCall(): void { this.shouldThrow = true; }
 
   reverseGeocode(coordinate: Coordinate): Promise<string | null> {
@@ -156,6 +168,7 @@ export class FakeGeocoder implements IGeocoder {
       this.shouldThrow = false;
       return Promise.reject(new Error('geocoding service unavailable'));
     }
+    if (this.queue.length > 0) return Promise.resolve(this.queue.shift() ?? null);
     return Promise.resolve(this.result);
   }
 }
@@ -235,5 +248,110 @@ export class FakeTwilioClient implements ITwilioClient {
 
   wasSentTo(contactHandle: string): boolean {
     return this.sent.some(s => s.to === contactHandle);
+  }
+}
+
+export class FakeMediaLibrary implements IMediaLibrary {
+  lastLookbackDays: number | null = null;
+  constructor(private readonly photos: PhotoCandidate[] = []) {}
+
+  recentPhotos(lookbackDays: number): Promise<PhotoCandidate[]> {
+    this.lastLookbackDays = lookbackDays;
+    return Promise.resolve(this.photos);
+  }
+}
+
+/**
+ * Returns preset classifications. Maps each input candidate to a classification
+ * provided at construction (keyed by candidate id); candidates without an entry
+ * are dropped, mirroring a classifier that returns one result per known photo.
+ */
+export class FakePhotoClassifier implements IPhotoClassifier {
+  receivedCandidateIds: string[] = [];
+  constructor(private readonly byId: Map<string, PhotoClassification> = new Map()) {}
+
+  classify(
+    candidates: PhotoCandidate[],
+    onEach?: (result: PhotoClassification, index: number, total: number) => void,
+    shouldStop?: () => boolean,
+  ): Promise<PhotoClassification[]> {
+    this.receivedCandidateIds = [];
+    const results: PhotoClassification[] = [];
+    const total = candidates.length;
+    for (const c of candidates) {
+      this.receivedCandidateIds.push(c.id);
+      const r = this.byId.get(c.id);
+      if (r != null) {
+        results.push(r);
+        onEach?.(r, results.length, total);
+      }
+      if (shouldStop?.()) break;
+    }
+    return Promise.resolve(results);
+  }
+}
+
+export class FakeSentPhotoTracker implements ISentPhotoTracker {
+  constructor(private readonly ids: Set<string> = new Set()) {}
+  sentCandidateIds(): Promise<Set<string>> {
+    return Promise.resolve(this.ids);
+  }
+}
+
+export class FakeNotificationScheduler implements INotificationScheduler {
+  scheduled: ReminderSchedule | null = null;
+  cancelCount = 0;
+
+  scheduleWeeklyReminder(schedule: ReminderSchedule): Promise<void> {
+    this.scheduled = schedule;
+    return Promise.resolve();
+  }
+
+  cancelReminder(): Promise<void> {
+    this.cancelCount += 1;
+    this.scheduled = null;
+    return Promise.resolve();
+  }
+}
+
+export class FakeStorageService implements IStorageService {
+  uploads: { localUri: string; filename: string }[] = [];
+
+  upload(localUri: string, filename: string): Promise<string> {
+    this.uploads.push({ localUri, filename });
+    return Promise.resolve(`https://cdn.test/uploaded/${filename}`);
+  }
+}
+
+export class InMemoryCandidatePhotoRepository implements ICandidatePhotoRepository {
+  private store: Map<string, CandidatePhoto> = new Map();
+
+  private key(publisherId: string, assetId: string): string {
+    return `${publisherId}:${assetId}`;
+  }
+
+  saveMany(photos: CandidatePhoto[]): Promise<void> {
+    for (const p of photos) this.store.set(this.key(p.publisherId, p.assetId), p);
+    return Promise.resolve();
+  }
+
+  existingAssetIds(publisherId: string): Promise<Set<string>> {
+    const ids = [...this.store.values()]
+      .filter(p => p.publisherId === publisherId)
+      .map(p => p.assetId);
+    return Promise.resolve(new Set(ids));
+  }
+
+  recentUrls(publisherId: string, limit: number): Promise<string[]> {
+    const urls = [...this.store.values()]
+      .filter(p => p.publisherId === publisherId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .slice(0, limit)
+      .map(p => p.url);
+    return Promise.resolve(urls);
+  }
+
+  all(): CandidatePhoto[] {
+    return [...this.store.values()];
   }
 }

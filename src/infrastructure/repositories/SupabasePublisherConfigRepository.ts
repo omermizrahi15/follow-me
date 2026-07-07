@@ -2,14 +2,35 @@ import { createClient } from '@supabase/supabase-js';
 import type { IPublisherConfigRepository } from '../../domain/interfaces';
 import { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../domain/entities/PublisherConfig';
+import type { PhotoCategory } from '../../domain/entities/PhotoClassification';
+import { SELECTABLE_CATEGORIES } from '../../domain/entities/PhotoClassification';
+
+type ConfigColumns = {
+  publisher_id: string;
+  frequency: string;
+  photos_per_post: number;
+  require_approval: boolean;
+  notify_day_of_week: number;
+  notify_time: string;
+  enabled_categories: string[];
+  lookback_days: number;
+  min_quality: number;
+  timezone: string;
+  expo_push_token: string | null;
+  last_auto_post_at: string | null;
+};
 
 interface Database {
   public: {
     Tables: {
       publisher_config: {
-        Row: { publisher_id: string; frequency: string; photos_per_post: number; require_approval: boolean };
-        Insert: { publisher_id: string; frequency: string; photos_per_post: number; require_approval: boolean };
-        Update: { publisher_id?: string; frequency?: string; photos_per_post?: number; require_approval?: boolean };
+        Row: ConfigColumns;
+        // last_auto_post_at is server-managed (the cron owns it); the app never writes it.
+        Insert: Omit<ConfigColumns, 'expo_push_token' | 'last_auto_post_at'> & {
+          expo_push_token?: string | null;
+          last_auto_post_at?: string | null;
+        };
+        Update: Partial<ConfigColumns>;
         Relationships: [];
       };
     };
@@ -28,6 +49,18 @@ function rowToConfig(row: ConfigRow): PublisherConfig {
     frequency: row.frequency as Frequency,
     photosPerPost: row.photos_per_post as PhotoCount,
     requireApproval: row.require_approval,
+    notifyDayOfWeek: row.notify_day_of_week,
+    notifyTime: row.notify_time,
+    // Guard against null/empty from older rows or manual edits — an empty
+    // category list would make every scan return nothing.
+    enabledCategories:
+      Array.isArray(row.enabled_categories) && row.enabled_categories.length > 0
+        ? (row.enabled_categories as PhotoCategory[])
+        : [...SELECTABLE_CATEGORIES],
+    // lookbackDays is now derived from frequency — not read from DB
+    minQuality: row.min_quality,
+    timezone: row.timezone,
+    expoPushToken: row.expo_push_token ?? '',
   });
 }
 
@@ -44,6 +77,13 @@ export class SupabasePublisherConfigRepository implements IPublisherConfigReposi
       frequency: config.frequency,
       photos_per_post: config.photosPerPost,
       require_approval: config.requireApproval,
+      notify_day_of_week: config.notifyDayOfWeek,
+      notify_time: config.notifyTime,
+      enabled_categories: config.enabledCategories,
+      lookback_days: config.lookbackDays,
+      min_quality: config.minQuality,
+      timezone: config.timezone,
+      expo_push_token: config.expoPushToken === '' ? null : config.expoPushToken,
     });
     if (error != null) throw new Error(error.message);
   }
