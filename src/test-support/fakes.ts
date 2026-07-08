@@ -64,6 +64,12 @@ export class InMemorySubscriberRepository implements ISubscriberRepository {
     );
   }
 
+  async findByPublisher(publisherId: string): Promise<Subscriber[]> {
+    return Promise.resolve(
+      [...this.store.values()].filter(s => s.publisherId === publisherId)
+    );
+  }
+
   async findById(id: string): Promise<Subscriber | null> {
     return Promise.resolve(this.store.get(id) ?? null);
   }

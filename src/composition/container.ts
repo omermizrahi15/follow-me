@@ -50,7 +50,8 @@ export const storage = new CloudinaryStorageService(
   requireEnv('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
 );
 // Manual posts send WhatsApp via the send-post Edge Function (Twilio creds stay
-// server-side). TODO(#24): move subscribe confirmations server-side too.
+// server-side, issue #24). Subscribe confirmations are server-side too (the
+// subscribe / join-webhook functions); the in-app sender below is dev-only.
 // Delivery tracking (issue #11): every send is logged per (photo, subscriber)
 // in notification_deliveries, and failures retry with 1s/4s/16s backoff.
 const deliveryLog = new SupabaseNotificationDeliveryRepository(supabaseUrl, supabaseKey);

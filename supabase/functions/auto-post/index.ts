@@ -10,11 +10,15 @@
  *
  * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (auto-injected), CRON_SECRET,
  *      TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM.
+ * Optional: TWILIO_API_KEY_SID / TWILIO_API_KEY_SECRET (preferred auth),
+ *      TWILIO_STATUS_CALLBACK_URL (delivery tracking via twilio-status).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { selectBatch, type SharedClassification } from '../_shared/photoSelection.ts';
 import { isAutoPostDue } from '../_shared/autoPostSchedule.ts';
-import { sendBatch, sendWhatsApp, type TwilioCreds } from '../_shared/twilio.ts';
+import { credsFromEnv, sendBatch, sendWhatsApp, sendWhatsAppTemplate, TwilioSendError } from '../_shared/twilio.ts';
+import { logAcceptedSend, logRejectedSend, markSubscriberUnreachable } from '../_shared/messageLog.ts';
+import { buildPostTemplate } from '../_shared/postTemplate.ts';
 import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
@@ -22,11 +26,7 @@ import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 const CRON_SECRET = Deno.env.get('CRON_SECRET') ?? '';
-const TWILIO: TwilioCreds = {
-  accountSid: Deno.env.get('TWILIO_ACCOUNT_SID') ?? '',
-  authToken: Deno.env.get('TWILIO_AUTH_TOKEN') ?? '',
-  fromNumber: Deno.env.get('TWILIO_WHATSAPP_FROM') ?? '',
-};
+const TWILIO = credsFromEnv(Deno.env);
 const CLASSIFY_URL = `${SUPABASE_URL}/functions/v1/classify-photos`;
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 
@@ -371,17 +371,46 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     .eq('publisher_id', config.publisher_id)
     .eq('status', 'active');
 
-  // One collage message per subscriber when possible; per-photo fallback otherwise.
+  // One collage message per subscriber when possible; per-photo fallback
+  // otherwise. A permanently unreachable number (invalid/blocked) is marked
+  // 'unreachable' and never stops the rest of the fan-out.
+  const publisherId = config.publisher_id;
+  const recordAccepted = async (contactHandle: string, sid: string | null): Promise<void> => {
+    if (sid != null) await logAcceptedSend(supabase, { sid, publisherId, contactHandle });
+  };
+  const recordPermanentFailure = async (contactHandle: string, err: TwilioSendError): Promise<void> => {
+    await logRejectedSend(supabase, { publisherId, contactHandle, error: err });
+    await markSubscriberUnreachable(supabase, publisherId, contactHandle);
+  };
+
   const collage = collageUrl(urls);
+  // Approved template (works out-of-session); same for every subscriber since
+  // the variables don't depend on the recipient. Null → free-form fallback.
+  const template = collage != null
+    ? buildPostTemplate(
+        { postSid: TWILIO.templatePostSid, postLocationSid: TWILIO.templatePostLocationSid },
+        { publisherName: name, publisherPhone: phone, place: null, photoCount: urls.length, galleryUrl, mediaUrl: collage },
+      )
+    : null;
   for (const sub of (subs ?? []) as { contact_handle: string }[]) {
     if (collage != null) {
       try {
-        await sendWhatsApp(TWILIO, sub.contact_handle, caption, collage);
+        const { sid } = template != null
+          ? await sendWhatsAppTemplate(TWILIO, sub.contact_handle, template.contentSid, template.variables)
+          : await sendWhatsApp(TWILIO, sub.contact_handle, caption, collage);
+        await recordAccepted(sub.contact_handle, sid);
       } catch (err) {
         console.error(`auto-post collage to ${sub.contact_handle} failed:`, err);
+        if (err instanceof TwilioSendError && err.permanent) {
+          await recordPermanentFailure(sub.contact_handle, err);
+        }
       }
     } else {
       const result = await sendBatch(TWILIO, sub.contact_handle, caption, urls);
+      for (const sid of result.sids) await recordAccepted(sub.contact_handle, sid);
+      if (result.permanentError != null) {
+        await recordPermanentFailure(sub.contact_handle, result.permanentError);
+      }
       if (result.failed > 0) {
         console.error(`auto-post to ${sub.contact_handle}: ${result.failed}/${urls.length} sends failed:`, result.errors);
       }

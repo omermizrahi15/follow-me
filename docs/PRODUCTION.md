@@ -14,6 +14,8 @@ public launch.
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Edge Function secrets only | **Private** — never in the app |
 | `SUPABASE_SERVICE_ROLE_KEY` | auto-injected into Edge Functions | **Private** — never in the app or repo; verified absent from client env (`.env` carries only `EXPO_PUBLIC_*` Supabase keys) |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_WHATSAPP_FROM` | Edge Function secrets + local `.env` (integration tests only) | **Private** — WhatsApp sends happen exclusively server-side (`send-post`, `auto-post`); the app calls those functions with the anon key |
+| `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET` | optional Edge Function secrets | **Private** — when set, sends authenticate with this revocable API key instead of the account auth token (preferred; see issue #24 notes) |
+| `TWILIO_STATUS_CALLBACK_URL` | optional Edge Function secret | Public URL of the `twilio-status` function; enables delivery tracking |
 | `CRON_SECRET` | Edge Function secret + pg_cron header | **Private** — gates `auto-post` invocation |
 | `GALLERY_BASE_URL` | optional Edge Function secret | Public URL; override when moving off github.io |
 
@@ -89,17 +91,76 @@ asserting cross-user reads/writes fail) before flipping these on.
   notification-permission flow has been QA'd on device; re-verify if Android
   is ever added (permission API shapes differ).
 
+## WhatsApp delivery hardening (issue #24)
+
+What the code does now:
+
+- **Retry with back-off** — every server-side send (`_shared/twilio.ts`, used
+  by `send-post`, `auto-post`, `subscribe`) retries transient Twilio failures
+  (429 / 5xx / network) up to 3 times with exponential back-off
+  (0.5s → 1s → 2s). Permanent 4xx failures (invalid number, blocked
+  recipient, auth) are never retried.
+- **Delivery tracking** — each accepted message is recorded in `message_logs`
+  (migration `20240017`) keyed by Twilio message SID; the `twilio-status`
+  edge function receives Twilio StatusCallback events (signature-verified)
+  and updates the row through queued → sent → delivered / failed.
+- **Unreachable subscribers** — a permanent send failure, or a delivery
+  failure with a number-level error code (21211, 21610, 21614, 63003, 63024),
+  marks the subscriber `unreachable`: future sends skip them, the Followers
+  list shows them ("N of M followers can't be reached"), and a rejoin or an
+  inbound START re-activates them. Batches abort the remaining messages to an
+  unreachable number but never stop the fan-out to other subscribers.
+
+Setup:
+
+1. Apply migration `20240017_message_logs.sql`.
+2. Deploy `twilio-status` and set the secret
+   `TWILIO_STATUS_CALLBACK_URL=https://<project>.functions.supabase.co/twilio-status`
+   on `send-post`, `auto-post`, `subscribe` AND `twilio-status` itself (it
+   doubles as the signature-verification URL).
+3. Recommended: create a Twilio **API key** (Console → Account → API keys) and
+   set `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET`; sends then stop using
+   the account auth token, which can be rotated independently. Keep
+   `TWILIO_AUTH_TOKEN` set regardless — `join-webhook` and `twilio-status`
+   verify X-Twilio-Signature with it. Secrets live in
+   Supabase's secrets manager (`supabase secrets set ...`), never in the app
+   bundle or repo.
+4. Production sender: register a WhatsApp Business sender in the Twilio
+   console (Messaging → Senders → WhatsApp) and point
+   `TWILIO_WHATSAPP_FROM` at the approved number — the sandbox number
+   (`+14155238886`) is dev-only (72h joins, low caps).
+5. Message templates (required on a production sender): posts are business-
+   initiated and land outside WhatsApp's 24h session window, so they must go
+   out as **Meta-approved templates**, not free-form text. Two templates are
+   registered via the Content API (see below); set their ContentSids as
+   secrets and the send functions switch to the template path automatically:
+   - `TWILIO_TEMPLATE_POST_LOCATION_SID` — with the "from {place}" clause
+     (`follow_me_post_location`)
+   - `TWILIO_TEMPLATE_POST_SID` — no place (`follow_me_post`), used by
+     auto-post (candidate photos are location-less) and as the fallback
+   `send-post` / `auto-post` send via the template only when these are set AND
+   a collage + gallery link + publisher phone are present; otherwise they fall
+   back to the free-form caption (fine in the sandbox / before approval). Do
+   NOT set these secrets until the templates show `approved`, or sends fail
+   with 63016. Template bodies mirror `composeAutoPostBody`; the variable order
+   is asserted by `postTemplate.test.ts` — re-cut both together. The invite
+   share text (`buildInviteMessage`) is sent from the publisher's own phone via
+   the OS share sheet, NOT through Twilio, so it needs no template.
+
 ## Ops checklist before enabling autonomous mode in production
 
-1. Migrations up to `20240016` applied (`supabase db push`).
+1. Migrations up to `20240017` applied (`supabase db push`).
 2. `classify-photos` deployed with `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`).
-3. `auto-post` deployed with `CRON_SECRET` + Twilio secrets; `send-post`
-   deployed (same Twilio secrets).
+3. `auto-post` deployed with `CRON_SECRET` + Twilio secrets; `send-post` and
+   `twilio-status` deployed (same Twilio secrets +
+   `TWILIO_STATUS_CALLBACK_URL`).
 4. `pg_cron` + `pg_net` enabled; cron schedule installed (see
    `supabase/cron.example.sql`).
 5. RLS hardening above completed.
 6. Twilio: production WhatsApp sender approved (sandbox joins expire every
-   72h and message caps are low — dev only).
+   72h and message caps are low — dev only); sender inbound webhook →
+   `join-webhook`; post templates `approved` and their ContentSids set as
+   `TWILIO_TEMPLATE_POST_SID` / `TWILIO_TEMPLATE_POST_LOCATION_SID`.
 7. Integration tests: `npm run test:integration` (env-gated; see the
    `*.integration.test.ts` headers for required vars).
 
