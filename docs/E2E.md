@@ -75,6 +75,9 @@ To also gate PRs on it, uncomment the `pull_request` trigger in the workflow.
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | all flows | Same |
 | `E2E_PHONE` | auth flows | Supabase **test OTP** number; auth flows are skipped if unset |
 | `E2E_OTP` | auth flows | The fixed code paired with `E2E_PHONE` |
+| `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` | optional | `container.ts` requires it at startup or the app white-screens; CI falls back to a placeholder (fine for UI flows). Set the real value only if a flow exercises photo upload. |
+| `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | optional | Same as above |
+| `EXPO_PUBLIC_CLASSIFY_FN_URL` | optional | Same as above (AI photo suggestions) |
 
 ## Not covered (yet)
 

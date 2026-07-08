@@ -40,14 +40,27 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      # The app bakes EXPO_PUBLIC_* into the JS bundle at build time; without a
-      # valid Supabase URL the app white-screens and even the no-backend smoke
-      # flow fails. Configure these as repo secrets (Settings -> Secrets -> Actions).
+      # The app bakes EXPO_PUBLIC_* into the JS bundle at build time. container.ts
+      # calls requireEnv() for ALL of these at module load and throws if any is
+      # missing — a missing var white-screens the app before React mounts, so the
+      # full set must be present. All are public client config (they ship inside
+      # the app), so the non-Supabase ones fall back to placeholders: enough for
+      # the app to boot for UI tests, which don't exercise Cloudinary/classify.
+      # Set real values as repo secrets if a future flow needs those features.
       - name: Write .env
+        env:
+          SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_UPLOAD_PRESET: ${{ secrets.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET }}
+          CLASSIFY_FN_URL: ${{ secrets.EXPO_PUBLIC_CLASSIFY_FN_URL }}
         run: |
           {
-            echo "EXPO_PUBLIC_SUPABASE_URL=${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}"
-            echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}"
+            echo "EXPO_PUBLIC_SUPABASE_URL=${SUPABASE_URL}"
+            echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}"
+            echo "EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-ci-placeholder}"
+            echo "EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET=${CLOUDINARY_UPLOAD_PRESET:-ci-placeholder}"
+            echo "EXPO_PUBLIC_CLASSIFY_FN_URL=${CLASSIFY_FN_URL:-https://ci-placeholder.functions.supabase.co/classify}"
           } > .env
 
       # Fail fast (before the ~17 min build) if the secrets are empty/malformed.
