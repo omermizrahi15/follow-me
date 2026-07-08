@@ -1,0 +1,66 @@
+{
+  "version": "4",
+  "specifiers": {
+    "jsr:@std/assert@1": "1.0.19",
+    "jsr:@std/internal@^1.0.12": "1.0.14"
+  },
+  "jsr": {
+    "@std/assert@1.0.19": {
+      "integrity": "eaada96ee120cb980bc47e040f82814d786fe8162ecc53c91d8df60b8755991e",
+      "dependencies": [
+        "jsr:@std/internal"
+      ]
+    },
+    "@std/internal@1.0.14": {
+      "integrity": "291516b3d4c35024d6ffbc0a9df5bf4c64116e05b50012cf846710152d2ffdf7"
+    }
+  },
+  "redirects": {
+    "https://esm.sh/@supabase/supabase-js@2": "https://esm.sh/@supabase/supabase-js@2.110.1"
+  },
+  "remote": {
+    "https://esm.sh/@supabase/supabase-js@2.110.1": "3e6ac10368fe97f2b18aab157383635843c15e029846ad33a56bd754d09c2fe0"
+  },
+  "workspace": {
+    "dependencies": [
+      "jsr:@std/assert@1"
+    ],
+    "packageJson": {
+      "dependencies": [
+        "npm:@react-native-async-storage/async-storage@2.2.0",
+        "npm:@react-navigation/bottom-tabs@^7.17.0",
+        "npm:@react-navigation/native-stack@^7.17.0",
+        "npm:@react-navigation/native@^7.2.6",
+        "npm:@supabase/supabase-js@^2.108.0",
+        "npm:@testing-library/jest-native@^5.4.3",
+        "npm:@types/jest@29",
+        "npm:@types/react@~19.1.10",
+        "npm:@typescript-eslint/eslint-plugin@7",
+        "npm:@typescript-eslint/parser@7",
+        "npm:dotenv@^17.4.2",
+        "npm:eslint-plugin-import@^2.29.0",
+        "npm:eslint@8",
+        "npm:expo-blur@~15.0.8",
+        "npm:expo-dev-client@~6.0.21",
+        "npm:expo-image-manipulator@~14.0.8",
+        "npm:expo-image-picker@~17.0.11",
+        "npm:expo-linear-gradient@~15.0.8",
+        "npm:expo-linking@~8.0.12",
+        "npm:expo-media-library@~18.2.1",
+        "npm:expo-notifications@~0.32.17",
+        "npm:expo-updates@~29.0.18",
+        "npm:expo@54.0",
+        "npm:husky@^9.1.7",
+        "npm:jest@29",
+        "npm:react-dom@19.1.0",
+        "npm:react-native-safe-area-context@5.6",
+        "npm:react-native-screens@4.16",
+        "npm:react-native-web@~0.21.2",
+        "npm:react-native@~0.81.5",
+        "npm:react@19.1.0",
+        "npm:ts-jest@29",
+        "npm:typescript@5"
+      ]
+    }
+  }
+}
