@@ -18,6 +18,14 @@ export interface TwilioCreds {
    * edge function). Sent as StatusCallback on every message when set.
    */
   statusCallback?: string;
+  /**
+   * Approved WhatsApp template ContentSids for post notifications (issue #24).
+   * When set, posts send via the template (works out-of-session); when unset,
+   * callers fall back to a free-form send (sandbox / pre-approval). The
+   * `*Location` variant carries the "from {place}" clause.
+   */
+  templatePostSid?: string;
+  templatePostLocationSid?: string;
 }
 
 /**
@@ -65,27 +73,20 @@ function authHeader(creds: TwilioCreds): string {
 }
 
 /**
- * Sends one WhatsApp message. Transient failures (429 Too Many Requests, 5xx,
- * network errors) are retried with exponential back-off up to `maxRetries`
- * (default 3). Permanent failures (other 4xx — invalid number, opted-out
- * recipient, auth) throw a `TwilioSendError` with `permanent: true` immediately
- * so callers can mark the subscriber unreachable instead of retrying.
+ * POSTs an already-built Messages payload with retry/classification. Transient
+ * failures (429 Too Many Requests, 5xx, network errors) are retried with
+ * exponential back-off up to `maxRetries` (default 3); permanent failures
+ * (other 4xx — invalid number, opted-out recipient, auth) throw a
+ * `TwilioSendError` with `permanent: true` immediately so callers can mark the
+ * subscriber unreachable instead of retrying.
  */
-export async function sendWhatsApp(
+async function sendMessage(
   creds: TwilioCreds,
-  to: string,
-  body: string,
-  mediaUrl?: string,
-  options: SendOptions = {},
+  params: URLSearchParams,
+  options: SendOptions,
 ): Promise<SendResult> {
   const { maxRetries = 3, baseDelayMs = 500, sleep = defaultSleep, fetchImpl = fetch } = options;
   const url = `https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}/Messages.json`;
-  const params = new URLSearchParams({
-    To: `whatsapp:${to}`,
-    From: `whatsapp:${creds.fromNumber}`,
-    Body: body,
-  });
-  if (mediaUrl != null) params.append('MediaUrl', mediaUrl);
   if (creds.statusCallback) params.append('StatusCallback', creds.statusCallback);
 
   let lastError: TwilioSendError | null = null;
@@ -134,6 +135,49 @@ export async function sendWhatsApp(
 
   // Retries exhausted on a transient failure.
   throw lastError ?? new TwilioSendError('Twilio send failed', null, null, false);
+}
+
+/**
+ * Sends one free-form WhatsApp message (Body + optional MediaUrl). Only
+ * deliverable inside the 24h customer-service window (or in the sandbox); for
+ * business-initiated messages outside that window use `sendWhatsAppTemplate`.
+ */
+export async function sendWhatsApp(
+  creds: TwilioCreds,
+  to: string,
+  body: string,
+  mediaUrl?: string,
+  options: SendOptions = {},
+): Promise<SendResult> {
+  const params = new URLSearchParams({
+    To: `whatsapp:${to}`,
+    From: `whatsapp:${creds.fromNumber}`,
+    Body: body,
+  });
+  if (mediaUrl != null) params.append('MediaUrl', mediaUrl);
+  return sendMessage(creds, params, options);
+}
+
+/**
+ * Sends an approved WhatsApp template message (Content API `ContentSid` +
+ * `ContentVariables`). Works both in and out of the 24h session window, so this
+ * is the production path for business-initiated posts. `variables` maps the
+ * template's {{n}} placeholders (including any media-header variable) to values.
+ */
+export async function sendWhatsAppTemplate(
+  creds: TwilioCreds,
+  to: string,
+  contentSid: string,
+  variables: Record<string, string>,
+  options: SendOptions = {},
+): Promise<SendResult> {
+  const params = new URLSearchParams({
+    To: `whatsapp:${to}`,
+    From: `whatsapp:${creds.fromNumber}`,
+    ContentSid: contentSid,
+    ContentVariables: JSON.stringify(variables),
+  });
+  return sendMessage(creds, params, options);
 }
 
 export interface BatchSendResult {
@@ -217,8 +261,12 @@ export function credsFromEnv(env: { get(key: string): string | undefined }): Twi
   const apiKeySid = env.get('TWILIO_API_KEY_SID');
   const apiKeySecret = env.get('TWILIO_API_KEY_SECRET');
   const statusCallback = env.get('TWILIO_STATUS_CALLBACK_URL');
+  const templatePostSid = env.get('TWILIO_TEMPLATE_POST_SID');
+  const templatePostLocationSid = env.get('TWILIO_TEMPLATE_POST_LOCATION_SID');
   if (apiKeySid) creds.apiKeySid = apiKeySid;
   if (apiKeySecret) creds.apiKeySecret = apiKeySecret;
   if (statusCallback) creds.statusCallback = statusCallback;
+  if (templatePostSid) creds.templatePostSid = templatePostSid;
+  if (templatePostLocationSid) creds.templatePostLocationSid = templatePostLocationSid;
   return creds;
 }

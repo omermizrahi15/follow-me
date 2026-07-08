@@ -16,8 +16,9 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { selectBatch, type SharedClassification } from '../_shared/photoSelection.ts';
 import { isAutoPostDue } from '../_shared/autoPostSchedule.ts';
-import { credsFromEnv, sendBatch, sendWhatsApp, TwilioSendError } from '../_shared/twilio.ts';
+import { credsFromEnv, sendBatch, sendWhatsApp, sendWhatsAppTemplate, TwilioSendError } from '../_shared/twilio.ts';
 import { logAcceptedSend, logRejectedSend, markSubscriberUnreachable } from '../_shared/messageLog.ts';
+import { buildPostTemplate } from '../_shared/postTemplate.ts';
 import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
@@ -383,10 +384,20 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
   };
 
   const collage = collageUrl(urls);
+  // Approved template (works out-of-session); same for every subscriber since
+  // the variables don't depend on the recipient. Null → free-form fallback.
+  const template = collage != null
+    ? buildPostTemplate(
+        { postSid: TWILIO.templatePostSid, postLocationSid: TWILIO.templatePostLocationSid },
+        { publisherName: name, publisherPhone: phone, place: null, photoCount: urls.length, galleryUrl, mediaUrl: collage },
+      )
+    : null;
   for (const sub of (subs ?? []) as { contact_handle: string }[]) {
     if (collage != null) {
       try {
-        const { sid } = await sendWhatsApp(TWILIO, sub.contact_handle, caption, collage);
+        const { sid } = template != null
+          ? await sendWhatsAppTemplate(TWILIO, sub.contact_handle, template.contentSid, template.variables)
+          : await sendWhatsApp(TWILIO, sub.contact_handle, caption, collage);
         await recordAccepted(sub.contact_handle, sid);
       } catch (err) {
         console.error(`auto-post collage to ${sub.contact_handle} failed:`, err);

@@ -20,10 +20,12 @@ import {
   credsFromEnv,
   sendBatch,
   sendWhatsApp,
+  sendWhatsAppTemplate,
   whatsappSafeMediaUrl,
   TwilioSendError,
 } from '../_shared/twilio.ts';
 import { logAcceptedSend, logRejectedSend, markSubscriberUnreachable } from '../_shared/messageLog.ts';
+import { buildPostTemplate } from '../_shared/postTemplate.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
@@ -107,8 +109,17 @@ Deno.serve(async req => {
 
   const collage = collageUrl(mediaUrls);
   if (collage != null) {
+    // Preferred: an approved WhatsApp template (works outside the 24h session
+    // window). Falls back to a free-form caption send when templates aren't
+    // configured (sandbox / pre-approval).
+    const template = buildPostTemplate(
+      { postSid: TWILIO.templatePostSid, postLocationSid: TWILIO.templatePostLocationSid },
+      { publisherName: name, publisherPhone: phone, place, photoCount: mediaUrls.length, galleryUrl, mediaUrl: collage },
+    );
     try {
-      const { sid } = await sendWhatsApp(TWILIO, to, caption, collage);
+      const { sid } = template != null
+        ? await sendWhatsAppTemplate(TWILIO, to, template.contentSid, template.variables)
+        : await sendWhatsApp(TWILIO, to, caption, collage);
       await recordAccepted(sid);
     } catch (err) {
       console.error(`send-post collage to ${to} failed:`, err);

@@ -118,10 +118,24 @@ Setup:
 4. Production sender: register a WhatsApp Business sender in the Twilio
    console (Messaging → Senders → WhatsApp) and point
    `TWILIO_WHATSAPP_FROM` at the approved number — the sandbox number
-   (`+14155238886`) is dev-only (72h joins, low caps). Once on a production
-   sender, out-of-session notifications must use **approved message
-   templates**; the current free-form bodies only work inside a 24h customer
-   session or in the sandbox.
+   (`+14155238886`) is dev-only (72h joins, low caps).
+5. Message templates (required on a production sender): posts are business-
+   initiated and land outside WhatsApp's 24h session window, so they must go
+   out as **Meta-approved templates**, not free-form text. Two templates are
+   registered via the Content API (see below); set their ContentSids as
+   secrets and the send functions switch to the template path automatically:
+   - `TWILIO_TEMPLATE_POST_LOCATION_SID` — with the "from {place}" clause
+     (`follow_me_post_location`)
+   - `TWILIO_TEMPLATE_POST_SID` — no place (`follow_me_post`), used by
+     auto-post (candidate photos are location-less) and as the fallback
+   `send-post` / `auto-post` send via the template only when these are set AND
+   a collage + gallery link + publisher phone are present; otherwise they fall
+   back to the free-form caption (fine in the sandbox / before approval). Do
+   NOT set these secrets until the templates show `approved`, or sends fail
+   with 63016. Template bodies mirror `composeAutoPostBody`; the variable order
+   is asserted by `postTemplate.test.ts` — re-cut both together. The invite
+   share text (`buildInviteMessage`) is sent from the publisher's own phone via
+   the OS share sheet, NOT through Twilio, so it needs no template.
 
 ## Ops checklist before enabling autonomous mode in production
 
@@ -134,7 +148,9 @@ Setup:
    `supabase/cron.example.sql`).
 5. RLS hardening above completed.
 6. Twilio: production WhatsApp sender approved (sandbox joins expire every
-   72h and message caps are low — dev only).
+   72h and message caps are low — dev only); sender inbound webhook →
+   `join-webhook`; post templates `approved` and their ContentSids set as
+   `TWILIO_TEMPLATE_POST_SID` / `TWILIO_TEMPLATE_POST_LOCATION_SID`.
 7. Integration tests: `npm run test:integration` (env-gated; see the
    `*.integration.test.ts` headers for required vars).
 
