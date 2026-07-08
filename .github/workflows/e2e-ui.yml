@@ -115,31 +115,31 @@ jobs:
         if: failure()
         run: |
           echo "===== 1. Is EXPO_PUBLIC_* inlined in the built bundle? ====="
-          BUNDLE=$(find ~/Library/Developer/CoreSimulator -name main.jsbundle -path '*FollowMe.app*' 2>/dev/null | head -1)
+          BUNDLE=$(find ~/Library/Developer/CoreSimulator -name '*.jsbundle' -path '*com.followme.app*' 2>/dev/null | head -1)
           echo "bundle: ${BUNDLE:-NOT FOUND}"
           if [ -n "$BUNDLE" ]; then
+            echo "bundle size: $(wc -c < "$BUNDLE") bytes"
             echo "supabase.co occurrences: $(grep -c 'supabase\.co' "$BUNDLE" 2>/dev/null || echo 0)"
             echo "ci-placeholder occurrences: $(grep -c 'ci-placeholder' "$BUNDLE" 2>/dev/null || echo 0)"
-            echo "literal 'process.env.EXPO_PUBLIC' occurrences (should be 0 if inlined): $(grep -c 'process\.env\.EXPO_PUBLIC' "$BUNDLE" 2>/dev/null || echo 0)"
+            echo "literal 'process.env.EXPO_PUBLIC' (should be 0 if inlined): $(grep -c 'process\.env\.EXPO_PUBLIC' "$BUNDLE" 2>/dev/null || echo 0)"
+            echo "'Missing required environment' string present: $(grep -c 'Missing required environment' "$BUNDLE" 2>/dev/null || echo 0)"
           fi
 
           echo "===== 2. Crash reports ====="
-          ls -t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | head -5 || true
-          for f in ~/Library/Logs/DiagnosticReports/FollowMe*; do
-            [ -e "$f" ] && { echo "--- $f ---"; head -60 "$f"; }
-          done
+          ls -t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -i followme || echo "(no FollowMe crash report)"
 
-          echo "===== 3. os_log during fresh launch ====="
+          echo "===== 3. os_log during fresh launch (grepped for the real error) ====="
           xcrun simctl terminate booted com.followme.app 2>/dev/null || true
           xcrun simctl spawn booted log stream --level debug --style compact \
-            --predicate 'process == "FollowMe"' > oslog.txt 2>&1 &
+            --predicate 'processImagePath CONTAINS "FollowMe"' > oslog.txt 2>&1 &
           STREAM_PID=$!
           sleep 2
           xcrun simctl launch booted com.followme.app || true
-          sleep 10
+          sleep 12
           kill "$STREAM_PID" 2>/dev/null || true
-          echo "----- oslog (first 200 lines) -----"
-          head -200 oslog.txt 2>/dev/null || echo "(no os_log captured)"
+          echo "captured $(wc -l < oslog.txt) log lines"
+          echo "----- lines matching error markers -----"
+          grep -iE "Missing required|environment variable|Exception|Error:|RCTFatal|Unhandled|TypeError|undefined is not|supabase|Invariant|hermes|facebook::react" oslog.txt | head -60 || echo "(no matches)"
 
       # Screenshots + logs from any failed flow, for debugging without a local run.
       - name: Upload Maestro artifacts
