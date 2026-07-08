@@ -8,8 +8,10 @@ on:
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * *' # 06:00 UTC nightly
-  # pull_request:
-  #   branches: [main]
+  # TEMP: enabled to shake out the first CI run on PR #51. Re-comment before
+  # merge so simulator E2E stays off every-PR (dispatch + nightly only).
+  pull_request:
+    branches: [main]
 
 jobs:
   maestro:
