@@ -50,6 +50,24 @@ jobs:
             echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}"
           } > .env
 
+      # Fail fast (before the ~17 min build) if the secrets are empty/malformed.
+      # createClient() throws synchronously on a bad URL, which white-screens the
+      # app at startup and fails every flow. Prints only safe fingerprints.
+      - name: Verify env secrets
+        run: |
+          url=$(grep '^EXPO_PUBLIC_SUPABASE_URL=' .env | cut -d= -f2-)
+          key=$(grep '^EXPO_PUBLIC_SUPABASE_ANON_KEY=' .env | cut -d= -f2-)
+          echo "SUPABASE_URL: length=${#url}, https=$([[ "$url" == https://* ]] && echo yes || echo no)"
+          echo "ANON_KEY: length=${#key}"
+          if [[ "$url" != https://*.supabase.co ]]; then
+            echo "::error::EXPO_PUBLIC_SUPABASE_URL secret is missing or not a https://<ref>.supabase.co URL."
+            exit 1
+          fi
+          if [ "${#key}" -lt 100 ]; then
+            echo "::error::EXPO_PUBLIC_SUPABASE_ANON_KEY secret is missing or too short to be a real anon key."
+            exit 1
+          fi
+
       - name: Install Maestro
         run: |
           curl -fsSL https://get.maestro.mobile.dev | bash
@@ -76,11 +94,27 @@ jobs:
             echo "E2E_PHONE/E2E_OTP not set — skipping auth flows (smoke only)."
           fi
 
+      # On failure, relaunch the app attached to the console so a startup JS
+      # exception (e.g. a bad Supabase URL) shows up in the log instead of just
+      # a blank screenshot.
+      - name: Capture app startup console on failure
+        if: failure()
+        run: |
+          echo "Relaunching com.followme.app to capture startup console..."
+          xcrun simctl launch --console-pty booted com.followme.app > app-console.log 2>&1 &
+          LAUNCH_PID=$!
+          sleep 12
+          kill "$LAUNCH_PID" 2>/dev/null || true
+          echo "===== app console (first 120 lines) ====="
+          head -120 app-console.log || echo "(no console captured)"
+
       # Screenshots + logs from any failed flow, for debugging without a local run.
       - name: Upload Maestro artifacts
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: maestro-output
-          path: ~/.maestro/tests/
+          path: |
+            ~/.maestro/tests/
+            app-console.log
           if-no-files-found: ignore
