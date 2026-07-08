@@ -35,4 +35,17 @@ describe('Subscriber', () => {
     expect(sub.isActive()).toBe(false);
     expect(sub.status).toBe('revoked');
   });
+
+  it('marks an active subscriber unreachable', () => {
+    const sub = Subscriber.create(validProps).activate().markUnreachable();
+    expect(sub.isActive()).toBe(false);
+    expect(sub.isUnreachable()).toBe(true);
+    expect(sub.status).toBe('unreachable');
+  });
+
+  it('reactivates an unreachable subscriber (number fixed / rejoined)', () => {
+    const sub = Subscriber.create(validProps).activate().markUnreachable().activate();
+    expect(sub.isActive()).toBe(true);
+    expect(sub.isUnreachable()).toBe(false);
+  });
 });

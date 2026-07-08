@@ -22,7 +22,7 @@ export interface SubscriberDto {
   id: string;
   publisherId: string;
   contactHandle: string;
-  status: 'pending' | 'active' | 'revoked';
+  status: 'pending' | 'active' | 'revoked' | 'unreachable';
 }
 
 export interface ProfileDto {

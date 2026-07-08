@@ -18,6 +18,8 @@ import type { Coordinate, ISentPhotoTracker } from '../domain/interfaces';
 import { resolvePostingPlace } from '../application/services/resolvePostingPlace';
 import { ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
 import { WhatsAppEdgeNotifier } from '../infrastructure/notifiers/WhatsAppEdgeNotifier';
+import { RetryingNotifier } from '../infrastructure/notifiers/RetryingNotifier';
+import { SupabaseNotificationDeliveryRepository } from '../infrastructure/repositories/SupabaseNotificationDeliveryRepository';
 import { SupabaseAuthService } from '../infrastructure/auth/SupabaseAuthService';
 import { SupabaseMediaRepository } from '../infrastructure/repositories/SupabaseMediaRepository';
 import { SupabaseSubscriberRepository } from '../infrastructure/repositories/SupabaseSubscriberRepository';
@@ -50,8 +52,18 @@ export const storage = new CloudinaryStorageService(
   process.env['EXPO_PUBLIC_CLOUDINARY_FOLDER'] as string | undefined,
 );
 // Manual posts send WhatsApp via the send-post Edge Function (Twilio creds stay
-// server-side). TODO(#24): move subscribe confirmations server-side too.
-const notifier = new WhatsAppEdgeNotifier(`${supabaseUrl}/functions/v1/send-post`, supabaseKey);
+// server-side, issue #24). Subscribe confirmations are server-side too (the
+// subscribe / join-webhook functions); the in-app sender below is dev-only.
+// Delivery tracking (issue #11): every send is logged per (photo, subscriber)
+// in notification_deliveries, and failures retry with 1s/4s/16s backoff.
+const deliveryLog = new SupabaseNotificationDeliveryRepository(supabaseUrl, supabaseKey);
+const notifier = new RetryingNotifier(
+  new WhatsAppEdgeNotifier(`${supabaseUrl}/functions/v1/send-post`, supabaseKey),
+  {
+    onAttempt: (subscriber, media, attempt) =>
+      deliveryLog.recordAttempt(media.map(m => m.id), subscriber.id, attempt),
+  },
+);
 const confirmationSender = new ConsoleConfirmationSender();
 
 const mediaLibrary = new ExpoMediaLibrary();
@@ -76,7 +88,7 @@ const geocoder = new BigDataCloudGeocoder();
 export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<string | null> =>
   resolvePostingPlace(geocoder, coordinates);
 
-export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage, geocoder);
+export const shareMedia = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage, geocoder, deliveryLog);
 export const listFeed = new ListFeedUseCase(mediaRepo);
 export const subscribe = new SubscribeUseCase(subscriberRepo, confirmationSender);
 export const listSubscribers = new ListSubscribersUseCase(subscriberRepo);

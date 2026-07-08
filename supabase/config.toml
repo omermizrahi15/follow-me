@@ -1,0 +1,20 @@
+# Per-function deploy config. verify_jwt=false marks functions that are called
+# WITHOUT a Supabase JWT — deploying one of these without this file (or the
+# --no-verify-jwt flag) silently re-enables the JWT gate and breaks the caller.
+project_id = "follow-me"
+
+# Twilio webhooks: authenticated by X-Twilio-Signature, not JWT.
+[functions.join-webhook]
+verify_jwt = false
+
+[functions.twilio-status]
+verify_jwt = false
+
+# Called by the public join page (GitHub Pages) with no auth header;
+# validates its own inputs and rate of use.
+[functions.subscribe]
+verify_jwt = false
+
+# Called by pg_cron; authenticated by the x-cron-secret header.
+[functions.auto-post]
+verify_jwt = false

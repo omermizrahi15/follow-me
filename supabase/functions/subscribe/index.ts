@@ -19,12 +19,12 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { credsFromEnv, sendWhatsApp } from '../_shared/twilio.ts';
+import { logAcceptedSend } from '../_shared/messageLog.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID') ?? '';
-const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN') ?? '';
-const TWILIO_FROM = Deno.env.get('TWILIO_WHATSAPP_FROM') ?? '';
+const TWILIO = credsFromEnv(Deno.env);
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
@@ -47,31 +47,22 @@ async function lookupPublisherName(publisherId: string): Promise<string> {
 }
 
 // Best-effort WhatsApp send; never throws (the caller must not fail on it).
-async function sendWelcome(contactHandle: string, publisherName: string): Promise<void> {
-  if (!TWILIO_ACCOUNT_SID || !TWILIO_AUTH_TOKEN || !TWILIO_FROM) {
+// Uses the shared sender, so transient Twilio errors are retried with backoff
+// and the accepted message lands in message_logs for delivery tracking.
+async function sendWelcome(publisherId: string, contactHandle: string, publisherName: string): Promise<void> {
+  if (!TWILIO.accountSid || !TWILIO.fromNumber) {
     console.warn('Twilio not configured — skipping subscribe confirmation');
     return;
   }
-  const url = `https://api.twilio.com/2010-04-01/Accounts/${TWILIO_ACCOUNT_SID}/Messages.json`;
-  const params = new URLSearchParams({
-    From: `whatsapp:${TWILIO_FROM}`,
-    To: `whatsapp:${contactHandle}`,
-    Body: `You're now following ${publisherName}. You'll receive their photos here on WhatsApp. Reply STOP at any time to unsubscribe.`,
-  });
   try {
-    const resp = await fetch(url, {
-      method: 'POST',
-      headers: {
-        Authorization: `Basic ${btoa(`${TWILIO_ACCOUNT_SID}:${TWILIO_AUTH_TOKEN}`)}`,
-        'Content-Type': 'application/x-www-form-urlencoded',
-      },
-      body: params.toString(),
-    });
-    if (!resp.ok) {
-      console.error(`Subscribe confirmation failed (${resp.status}):`, await resp.text());
-    }
+    const { sid } = await sendWhatsApp(
+      TWILIO,
+      contactHandle,
+      `You're now following ${publisherName}. You'll receive their photos here on WhatsApp. Reply STOP at any time to unsubscribe.`,
+    );
+    if (sid != null) await logAcceptedSend(supabase, { sid, publisherId, contactHandle });
   } catch (err) {
-    console.error('Subscribe confirmation send threw:', err);
+    console.error('Subscribe confirmation send failed:', err);
   }
 }
 
@@ -156,7 +147,7 @@ Deno.serve(async (req: Request) => {
   if (error) return json({ ok: false, error: 'Something went wrong. Please try again.' }, 500);
 
   const publisherName = await lookupPublisherName(publisherId);
-  await sendWelcome(contactHandle, publisherName);
+  await sendWelcome(publisherId, contactHandle, publisherName);
 
   return json({ ok: true });
 });

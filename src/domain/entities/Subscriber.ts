@@ -1,4 +1,6 @@
-export type SubscriptionStatus = 'pending' | 'active' | 'revoked';
+// 'unreachable': WhatsApp reported the number invalid/blocked (issue #24) —
+// skipped by sends, shown to the publisher, reactivated by a rejoin/START.
+export type SubscriptionStatus = 'pending' | 'active' | 'revoked' | 'unreachable';
 
 export interface SubscriberProps {
   id: string;
@@ -29,5 +31,11 @@ export class Subscriber {
 
   revoke(): Subscriber {
     return new Subscriber({ ...this.props, status: 'revoked' });
+  }
+
+  isUnreachable(): boolean { return this.props.status === 'unreachable'; }
+
+  markUnreachable(): Subscriber {
+    return new Subscriber({ ...this.props, status: 'unreachable' });
   }
 }
