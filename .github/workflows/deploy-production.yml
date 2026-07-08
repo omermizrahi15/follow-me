@@ -1,0 +1,61 @@
+name: Deploy production
+
+# Production is deployed by DELIBERATE PROMOTION, never automatically. Trigger it
+# from the Actions tab ("Run workflow") or by publishing a GitHub Release. Guarded
+# by the `production` GitHub Environment so you can require a reviewer / wait timer
+# (Settings → Environments → production).
+on:
+  workflow_dispatch:
+    inputs:
+      deploy_migrations:
+        description: 'Apply pending DB migrations to production'
+        type: boolean
+        default: true
+  release:
+    types: [published]
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+env:
+  PROD_REF: eigvoazyrimzbzcjlscp
+
+jobs:
+  backend:
+    name: DB migrations + Edge Functions → production
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Push database migrations
+        # Release-triggered runs always migrate; manual runs honour the toggle.
+        if: ${{ github.event_name == 'release' || inputs.deploy_migrations }}
+        run: supabase db push --db-url "${{ secrets.PROD_DB_URL }}"
+      - name: Deploy Edge Functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: bash scripts/deploy-functions.sh "$PROD_REF"
+
+  ota-update:
+    name: EAS Update (production channel)
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - run: npm ci
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Load production env from eas.json
+        run: node -e "const e=require('./eas.json').build.production.env; for (const [k,v] of Object.entries(e)) console.log(k+'='+v)" >> "$GITHUB_ENV"
+      - name: Publish OTA update
+        run: eas update --branch production --message "production ${{ github.sha }}" --non-interactive

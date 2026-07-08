@@ -16,6 +16,8 @@
         "EXPO_PUBLIC_SUPABASE_URL": "https://xszvrvnxduwpymyabvcg.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzenZydm54ZHV3cHlteWFidmNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MDgwNDcsImV4cCI6MjA5ODk4NDA0N30.ey2NHiMJ07q5iwZuVMTWpGjABfHhz6s8XRTiIfhMtVk",
         "EXPO_PUBLIC_CLASSIFY_FN_URL": "https://xszvrvnxduwpymyabvcg.functions.supabase.co/classify-photos",
+        "EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME": "dixi8doyx",
+        "EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET": "follow-me-uploads",
         "EXPO_PUBLIC_CLOUDINARY_FOLDER": "staging"
       }
     },
@@ -26,7 +28,9 @@
         "APP_VARIANT": "production",
         "EXPO_PUBLIC_SUPABASE_URL": "https://eigvoazyrimzbzcjlscp.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpZ3ZvYXp5cmltemJ6Y2psc2NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMDEwMjQsImV4cCI6MjA5NjU3NzAyNH0.IS5azZCKMuEnxyZKMPgoV1lePyg4rpvPu8rt1q85yCA",
-        "EXPO_PUBLIC_CLASSIFY_FN_URL": "https://eigvoazyrimzbzcjlscp.functions.supabase.co/classify-photos"
+        "EXPO_PUBLIC_CLASSIFY_FN_URL": "https://eigvoazyrimzbzcjlscp.functions.supabase.co/classify-photos",
+        "EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME": "dixi8doyx",
+        "EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET": "follow-me-uploads"
       }
     }
   },

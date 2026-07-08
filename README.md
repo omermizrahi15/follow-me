@@ -101,6 +101,28 @@ Edge Functions are deployed per environment with `supabase functions deploy --pr
 
 CI runs the integration suite against **staging** on every PR that touches `src/infrastructure/` or `supabase/` (see [`.github/workflows/integration.yml`](.github/workflows/integration.yml)) — production credentials never appear in CI.
 
+### Continuous deployment
+
+GitHub Actions deploys each environment; a deploy = DB migrations + Edge Functions ([`scripts/deploy-functions.sh`](scripts/deploy-functions.sh)) + an EAS Update (OTA JS) to that env's channel.
+
+| Environment | Workflow | Trigger |
+|---|---|---|
+| **Staging** | [`deploy-staging.yml`](.github/workflows/deploy-staging.yml) | **automatic** on merge to `main` (paths under `supabase/`, `src/`, app config) |
+| **Production** | [`deploy-production.yml`](.github/workflows/deploy-production.yml) | **manual promotion** — Actions → *Run workflow*, or publishing a GitHub Release |
+
+OTA updates cover JS-only changes (no rebuild). A change to native code or dependencies still needs a fresh `eas build` + TestFlight submit; bump the app `version` so the new `runtimeVersion` is picked up.
+
+**Required GitHub secrets** (Settings → Secrets and variables → Actions):
+
+| Secret | Used by | How to get it |
+|---|---|---|
+| `SUPABASE_ACCESS_TOKEN` | both deploys (functions) | Supabase dashboard → Account → Access Tokens (prefer a dedicated CI token) |
+| `STAGING_DB_URL` | staging (migrations) | ✅ already set — staging session-pooler connection string |
+| `PROD_DB_URL` | production (migrations) | Supabase → follow-me → Connect → **Session pooler** connection string (includes the DB password) |
+| `EXPO_TOKEN` | both deploys (EAS Update) | expo.dev → Account → Access Tokens |
+
+To gate production behind a reviewer, create a `production` GitHub Environment (Settings → Environments) — both production jobs already reference it.
+
 ---
 
 ## Running on iOS
