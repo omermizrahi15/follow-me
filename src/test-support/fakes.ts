@@ -145,6 +145,12 @@ export class InMemoryNotifier implements INotifier {
     this.failingSubscriberIds.add(subscriberId);
   }
 
+  /** Clears sent history and failure injection so an instance can be reused. */
+  reset(): void {
+    this.sent = [];
+    this.failingSubscriberIds.clear();
+  }
+
   notify(subscriber: Subscriber, media: Media[]): Promise<void> {
     if (this.failingSubscriberIds.has(subscriber.id)) {
       return Promise.reject(new Error(`delivery failed for ${subscriber.id}`));

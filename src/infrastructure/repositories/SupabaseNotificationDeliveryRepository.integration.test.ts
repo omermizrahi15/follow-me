@@ -88,6 +88,18 @@ describeIf(RUN)('SupabaseNotificationDeliveryRepository (integration)', () => {
     expect(deliveries[0]).toMatchObject({ status: 'pending', attempts: 0, lastAttemptedAt: null });
   });
 
+  it('leaves a single pending row when two clients re-share the same pair at once', async (): Promise<void> => {
+    const repo = makeRepo();
+    const delivery = { photoId: TEST_PHOTO, subscriberId: SUB_A, publisherId: TEST_PUBLISHER };
+    // Two concurrent shares race on the (photo, subscriber) upsert; the unique
+    // index must collapse them to one row rather than raising or duplicating.
+    await Promise.all([repo.logPending([delivery]), repo.logPending([delivery])]);
+
+    const deliveries = await repo.findByPhoto(TEST_PHOTO);
+    expect(deliveries).toHaveLength(1);
+    expect(deliveries[0]).toMatchObject({ status: 'pending', attempts: 0, lastAttemptedAt: null });
+  });
+
   it('returns an empty array for an untracked photo', async (): Promise<void> => {
     const repo = makeRepo();
     expect(await repo.findByPhoto('integration-test-no-such-photo')).toEqual([]);
