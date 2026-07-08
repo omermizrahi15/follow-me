@@ -107,19 +107,39 @@ jobs:
             echo "E2E_PHONE/E2E_OTP not set — skipping auth flows (smoke only)."
           fi
 
-      # On failure, relaunch the app attached to the console so a startup JS
-      # exception (e.g. a bad Supabase URL) shows up in the log instead of just
-      # a blank screenshot.
-      - name: Capture app startup console on failure
+      # On failure, gather the real cause of a blank screen: (1) whether the
+      # EXPO_PUBLIC_* values were inlined into the built JS bundle, (2) any native
+      # crash report, and (3) the app's os_log during a fresh launch — where RN's
+      # fatal JS exception actually surfaces (a redbox is suppressed in Release).
+      - name: Diagnose app startup on failure
         if: failure()
         run: |
-          echo "Relaunching com.followme.app to capture startup console..."
-          xcrun simctl launch --console-pty booted com.followme.app > app-console.log 2>&1 &
-          LAUNCH_PID=$!
-          sleep 12
-          kill "$LAUNCH_PID" 2>/dev/null || true
-          echo "===== app console (first 120 lines) ====="
-          head -120 app-console.log || echo "(no console captured)"
+          echo "===== 1. Is EXPO_PUBLIC_* inlined in the built bundle? ====="
+          BUNDLE=$(find ~/Library/Developer/CoreSimulator -name main.jsbundle -path '*FollowMe.app*' 2>/dev/null | head -1)
+          echo "bundle: ${BUNDLE:-NOT FOUND}"
+          if [ -n "$BUNDLE" ]; then
+            echo "supabase.co occurrences: $(grep -c 'supabase\.co' "$BUNDLE" 2>/dev/null || echo 0)"
+            echo "ci-placeholder occurrences: $(grep -c 'ci-placeholder' "$BUNDLE" 2>/dev/null || echo 0)"
+            echo "literal 'process.env.EXPO_PUBLIC' occurrences (should be 0 if inlined): $(grep -c 'process\.env\.EXPO_PUBLIC' "$BUNDLE" 2>/dev/null || echo 0)"
+          fi
+
+          echo "===== 2. Crash reports ====="
+          ls -t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | head -5 || true
+          for f in ~/Library/Logs/DiagnosticReports/FollowMe*; do
+            [ -e "$f" ] && { echo "--- $f ---"; head -60 "$f"; }
+          done
+
+          echo "===== 3. os_log during fresh launch ====="
+          xcrun simctl terminate booted com.followme.app 2>/dev/null || true
+          xcrun simctl spawn booted log stream --level debug --style compact \
+            --predicate 'process == "FollowMe"' > oslog.txt 2>&1 &
+          STREAM_PID=$!
+          sleep 2
+          xcrun simctl launch booted com.followme.app || true
+          sleep 10
+          kill "$STREAM_PID" 2>/dev/null || true
+          echo "----- oslog (first 200 lines) -----"
+          head -200 oslog.txt 2>/dev/null || echo "(no os_log captured)"
 
       # Screenshots + logs from any failed flow, for debugging without a local run.
       - name: Upload Maestro artifacts
@@ -129,5 +149,5 @@ jobs:
           name: maestro-output
           path: |
             ~/.maestro/tests/
-            app-console.log
+            oslog.txt
           if-no-files-found: ignore
