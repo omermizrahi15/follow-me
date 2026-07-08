@@ -1,0 +1,49 @@
+name: CI services
+
+# Per-service CI for the Supabase Edge Functions (Deno). Only the functions you
+# touched are tested, each in its own matrix job. A change under _shared/ fans
+# out to every function, since they all depend on it.
+on:
+  pull_request:
+    paths: ['supabase/functions/**', 'deno.json']
+  push:
+    branches: [main]
+    paths: ['supabase/functions/**', 'deno.json']
+
+jobs:
+  detect:
+    name: Detect changed services
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.detect.outputs.matrix }}
+      any: ${{ steps.detect.outputs.any }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: detect
+        run: bash scripts/changed-functions.sh
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+
+  test:
+    name: ${{ matrix.fn }}
+    needs: detect
+    if: needs.detect.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - name: Lint
+        run: deno lint "supabase/functions/${{ matrix.fn }}/" supabase/functions/_shared/
+      - name: Typecheck
+        run: deno check "supabase/functions/${{ matrix.fn }}/index.ts"
+      - name: Test (service + shared)
+        run: deno test "supabase/functions/${{ matrix.fn }}/" supabase/functions/_shared/

@@ -101,27 +101,30 @@ Edge Functions are deployed per environment with `supabase functions deploy --pr
 
 CI runs the integration suite against **staging** on every PR that touches `src/infrastructure/` or `supabase/` (see [`.github/workflows/integration.yml`](.github/workflows/integration.yml)) — production credentials never appear in CI.
 
-### Continuous deployment
+### CI/CD — separated by concern
 
-GitHub Actions deploys each environment; a deploy = DB migrations + Edge Functions ([`scripts/deploy-functions.sh`](scripts/deploy-functions.sh)) + an EAS Update (OTA JS) to that env's channel.
+Three independent concerns, each with its own path-triggered CI and CD. Touch one and only its pipeline runs; deploy one without touching the others.
 
-| Environment | Workflow | Trigger |
-|---|---|---|
-| **Staging** | [`deploy-staging.yml`](.github/workflows/deploy-staging.yml) | **automatic** on merge to `main` (paths under `supabase/`, `src/`, app config) |
-| **Production** | [`deploy-production.yml`](.github/workflows/deploy-production.yml) | **manual promotion** — Actions → *Run workflow*, or publishing a GitHub Release |
+| Concern | Runtime | CI (on touch) | CD |
+|---|---|---|---|
+| **App** (JS bundle) | Node / Jest | [`ci.yml`](.github/workflows/ci.yml) — typecheck + lint + test | [`deploy-app.yml`](.github/workflows/deploy-app.yml) — EAS Update (OTA) |
+| **Services** (each Edge Function) | Deno | [`ci-services.yml`](.github/workflows/ci-services.yml) — per-service lint + typecheck + test | [`deploy-services.yml`](.github/workflows/deploy-services.yml) — per-service `functions deploy` |
+| **Database** (migrations) | — | (applied by CD) | [`deploy-db.yml`](.github/workflows/deploy-db.yml) — `db push` |
 
-OTA updates cover JS-only changes (no rebuild). A change to native code or dependencies still needs a fresh `eas build` + TestFlight submit; bump the app `version` so the new `runtimeVersion` is picked up.
+**Per-service granularity.** `ci-services.yml` and `deploy-services.yml` diff the commit and act **only on the functions that changed** — each in its own matrix job — via [`scripts/changed-functions.sh`](scripts/changed-functions.sh). A change under `supabase/functions/_shared/**` fans out to every function (they all depend on it). Deploys use [`scripts/deploy-functions.sh`](scripts/deploy-functions.sh), the single source of truth for each function's `verify_jwt` setting.
+
+**Promotion model.** Every CD workflow auto-deploys to **staging** on merge to `main` (path-filtered), and deploys to **any environment on demand** via *Actions → Run workflow* (choose `staging`/`production`, and for services an optional list of function names or `all`). Production jobs run under the `production` GitHub Environment, so you can require a reviewer (Settings → Environments).
+
+**Service tests** live next to the code as Deno `*_test.ts` (e.g. [`supabase/functions/_shared/optOut_test.ts`](supabase/functions/_shared/optOut_test.ts)); run them locally with `deno task test`. Functions without unit tests yet still get lint + typecheck in CI. OTA app updates cover JS-only changes; native/dependency changes still need a fresh `eas build` (bump the app `version` so `runtimeVersion` advances).
 
 **Required GitHub secrets** (Settings → Secrets and variables → Actions):
 
 | Secret | Used by | How to get it |
 |---|---|---|
-| `SUPABASE_ACCESS_TOKEN` | both deploys (functions) | Supabase dashboard → Account → Access Tokens (prefer a dedicated CI token) |
-| `STAGING_DB_URL` | staging (migrations) | ✅ already set — staging session-pooler connection string |
-| `PROD_DB_URL` | production (migrations) | Supabase → follow-me → Connect → **Session pooler** connection string (includes the DB password) |
-| `EXPO_TOKEN` | both deploys (EAS Update) | expo.dev → Account → Access Tokens |
-
-To gate production behind a reviewer, create a `production` GitHub Environment (Settings → Environments) — both production jobs already reference it.
+| `SUPABASE_ACCESS_TOKEN` | service deploys | Supabase → Account → Access Tokens (prefer a dedicated CI token) |
+| `STAGING_DB_URL` | db deploy (staging) | ✅ already set — staging session-pooler connection string |
+| `PROD_DB_URL` | db deploy (production) | Supabase → follow-me → Connect → **Session pooler** string (includes the DB password) |
+| `EXPO_TOKEN` | app deploys (EAS Update) | expo.dev → Account → Access Tokens |
 
 ---
 

@@ -1,0 +1,52 @@
+name: Deploy app
+
+# CD for the mobile app (the JS bundle), independent of the services. On merge
+# to main it ships an EAS Update (OTA) to the staging channel; installed staging
+# builds pick it up with no rebuild. Promote to production via "Run workflow".
+# Native/dependency changes still need a fresh `eas build` (see README).
+on:
+  push:
+    branches: [main]
+    paths: ['src/**', 'assets/**', 'app.json', 'app.config.js', 'App.js', 'package.json']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+
+concurrency:
+  group: deploy-app-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  ota-update:
+    name: EAS Update → ${{ github.event.inputs.environment || 'staging' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 18
+          cache: npm
+      - run: npm ci
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Resolve channel + bundle-time env
+        run: |
+          ENV="${{ github.event.inputs.environment || 'staging' }}"
+          PROFILE=$([ "$ENV" = "production" ] && echo production || echo preview)
+          echo "CHANNEL=$ENV" >> "$GITHUB_ENV"
+          # The EXPO_PUBLIC_* vars are read at bundle time — load them from the
+          # matching eas.json profile so there is no second copy to maintain.
+          node -e "const e=require('./eas.json').build['$PROFILE'].env; for (const [k,v] of Object.entries(e)) console.log(k+'='+v)" >> "$GITHUB_ENV"
+      - name: Publish OTA update
+        # Pass the message via env, never interpolated into the run line, so a
+        # commit message with quotes/newlines can't break or inject the shell.
+        env:
+          UPDATE_MSG: ${{ github.event.head_commit.message || format('manual → {0}', github.event.inputs.environment) }}
+        run: eas update --branch "$CHANNEL" --message "$UPDATE_MSG" --non-interactive
