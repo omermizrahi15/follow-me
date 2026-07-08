@@ -20,7 +20,7 @@ public launch.
 ## RLS hardening — TODO(production)
 
 Current dev posture: `candidate_photos`, `publisher_config`, `subscribers`,
-`posts` (select) allow the **anon** role. Anyone with the anon key can read and
+`notification_deliveries`, `posts` (select) allow the **anon** role. Anyone with the anon key can read and
 (for some tables) write rows. Acceptable for a closed dev instance, unsafe for
 production.
 
@@ -61,6 +61,16 @@ create policy owner_write on media
 -- posts: public gallery needs anon SELECT only — no anon writes
 -- (the existing "anon can read posts" select policy stays; writes are
 -- service-role only because no other policy exists.)
+
+-- notification_deliveries: owner-only, all verbs (publisher_id is text)
+drop policy if exists dev_allow_select on notification_deliveries;
+drop policy if exists dev_allow_insert on notification_deliveries;
+drop policy if exists dev_allow_update on notification_deliveries;
+drop policy if exists dev_allow_delete on notification_deliveries;
+create policy owner_all on notification_deliveries
+  for all to authenticated
+  using (auth.uid()::text = publisher_id)
+  with check (auth.uid()::text = publisher_id);
 ```
 
 Add an RLS test pass (a small integration test signing in as two users and
@@ -81,7 +91,7 @@ asserting cross-user reads/writes fail) before flipping these on.
 
 ## Ops checklist before enabling autonomous mode in production
 
-1. Migrations up to `20240015` applied (`supabase db push`).
+1. Migrations up to `20240016` applied (`supabase db push`).
 2. `classify-photos` deployed with `GEMINI_API_KEY` (+ optional `GEMINI_MODEL`).
 3. `auto-post` deployed with `CRON_SECRET` + Twilio secrets; `send-post`
    deployed (same Twilio secrets).
