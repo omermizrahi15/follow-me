@@ -16,7 +16,7 @@ on:
 jobs:
   maestro:
     name: Maestro flows (iOS simulator)
-    runs-on: macos-14
+    runs-on: macos-15 # ships Xcode 16 — RN 0.81 requires it (macos-14 default is 15.x)
     timeout-minutes: 45
     env:
       LANG: en_US.UTF-8 # CocoaPods unicode-normalize guard
@@ -24,9 +24,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # Pick the newest Xcode on the image; RN 0.81's CocoaPods scripts reject
+      # older versions ("Please upgrade XCode").
+      - name: Select latest Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Node 20+ required: Expo's metro config uses Array.prototype.toReversed.
       - uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 20
           cache: npm
 
       - name: Install dependencies
