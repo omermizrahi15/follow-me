@@ -6,12 +6,14 @@
 const VARIANTS = {
   production: {
     name: 'Follow Me',
-    bundleIdentifier: 'com.followme.app',
+    // com.followme.app is taken by another Apple account (bundle ids are global);
+    // use the project's own reverse-domain namespace instead.
+    bundleIdentifier: 'com.urishiber.followme',
     scheme: 'followme',
   },
   staging: {
     name: 'Follow Me (Staging)',
-    bundleIdentifier: 'com.followme.app.staging',
+    bundleIdentifier: 'com.urishiber.followme.staging',
     scheme: 'followmestaging',
   },
 };

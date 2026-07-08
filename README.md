@@ -68,7 +68,7 @@ Two Supabase projects back the app — same schema, same RLS policies (both are 
 | `EXPO_PUBLIC_CLOUDINARY_FOLDER` | unset (assets land in the root) | `staging` — isolates test uploads in one folder |
 | EAS build profile | `production` | `preview` |
 | App name on device | Follow Me | Follow Me (Staging) |
-| iOS bundle id | `com.followme.app` | `com.followme.app.staging` |
+| iOS bundle id | `com.urishiber.followme` | `com.urishiber.followme.staging` |
 
 The anon keys and URLs are public by design (they ship inside the app binary; RLS is the security boundary), which is why both environments' values live directly in `eas.json` (`production.env` and `preview.env`). `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` / `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` are shared between environments and come from your local `.env` (or EAS project env vars) — the staging `folder` param keeps the uploads apart.
 
