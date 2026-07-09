@@ -60,12 +60,13 @@ Conventions (also enforced by the skill): select by `testID` (`id:` in Maestro),
 
 A GitHub Actions job runs the flows on a macOS runner so nobody has to run them by hand — see [`.github/workflows/e2e-ui.yml`](../.github/workflows/e2e-ui.yml). It builds the Release app, boots a simulator, runs the smoke flows, and runs the auth flows when the test-OTP secrets are present.
 
-Simulator E2E is slow and costs ~10x macOS-runner minutes, so it is **not** wired to every push/PR. It runs:
+Building the native iOS app takes ~15 min, so E2E is **never on the PR critical path** — PRs are gated only by the fast Ubuntu `CI` workflow (typecheck/lint/tests, ~1 min). E2E runs:
 
+- **After `CI` passes on `main`** (`workflow_run`) — an async, post-merge regression signal that blocks nothing. This is the primary trigger.
 - **On demand** — Actions tab → *E2E UI (Maestro)* → *Run workflow*.
-- **Nightly** — 06:00 UTC, to catch regressions.
+- **Nightly** — 06:00 UTC, as a safety net.
 
-To also gate PRs on it, uncomment the `pull_request` trigger in the workflow.
+Note: `workflow_run` only fires once this workflow is on the default branch, and it runs against `main` — so it validates merged code, not the PR diff. That's the intended trade-off: keep PRs fast, catch regressions right after merge. A ~1-min run isn't possible here — the cost is the native build, not the flows.
 
 ### Required repo secrets
 

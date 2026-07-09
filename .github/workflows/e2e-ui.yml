@@ -1,16 +1,16 @@
 name: E2E UI (Maestro)
 
-# Simulator E2E is slow and costs ~10x macOS-runner minutes, so it does NOT run
-# on every push/PR. Trigger it on demand (Actions tab -> Run workflow) or let the
-# nightly schedule catch regressions. To gate it on PRs later, uncomment the
-# pull_request trigger below.
+# Building the native iOS app takes ~15 min, so this NEVER runs on the PR
+# critical path. Instead it runs AFTER the fast Ubuntu "CI" workflow passes on
+# main (workflow_run) — an async, post-merge regression signal that blocks
+# nothing — plus on-demand dispatch and a nightly safety net.
 on:
   workflow_dispatch:
   schedule:
     - cron: '0 6 * * *' # 06:00 UTC nightly
-  # TEMP: enabled to shake out the first CI run on PR #51. Re-comment before
-  # merge so simulator E2E stays off every-PR (dispatch + nightly only).
-  pull_request:
+  workflow_run:
+    workflows: [CI] # the Ubuntu typecheck/lint/test workflow (.github/workflows/ci.yml)
+    types: [completed]
     branches: [main]
 
 jobs:
@@ -18,6 +18,9 @@ jobs:
     name: Maestro flows (iOS simulator)
     runs-on: macos-15 # ships Xcode 16 — RN 0.81 requires it (macos-14 default is 15.x)
     timeout-minutes: 45
+    # For workflow_run, only proceed when the upstream CI actually passed;
+    # dispatch and schedule have no upstream run so they always proceed.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     env:
       LANG: en_US.UTF-8 # CocoaPods unicode-normalize guard
 
