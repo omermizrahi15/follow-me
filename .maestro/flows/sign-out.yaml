@@ -1,0 +1,21 @@
+appId: com.followme.app
+name: sign-out
+tags:
+  - auth
+---
+# Settings -> Sign out clears the session and returns to the phone sign-in screen.
+# Runs LAST in the auth sequence because it tears down the shared session.
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000
+- tapOn:
+    id: "home-settings-button"
+- assertVisible: "Sign out"
+- tapOn:
+    id: "settings-sign-out"
+- extendedWaitUntil:
+    visible:
+      id: "signin-phone-input"
+    timeout: 15000

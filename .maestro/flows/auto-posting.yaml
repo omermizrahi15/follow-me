@@ -1,0 +1,37 @@
+appId: com.followme.app
+name: auto-posting
+tags:
+  - auth
+---
+# Configure the auto-posting schedule (frequency, reminder day/time, photos per
+# post, approval) and Save. Reuses the session from sign-in.
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000
+- tapOn:
+    id: "section-nav-auto"
+- assertVisible: "Auto-posting"
+- tapOn:
+    id: "auto-freq-weekly"
+- tapOn:
+    id: "auto-day-1"
+- tapOn:
+    id: "auto-time-18:00"
+- tapOn:
+    id: "auto-count-10"
+- tapOn:
+    id: "auto-save"
+# First Save asks for photo-sync consent via a native alert — decline it so the
+# flow stays deterministic (we're testing config, not the photo upload).
+- runFlow:
+    when:
+      visible: "Upload recent photos?"
+    commands:
+      - tapOn: "Not now"
+# onSaved() returns to the Me section.
+- extendedWaitUntil:
+    visible:
+      id: "home-add-post"
+    timeout: 20000

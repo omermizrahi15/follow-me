@@ -42,10 +42,17 @@ A booted iOS simulator with the app installed is required (`xcrun simctl boot "i
 | --- | --- | --- |
 | `onboarding` | `smoke` | Fresh install → intro step → Get started → sign-in screen |
 | `sign-in` | `auth` | Phone + test OTP → lands on the Me page |
-| `navigation` | `auth` | Settings, Edit profile, Upload modal, section nav (reuses the session from `sign-in`) |
+| `navigation` | `auth` | Settings, Edit profile open, Upload modal, section nav |
+| `edit-profile` | `auth` | Edit name + bio → Save → new name shows on the Me page |
+| `add-post` | `auth` | Me → Add post → New-post modal + picker entry point → close |
+| `auto-posting` | `auth` | Configure frequency / reminder day+time / photos-per-post → Save |
+| `followers` | `auth` | Followers section list/empty state + invite entry point |
+| `sign-out` | `auth` | Settings → Sign out → back to the phone sign-in screen |
 | `ai-visual-check` | `ai` | Fuzzy "does this screen look right" assertions via `assertWithAI` |
 
-Flows run in the order defined in `.maestro/config.yaml`; `sign-in` must precede any flow that assumes a session.
+Flows run in the order defined in `.maestro/config.yaml`. `sign-in` persists a session the other `auth` flows reuse; `sign-out` runs last because it tears that session down. The `auth` flows are skipped in CI until the test-OTP secrets are set (`sign-in` can't establish the session without them).
+
+Deliberately **not** automated end-to-end (they depend on the iOS system UI or seeded backend data, which aren't deterministic on a CI simulator): completing a photo upload past the system picker, sharing the invite via the system share sheet, and the data-dependent suggestion-review screen. The flows above stop at the app boundary for these.
 
 ## AI-maintained tests
 

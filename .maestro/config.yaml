@@ -2,11 +2,16 @@
 flows:
   - "flows/*.yaml"
 
-# Flows build on each other: sign-in leaves a persisted session that
-# navigation reuses, so order matters.
+# Flows build on each other: sign-in leaves a persisted session that the later
+# auth flows reuse, and sign-out tears it down, so order matters.
 executionOrder:
   continueOnFailure: false
   flowsOrder:
     - onboarding
     - sign-in
     - navigation
+    - edit-profile
+    - add-post
+    - auto-posting
+    - followers
+    - sign-out

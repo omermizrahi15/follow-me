@@ -1,0 +1,22 @@
+appId: com.followme.app
+name: add-post
+tags:
+  - auth
+---
+# Me page -> Add post opens the New-post modal with the photo picker entry point.
+# Stops before the iOS system photo picker (non-deterministic on a CI simulator
+# with no photos) and closes the modal. Reuses the session from sign-in.
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000
+- tapOn:
+    id: "home-add-post"
+- assertVisible: "New post"
+- assertVisible:
+    id: "upload-pick-photos"
+- tapOn:
+    id: "upload-close"
+- assertVisible:
+    id: "home-add-post"

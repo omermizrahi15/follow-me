@@ -40,7 +40,7 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
       showsVerticalScrollIndicator={false}
       contentContainerStyle={[styles.content, { paddingBottom: bottomInset }]}
     >
-      <Text style={styles.title}>
+      <Text testID="followers-title" style={styles.title}>
         Followers{subscribers.length > 0 ? ` · ${subscribers.length}` : ''}
       </Text>
 
@@ -67,7 +67,7 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
         ))
       )}
 
-      <TouchableOpacity style={styles.inviteButton} onPress={shareInvite} activeOpacity={0.85}>
+      <TouchableOpacity testID="followers-share-invite" style={styles.inviteButton} onPress={shareInvite} activeOpacity={0.85}>
         <Ionicons name="share-social" size={16} color={colors.onAccent} />
         <Text style={styles.inviteText}>Share invite link</Text>
       </TouchableOpacity>

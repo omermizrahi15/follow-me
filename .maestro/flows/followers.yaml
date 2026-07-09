@@ -1,0 +1,23 @@
+appId: com.followme.app
+name: followers
+tags:
+  - auth
+---
+# Open the Followers section and assert its list (or empty state) and the invite
+# entry point render. Does not tap Share (that opens the iOS system share sheet).
+# Reuses the session from sign-in.
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000
+- tapOn:
+    id: "section-nav-followers"
+- assertVisible:
+    id: "followers-title"
+- assertVisible:
+    id: "followers-share-invite"
+- tapOn:
+    id: "section-nav-me"
+- assertVisible:
+    id: "home-add-post"
