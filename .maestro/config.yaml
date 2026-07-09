@@ -5,7 +5,9 @@ flows:
 # Flows build on each other: sign-in leaves a persisted session that the later
 # auth flows reuse, and sign-out tears it down, so order matters.
 executionOrder:
-  continueOnFailure: false
+  # Run every flow even if one fails, so CI reports all broken flows in a single
+  # (expensive) build rather than stopping at the first.
+  continueOnFailure: true
   flowsOrder:
     - onboarding
     - sign-in
