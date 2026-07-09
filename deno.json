@@ -1,5 +1,9 @@
 {
   "//": "Deno tooling for the Supabase Edge Functions (the 'services'). Separate from the app's Node/Jest world. Used by the per-service CI (ci-services.yml).",
+  "//jsx": "Newer Deno reads the app's tsconfig.json (jsx: react-native) via the root package.json and rejects it. Pin a Deno-valid jsx here so this config wins — the functions contain no JSX, so the value is cosmetic.",
+  "compilerOptions": {
+    "jsx": "react-jsx"
+  },
   "tasks": {
     "test": "deno test supabase/functions/",
     "lint": "deno lint supabase/functions/",

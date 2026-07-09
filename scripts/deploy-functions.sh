@@ -16,9 +16,10 @@ shift || true
 
 # Functions invoked by Twilio webhooks, pg_cron, or anon clients carry no
 # end-user JWT, so the platform gateway must not require one (they do their own
-# auth). Anything NOT listed here keeps the default gateway JWT check ON
-# (e.g. classify-photos, which requires a signed-in user).
-NO_JWT=" join join-webhook subscribe auto-post send-post delete-candidates "
+# auth). MUST match supabase/config.toml. Anything NOT listed keeps the default
+# gateway JWT check ON — that's correct for classify-photos, send-post and
+# delete-candidates, which are all called WITH a valid JWT (user or anon key).
+NO_JWT=" join join-webhook subscribe auto-post twilio-status "
 
 # No names given → every function that has source in this repo.
 if [ "$#" -eq 0 ]; then
