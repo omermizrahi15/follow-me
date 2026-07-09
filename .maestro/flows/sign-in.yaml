@@ -6,9 +6,13 @@ tags:
 # Signs in with a Supabase *test OTP* phone number (Dashboard → Auth →
 # Providers → Phone → Test OTPs), so no real WhatsApp message is sent.
 # Run with: maestro test -e E2E_PHONE=+15005550006 -e E2E_OTP=123456 .maestro
-- launchApp:
-    clearState: true
-# Fresh state lands on onboarding; skip straight to sign-in.
+#
+# No clearState here: the preceding `onboarding` flow already installed a fresh,
+# signed-out app. clearState uninstalls+reinstalls, and that cold-start reinstall
+# intermittently crashes the app on CI — so we relaunch the existing install and
+# handle the onboarding intro if it shows.
+- launchApp
+# Signed-out launch shows the onboarding intro; skip straight to sign-in.
 - runFlow:
     when:
       visible:
@@ -16,6 +20,7 @@ tags:
     commands:
       - tapOn:
           id: "onboarding-skip"
+- assertVisible: "Your WhatsApp number"
 - tapOn:
     id: "signin-phone-input"
 - inputText: ${E2E_PHONE}
