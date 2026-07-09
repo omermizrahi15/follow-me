@@ -142,7 +142,7 @@ async function sendMessage(
  * deliverable inside the 24h customer-service window (or in the sandbox); for
  * business-initiated messages outside that window use `sendWhatsAppTemplate`.
  */
-export async function sendWhatsApp(
+export function sendWhatsApp(
   creds: TwilioCreds,
   to: string,
   body: string,
@@ -164,7 +164,7 @@ export async function sendWhatsApp(
  * is the production path for business-initiated posts. `variables` maps the
  * template's {{n}} placeholders (including any media-header variable) to values.
  */
-export async function sendWhatsAppTemplate(
+export function sendWhatsAppTemplate(
   creds: TwilioCreds,
   to: string,
   contentSid: string,
