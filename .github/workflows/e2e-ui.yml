@@ -79,8 +79,10 @@ jobs:
           key=$(grep '^EXPO_PUBLIC_SUPABASE_ANON_KEY=' .env | cut -d= -f2-)
           echo "SUPABASE_URL: length=${#url}, https=$([[ "$url" == https://* ]] && echo yes || echo no)"
           echo "ANON_KEY: length=${#key}"
-          if [[ "$url" != https://*.supabase.co ]]; then
-            echo "::error::EXPO_PUBLIC_SUPABASE_URL secret is missing or not a https://<ref>.supabase.co URL."
+          # Require a non-empty project ref: 'https://.supabase.co' (ref dropped)
+          # parses fine in createClient but fails DNS at request time.
+          if [[ ! "$url" =~ ^https://[a-z0-9]+\.supabase\.co$ ]]; then
+            echo "::error::EXPO_PUBLIC_SUPABASE_URL must be https://<ref>.supabase.co with a non-empty ref (got host '$(printf '%s' "$url" | sed -E 's#https?://##')')."
             exit 1
           fi
           if [ "${#key}" -lt 100 ]; then
