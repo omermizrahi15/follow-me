@@ -17,6 +17,7 @@
  *      SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (auto-injected).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { bytesToBase64, CATEGORIES, type Classification, parseClassification } from './logic.ts';
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.0-flash';
@@ -40,21 +41,6 @@ async function authenticatedUserId(req: Request): Promise<string | null> {
     return null;
   }
 }
-
-const CATEGORIES = [
-  'selfie_with_view',
-  'sunset_sunrise',
-  'view_only',
-  'architecture',
-  'selfie_with_people',
-  'food',
-  'nature',
-  'night_scene',
-  'activity',
-  'cultural',
-  'other',
-] as const;
-type Category = (typeof CATEGORIES)[number];
 
 const PROMPT = `You classify a single photo for a social "share my travels" app.
 
@@ -114,24 +100,6 @@ interface PhotoInput {
   mimeType?: string;
 }
 
-interface Classification {
-  id: string;
-  category: Category;
-  confidence: number;
-  quality: number;
-  caption: string;
-  scene: string;
-}
-
-function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
 async function resolveImage(photo: PhotoInput): Promise<{ data: string; mimeType: string }> {
   if (photo.base64) {
     return { data: photo.base64, mimeType: photo.mimeType ?? 'image/jpeg' };
@@ -144,16 +112,6 @@ async function resolveImage(photo: PhotoInput): Promise<{ data: string; mimeType
     return { data: bytesToBase64(bytes), mimeType };
   }
   throw new Error('photo has neither url nor base64');
-}
-
-function clamp01(n: unknown): number {
-  const v = typeof n === 'number' ? n : Number(n);
-  if (!Number.isFinite(v)) return 0;
-  return Math.max(0, Math.min(1, v));
-}
-
-function normalizeCategory(c: unknown): Category {
-  return CATEGORIES.includes(c as Category) ? (c as Category) : 'other';
 }
 
 /** One retry on transient failures (5xx / 429) with a short backoff. */
@@ -192,16 +150,7 @@ async function classifyOne(photo: PhotoInput): Promise<Classification> {
     console.error('Gemini returned no content; payload shape:', JSON.stringify(payload)?.slice(0, 500));
     throw new Error('Gemini returned no content');
   }
-  const parsed = JSON.parse(text);
-
-  return {
-    id: photo.id,
-    category: normalizeCategory(parsed.category),
-    confidence: clamp01(parsed.confidence),
-    quality: clamp01(parsed.quality),
-    caption: typeof parsed.caption === 'string' ? parsed.caption : '',
-    scene: typeof parsed.scene === 'string' ? parsed.scene.toLowerCase().trim() : '',
-  };
+  return parseClassification(photo.id, JSON.parse(text));
 }
 
 Deno.serve(async (req: Request) => {
