@@ -87,6 +87,11 @@ jobs:
             echo "::error::EXPO_PUBLIC_SUPABASE_ANON_KEY secret is missing or too short to be a real anon key."
             exit 1
           fi
+          # Reachability probe: sign-in failed with "Network request failed", so
+          # confirm the runner can actually reach this project (the host/ref is
+          # public — it ships in the app — so it's safe to print).
+          echo "SUPABASE host: $(printf '%s' "$url" | sed -E 's#https?://##')"
+          echo "auth/v1/health from runner: $(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$url/auth/v1/health" 2>&1 || echo 'UNREACHABLE')"
 
       - name: Install Maestro
         run: |
