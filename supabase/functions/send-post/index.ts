@@ -29,6 +29,7 @@ import { buildPostTemplate } from '../_shared/postTemplate.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
+import { validateSendPost } from './logic.ts';
 
 // Supabase edge runtime: lets background work continue after the response is sent.
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -74,13 +75,9 @@ Deno.serve(async req => {
     return json({ error: 'Invalid JSON' }, 400);
   }
 
-  const { publisherId, to, mediaUrls, place } = body;
-  if (!publisherId || !to || !Array.isArray(mediaUrls) || mediaUrls.length === 0) {
-    return json({ error: 'publisherId, to and non-empty mediaUrls are required' }, 400);
-  }
-  if (mediaUrls.some(u => typeof u !== 'string' || !u.startsWith('https://'))) {
-    return json({ error: 'mediaUrls must be https URLs' }, 400);
-  }
+  const validation = validateSendPost(body);
+  if (!validation.ok) return json({ error: validation.error }, 400);
+  const { publisherId, to, mediaUrls, place } = validation.value;
 
   const { name, phone } = await publisherIdentity(publisherId);
   const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls);

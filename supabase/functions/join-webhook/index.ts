@@ -25,6 +25,7 @@ import {
   composeResubscribeConfirmation,
   verifyTwilioSignature,
 } from '../_shared/optOut.ts';
+import { contactHandleFromWhatsApp, formToParams, publisherDisplayName, twiml } from './logic.ts';
 
 const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID') ?? '';
 const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN') ?? '';
@@ -37,25 +38,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
-// TwiML response — Twilio requires this content-type for webhook replies
-function twiml(message: string): Response {
-  return new Response(
-    `<?xml version="1.0" encoding="UTF-8"?>
-<Response><Message>${message}</Message></Response>`,
-    { headers: { 'content-type': 'text/xml' } },
-  );
-}
-
 async function lookupPublisher(publisherId: string): Promise<{ name: string } | null> {
   try {
     const { data } = await supabase.auth.admin.getUserById(publisherId);
     if (!data.user) return null;
-    // `||` (not `??`) so an empty display_name falls through to a real fallback.
-    const name: string =
-      (data.user.user_metadata as Record<string, string>)?.display_name ||
-      data.user.email?.split('@')[0] ||
-      'your publisher';
-    return { name };
+    return { name: publisherDisplayName(data.user.user_metadata as Record<string, string>, data.user.email) };
   } catch {
     return null;
   }
@@ -214,11 +201,7 @@ Deno.serve(async (req: Request) => {
     return new Response('Method not allowed', { status: 405 });
   }
 
-  const form = await req.formData();
-  const params: Record<string, string> = {};
-  for (const [key, value] of form.entries()) {
-    if (typeof value === 'string') params[key] = value;
-  }
+  const params = formToParams(await req.formData());
 
   // Verify the request really came from Twilio before acting on it. Skipped
   // only when no auth token is configured (local dev), with a loud warning.
@@ -241,7 +224,7 @@ Deno.serve(async (req: Request) => {
   // Twilio sends From as "whatsapp:+15551234567"
   const from = params['From'] ?? '';
   const body = params['Body'] ?? '';
-  const contactHandle = from.replace(/^whatsapp:/, '');
+  const contactHandle = contactHandleFromWhatsApp(from);
 
   const command = parseInboundCommand(body);
   switch (command.kind) {
