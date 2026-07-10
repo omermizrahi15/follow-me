@@ -3,7 +3,10 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "ESNext",
-    "jsx": "react-native",
+    // react-jsx (the modern automatic runtime), not react-native: Deno's
+    // per-service `deno check` reads this root tsconfig and rejects
+    // "react-native". Metro/Babel transform JSX at runtime regardless of this.
+    "jsx": "react-jsx",
     "strict": true,
     "esModuleInterop": true,
     "outDir": "dist",
