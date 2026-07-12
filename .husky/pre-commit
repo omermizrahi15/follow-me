@@ -1,1 +1,16 @@
+# App (React Native / TS): tsc + eslint + jest
 npm run validate
+
+# Edge functions (Deno): mirror the "CI services" gate so lint/type/test errors
+# are caught here instead of after a push. Only runs when functions are staged,
+# so app-only commits stay fast.
+if git diff --cached --name-only --diff-filter=ACMR | grep -q '^supabase/functions/'; then
+  if ! command -v deno >/dev/null 2>&1; then
+    echo "✗ supabase/functions changed but 'deno' is not installed — install it or commit with --no-verify" >&2
+    exit 1
+  fi
+  echo "→ Deno checks (supabase/functions)…"
+  deno lint supabase/functions/
+  deno check supabase/functions/*/index.ts
+  deno test supabase/functions/
+fi
