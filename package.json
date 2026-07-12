@@ -11,6 +11,11 @@
     "test:integration": "jest --testPathPattern=integration\\.test --testPathIgnorePatterns=[]",
     "test:e2e": "jest --testPathPattern=e2e --testPathIgnorePatterns=[]",
     "test:all": "jest --testPathIgnorePatterns=[]",
+    "e2e:ui": "maestro test --exclude-tags ai .maestro",
+    "e2e:ui:smoke": "maestro test --include-tags smoke .maestro",
+    "e2e:ui:ai": "maestro test --include-tags ai .maestro",
+    "e2e:ui:build": "expo run:ios --configuration Release",
+    "e2e:web": "playwright test",
     "lint": "eslint 'src/**/*.{ts,tsx}'",
     "lint:fix": "eslint 'src/**/*.{ts,tsx}' --fix",
     "typecheck": "tsc --noEmit",
@@ -21,6 +26,7 @@
     "ios": "expo run:ios"
   },
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "@testing-library/jest-native": "^5.4.3",
     "@types/jest": "^29.0.0",
     "@types/react": "~19.1.10",

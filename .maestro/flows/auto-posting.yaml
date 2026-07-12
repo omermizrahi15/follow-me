@@ -1,0 +1,33 @@
+appId: com.followme.app
+name: auto-posting
+tags:
+  - auth
+---
+# Open the Auto-posting section and exercise the schedule controls (frequency,
+# reminder day + time), which sit near the top of the sheet. Reuses the session
+# from sign-in.
+#
+# Note: tapping Save is intentionally NOT covered here. Save sits below a
+# drag-to-reorder category list inside a ~42%-height bottom sheet, which is a
+# hostile scroll target for Maestro (swipes get captured by the drag rows). The
+# config save round-trip is exercised by the unit/integration suites instead.
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000
+- tapOn:
+    id: "section-nav-auto"
+- assertVisible: "Auto-posting"
+- tapOn:
+    id: "auto-freq-weekly"
+- tapOn:
+    id: "auto-day-1"
+- tapOn:
+    id: "auto-time-18:00"
+# Still on the Auto-posting section after interacting — controls are live.
+- assertVisible: "Auto-posting"
+- tapOn:
+    id: "section-nav-me"
+- assertVisible:
+    id: "home-add-post"

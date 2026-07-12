@@ -441,6 +441,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           {FREQ_OPTIONS.map(({ value, label }) => (
             <TouchableOpacity
               key={value}
+              testID={`auto-freq-${value}`}
               style={[styles.option, frequency === value && styles.optionActive]}
               onPress={() => setFrequency(value)}
             >
@@ -459,6 +460,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           {DAY_LABELS.map((label, day) => (
             <TouchableOpacity
               key={day}
+              testID={`auto-day-${day}`}
               style={[styles.dayOption, notifyDayOfWeek === day && styles.optionActive]}
               onPress={() => setNotifyDayOfWeek(day)}
             >
@@ -473,6 +475,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           {TIME_PRESETS.map(t => (
             <TouchableOpacity
               key={t}
+              testID={`auto-time-${t}`}
               style={[styles.option, notifyTime === t && styles.optionActive]}
               onPress={() => setNotifyTime(t)}
             >
@@ -527,6 +530,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           {([5, 10, 15] as PhotoCount[]).map(n => (
             <TouchableOpacity
               key={n}
+              testID={`auto-count-${n}`}
               style={[styles.option, photoCount === n && styles.optionActive]}
               onPress={() => setPhotoCount(n)}
             >
@@ -547,6 +551,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           </Text>
         </View>
         <Switch
+          testID="auto-approval-toggle"
           value={askBeforePost}
           onValueChange={setAskBeforePost}
           trackColor={{ false: colors.border, true: colors.success }}
@@ -561,6 +566,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       </TouchableOpacity>
 
       <TouchableOpacity
+        testID="auto-save"
         style={[styles.saveButton, saving && styles.saveButtonDisabled]}
         onPress={handleSave}
         activeOpacity={0.85}
@@ -570,6 +576,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       </TouchableOpacity>
 
       <TouchableOpacity
+        testID="auto-preview"
         style={[styles.previewButton, previewing && styles.saveButtonDisabled]}
         onPress={handlePreview}
         activeOpacity={0.85}

@@ -1,0 +1,37 @@
+appId: com.followme.app
+name: edit-profile
+tags:
+  - auth
+---
+# Settings -> Edit profile -> change name + bio -> Save -> the new name shows on
+# the Me page. Reuses the session persisted by sign-in.
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000
+- tapOn:
+    id: "home-settings-button"
+- tapOn:
+    id: "settings-edit-profile"
+- assertVisible: "Your name"
+- tapOn:
+    id: "edit-profile-name"
+- eraseText
+- inputText: "E2E Tester"
+- tapOn:
+    id: "edit-profile-bio"
+- eraseText
+- inputText: "Automated end-to-end test profile"
+- hideKeyboard
+- tapOn:
+    id: "edit-profile-save"
+# Save persists to Supabase then navigates back to Settings.
+- extendedWaitUntil:
+    visible:
+      id: "settings-edit-profile"
+    timeout: 15000
+- tapOn:
+    id: "header-back"
+# Back on the Me page the reloaded profile shows the new name.
+- assertVisible: "E2E Tester"

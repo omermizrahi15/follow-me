@@ -30,14 +30,19 @@ import { CloudinaryStorageService } from '../infrastructure/storage/CloudinarySt
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import Constants from 'expo-constants';
 
-function requireEnv(key: string): string {
-  const value = process.env[key] as string | undefined;
-  if (!value) throw new Error(`Missing required environment variable: ${key}`);
+/**
+ * Asserts an EXPO_PUBLIC_* build-time variable is present. Callers MUST pass the
+ * value via a static `process.env.EXPO_PUBLIC_X` reference (never a dynamic
+ * `process.env[key]`): Expo only inlines static references into the production
+ * bundle, so a dynamic lookup is `undefined` at runtime and blanks the app.
+ */
+function requireEnv(value: string | undefined, name: string): string {
+  if (!value) throw new Error(`Missing required environment variable: ${name}`);
   return value;
 }
 
-const supabaseUrl = requireEnv('EXPO_PUBLIC_SUPABASE_URL');
-const supabaseKey = requireEnv('EXPO_PUBLIC_SUPABASE_ANON_KEY');
+const supabaseUrl = requireEnv(process.env.EXPO_PUBLIC_SUPABASE_URL as string | undefined, 'EXPO_PUBLIC_SUPABASE_URL');
+const supabaseKey = requireEnv(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string | undefined, 'EXPO_PUBLIC_SUPABASE_ANON_KEY');
 
 const mediaRepo = new SupabaseMediaRepository(supabaseUrl, supabaseKey);
 const subscriberRepo = new SupabaseSubscriberRepository(supabaseUrl, supabaseKey);
@@ -46,8 +51,8 @@ const candidateRepo = new SupabaseCandidatePhotoRepository(supabaseUrl, supabase
 const profileRepo = new SupabasePublisherProfileRepository(supabaseUrl, supabaseKey);
 // Shared photo uploader (Cloudinary) — used for posts and profile avatars.
 export const storage = new CloudinaryStorageService(
-  requireEnv('EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
-  requireEnv('EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
+  requireEnv(process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME as string | undefined, 'EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
+  requireEnv(process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET as string | undefined, 'EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
 );
 // Manual posts send WhatsApp via the send-post Edge Function (Twilio creds stay
 // server-side, issue #24). Subscribe confirmations are server-side too (the
@@ -66,7 +71,7 @@ const confirmationSender = new ConsoleConfirmationSender();
 
 const mediaLibrary = new ExpoMediaLibrary();
 const photoClassifier = new GeminiPhotoClassifier(
-  requireEnv('EXPO_PUBLIC_CLASSIFY_FN_URL'),
+  requireEnv(process.env.EXPO_PUBLIC_CLASSIFY_FN_URL as string | undefined, 'EXPO_PUBLIC_CLASSIFY_FN_URL'),
   supabaseKey,
   expoResolvePayload,
   // The classify function requires a signed-in user's JWT (anon key rejected).
