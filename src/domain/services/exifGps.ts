@@ -1,4 +1,5 @@
 import type { Coordinate } from '../interfaces';
+import { validCoordinate } from './coordinate';
 
 /**
  * GPS fields as they appear in picker EXIF data. iOS reports positive degrees
@@ -26,8 +27,5 @@ export function gpsFromExif(exif: GpsExif | null | undefined): Coordinate | null
   const latitude = toDegrees(exif.GPSLatitude, exif.GPSLatitudeRef);
   const longitude = toDegrees(exif.GPSLongitude, exif.GPSLongitudeRef);
   if (latitude == null || longitude == null) return null;
-  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
-  // Exact (0, 0) is the classic "no fix" marker, not a real photo spot.
-  if (latitude === 0 && longitude === 0) return null;
-  return { latitude, longitude };
+  return validCoordinate(latitude, longitude);
 }
