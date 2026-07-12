@@ -25,8 +25,8 @@ export function publisherDisplayName(
  * `auth.admin`, whose deep generics trip TS2589 ("excessively deep") when matched
  * structurally.
  */
-// deno-lint-ignore no-explicit-any
 export async function publisherIdentity(
+  // deno-lint-ignore no-explicit-any
   supabase: any,
   publisherId: string,
 ): Promise<{ name: string; phone?: string }> {
