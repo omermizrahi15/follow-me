@@ -127,7 +127,7 @@ export function EditProfileScreen(): React.JSX.Element {
           keyboardDismissMode="interactive"
         >
           <View style={styles.avatarRow}>
-            <TouchableOpacity style={styles.avatar} onPress={handlePickAvatar} activeOpacity={0.8}>
+            <TouchableOpacity testID="edit-profile-avatar" style={styles.avatar} onPress={handlePickAvatar} activeOpacity={0.8}>
               {avatarUri != null ? (
                 <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
               ) : (
@@ -144,6 +144,7 @@ export function EditProfileScreen(): React.JSX.Element {
 
           <Text style={styles.label}>Your name</Text>
           <TextInput
+            testID="edit-profile-name"
             style={styles.input}
             placeholder="e.g. Omer Mizrahi"
             placeholderTextColor={colors.textMuted}
@@ -155,6 +156,7 @@ export function EditProfileScreen(): React.JSX.Element {
 
           <Text style={styles.label}>About you (optional)</Text>
           <TextInput
+            testID="edit-profile-bio"
             style={[styles.input, styles.bioInput]}
             placeholder="A short line about what you share"
             placeholderTextColor={colors.textMuted}
@@ -170,6 +172,7 @@ export function EditProfileScreen(): React.JSX.Element {
 
         <View style={styles.footer}>
           <TouchableOpacity
+            testID="edit-profile-save"
             style={[styles.primary, saving && styles.disabled]}
             onPress={handleSave}
             disabled={saving}

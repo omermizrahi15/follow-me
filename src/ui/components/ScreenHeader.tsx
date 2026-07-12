@@ -14,6 +14,7 @@ export function ScreenHeader({ title, showBack = true }: { title: string; showBa
     <View style={styles.header}>
       {showBack && (
         <TouchableOpacity
+          testID="header-back"
           onPress={() => navigation.goBack()}
           style={styles.back}
           accessibilityRole="button"

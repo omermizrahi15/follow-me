@@ -79,6 +79,7 @@ export function PhoneSignInScreen(): React.JSX.Element {
           </View>
 
           <TextInput
+            testID="signin-otp-input"
             style={styles.input}
             placeholder="123456"
             placeholderTextColor={colors.textMuted}
@@ -90,9 +91,10 @@ export function PhoneSignInScreen(): React.JSX.Element {
             returnKeyType="done"
           />
 
-          {error != null && <Text style={styles.error}>{error}</Text>}
+          {error != null && <Text testID="signin-error" style={styles.error}>{error}</Text>}
 
           <TouchableOpacity
+            testID="signin-verify-button"
             style={[styles.button, (loading || !code.trim()) && styles.disabled]}
             onPress={handleVerifyOtp}
             disabled={loading || !code.trim()}
@@ -103,7 +105,7 @@ export function PhoneSignInScreen(): React.JSX.Element {
             }
           </TouchableOpacity>
 
-          <TouchableOpacity onPress={() => setSent(false)}>
+          <TouchableOpacity testID="signin-change-number" onPress={() => setSent(false)}>
             <Text style={styles.changeNumber}>Use a different number</Text>
           </TouchableOpacity>
         </KeyboardAvoidingView>
@@ -127,6 +129,7 @@ export function PhoneSignInScreen(): React.JSX.Element {
         </View>
 
         <TextInput
+          testID="signin-phone-input"
           style={styles.input}
           placeholder="+972501234567"
           placeholderTextColor={colors.textMuted}
@@ -138,9 +141,10 @@ export function PhoneSignInScreen(): React.JSX.Element {
           returnKeyType="done"
         />
 
-        {error != null && <Text style={styles.error}>{error}</Text>}
+        {error != null && <Text testID="signin-error" style={styles.error}>{error}</Text>}
 
         <TouchableOpacity
+          testID="signin-send-button"
           style={[styles.button, (loading || !phone.trim()) && styles.disabled]}
           onPress={handleSendOtp}
           disabled={loading || !phone.trim()}

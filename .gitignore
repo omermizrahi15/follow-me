@@ -43,3 +43,9 @@ src/infrastructure/classifiers/__fixtures__/*.jpg
 src/infrastructure/classifiers/__fixtures__/*.jpeg
 src/infrastructure/classifiers/__fixtures__/*.png
 src/infrastructure/classifiers/__fixtures__/*.webp
+
+# Playwright web E2E
+/test-results/
+/playwright-report/
+/blob-report/
+/playwright/.cache/

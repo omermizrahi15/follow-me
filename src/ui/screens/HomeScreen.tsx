@@ -194,6 +194,7 @@ export function HomeScreen(): React.JSX.Element {
           <Text style={[styles.logoText, { color: headerTint }]}>Follow Me</Text>
         </View>
         <TouchableOpacity
+          testID="home-settings-button"
           style={[styles.gearButton, !overPhotos && styles.gearButtonLight]}
           accessibilityLabel="Settings"
           onPress={() => navigation.navigate('Settings')}
@@ -229,7 +230,7 @@ export function HomeScreen(): React.JSX.Element {
                   )}
                 </View>
                 <View style={styles.profileText}>
-                  <Text style={styles.name} numberOfLines={1}>{displayName}</Text>
+                  <Text testID="home-profile-name" style={styles.name} numberOfLines={1}>{displayName}</Text>
                   {bio != null && (
                     <Text style={styles.bio} numberOfLines={bioExpanded ? undefined : 2}>
                       {bio}
@@ -263,6 +264,7 @@ export function HomeScreen(): React.JSX.Element {
 
               <View style={styles.actions}>
                 <TouchableOpacity
+                  testID="home-add-post"
                   style={styles.addButton}
                   activeOpacity={0.85}
                   onPress={() => navigation.navigate('Upload')}
@@ -270,7 +272,7 @@ export function HomeScreen(): React.JSX.Element {
                   <Ionicons name="add" size={16} color="#fff" />
                   <Text style={styles.addButtonText}>Add post</Text>
                 </TouchableOpacity>
-                <TouchableOpacity style={styles.inviteButton} activeOpacity={0.85} onPress={shareInvite}>
+                <TouchableOpacity testID="home-invite" style={styles.inviteButton} activeOpacity={0.85} onPress={shareInvite}>
                   <Ionicons name="person-add-outline" size={15} color={colors.ink} />
                   <Text style={styles.inviteButtonText}>Invite</Text>
                 </TouchableOpacity>

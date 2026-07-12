@@ -1,0 +1,177 @@
+name: E2E UI (Maestro)
+
+# Building the native iOS app takes ~15 min, so this NEVER runs on the PR
+# critical path. Instead it runs AFTER the fast Ubuntu "CI" workflow passes on
+# main (workflow_run) — an async, post-merge regression signal that blocks
+# nothing — plus on-demand dispatch and a nightly safety net.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '0 6 * * *' # 06:00 UTC nightly
+  workflow_run:
+    workflows: [CI] # the Ubuntu typecheck/lint/test workflow (.github/workflows/ci.yml)
+    types: [completed]
+    branches: [main]
+
+jobs:
+  maestro:
+    name: Maestro flows (iOS simulator)
+    runs-on: macos-15 # ships Xcode 16 — RN 0.81 requires it (macos-14 default is 15.x)
+    timeout-minutes: 45
+    # For workflow_run, only proceed when the upstream CI actually passed;
+    # dispatch and schedule have no upstream run so they always proceed.
+    if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
+    env:
+      LANG: en_US.UTF-8 # CocoaPods unicode-normalize guard
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pick the newest Xcode on the image; RN 0.81's CocoaPods scripts reject
+      # older versions ("Please upgrade XCode").
+      - name: Select latest Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      # Node 20+ required: Expo's metro config uses Array.prototype.toReversed.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      # The app bakes EXPO_PUBLIC_* into the JS bundle at build time. container.ts
+      # calls requireEnv() for ALL of these at module load and throws if any is
+      # missing — a missing var white-screens the app before React mounts, so the
+      # full set must be present. All are public client config (they ship inside
+      # the app), so the non-Supabase ones fall back to placeholders: enough for
+      # the app to boot for UI tests, which don't exercise Cloudinary/classify.
+      # Set real values as repo secrets if a future flow needs those features.
+      - name: Write .env
+        env:
+          SUPABASE_URL: ${{ secrets.EXPO_PUBLIC_SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.EXPO_PUBLIC_SUPABASE_ANON_KEY }}
+          CLOUDINARY_CLOUD_NAME: ${{ secrets.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME }}
+          CLOUDINARY_UPLOAD_PRESET: ${{ secrets.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET }}
+          CLASSIFY_FN_URL: ${{ secrets.EXPO_PUBLIC_CLASSIFY_FN_URL }}
+        run: |
+          {
+            echo "EXPO_PUBLIC_SUPABASE_URL=${SUPABASE_URL}"
+            echo "EXPO_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}"
+            echo "EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME=${CLOUDINARY_CLOUD_NAME:-ci-placeholder}"
+            echo "EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET=${CLOUDINARY_UPLOAD_PRESET:-ci-placeholder}"
+            echo "EXPO_PUBLIC_CLASSIFY_FN_URL=${CLASSIFY_FN_URL:-https://ci-placeholder.functions.supabase.co/classify}"
+          } > .env
+
+      # Fail fast (before the ~17 min build) if the secrets are empty/malformed.
+      # createClient() throws synchronously on a bad URL, which white-screens the
+      # app at startup and fails every flow. Prints only safe fingerprints.
+      - name: Verify env secrets
+        run: |
+          url=$(grep '^EXPO_PUBLIC_SUPABASE_URL=' .env | cut -d= -f2-)
+          key=$(grep '^EXPO_PUBLIC_SUPABASE_ANON_KEY=' .env | cut -d= -f2-)
+          echo "SUPABASE_URL: length=${#url}, https=$([[ "$url" == https://* ]] && echo yes || echo no)"
+          echo "ANON_KEY: length=${#key}"
+          # Require a non-empty project ref: 'https://.supabase.co' (ref dropped)
+          # parses fine in createClient but fails DNS at request time.
+          if [[ ! "$url" =~ ^https://[a-z0-9]+\.supabase\.co$ ]]; then
+            echo "::error::EXPO_PUBLIC_SUPABASE_URL must be https://<ref>.supabase.co with a non-empty ref (got host '$(printf '%s' "$url" | sed -E 's#https?://##')')."
+            exit 1
+          fi
+          if [ "${#key}" -lt 100 ]; then
+            echo "::error::EXPO_PUBLIC_SUPABASE_ANON_KEY secret is missing or too short to be a real anon key."
+            exit 1
+          fi
+          # Reachability probe: sign-in failed with "Network request failed", so
+          # confirm the runner can actually reach this project (the host/ref is
+          # public — it ships in the app — so it's safe to print).
+          echo "SUPABASE host: $(printf '%s' "$url" | sed -E 's#https?://##')"
+          echo "auth/v1/health from runner: $(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$url/auth/v1/health" 2>&1 || echo 'UNREACHABLE')"
+
+      - name: Install Maestro
+        run: |
+          curl -fsSL https://get.maestro.mobile.dev | bash
+          echo "$HOME/.maestro/bin" >> "$GITHUB_PATH"
+
+      # expo run:ios runs prebuild + pod install, boots a simulator, then builds
+      # and installs the Release app (JS bundle embedded, no Metro at test time).
+      - name: Build & install app on simulator
+        run: npx expo run:ios --configuration Release --no-bundler
+
+      - name: Run smoke flows (no backend)
+        run: npm run e2e:ui:smoke
+
+      # Auth flows need a Supabase test-OTP pair (Dashboard -> Auth -> Providers ->
+      # Phone -> Test OTPs) stored as secrets. Skipped automatically if unset.
+      #
+      # Retry the whole suite once: the app intermittently crashes on a cold
+      # launch on the CI simulator (~1 flow per run, no native crash report — a
+      # startup watchdog/flake, not a flow bug). One retry makes that vanish
+      # without masking a genuinely broken flow, which fails both attempts.
+      - name: Run auth flows
+        env:
+          E2E_PHONE: ${{ secrets.E2E_PHONE }}
+          E2E_OTP: ${{ secrets.E2E_OTP }}
+        run: |
+          if [ -z "$E2E_PHONE" ] || [ -z "$E2E_OTP" ]; then
+            echo "E2E_PHONE/E2E_OTP not set — skipping auth flows (smoke only)."
+            exit 0
+          fi
+          for attempt in 1 2 3; do
+            echo "::group::Auth suite attempt $attempt/3"
+            if npm run e2e:ui -- -e E2E_PHONE="$E2E_PHONE" -e E2E_OTP="$E2E_OTP"; then
+              echo "::endgroup::"; exit 0
+            fi
+            echo "::endgroup::"
+            echo "Attempt $attempt failed."
+          done
+          echo "::error::Auth suite failed on all 3 attempts."
+          exit 1
+
+      # On failure, gather the real cause of a blank screen: (1) whether the
+      # EXPO_PUBLIC_* values were inlined into the built JS bundle, (2) any native
+      # crash report, and (3) the app's os_log during a fresh launch — where RN's
+      # fatal JS exception actually surfaces (a redbox is suppressed in Release).
+      - name: Diagnose app startup on failure
+        if: failure()
+        run: |
+          echo "===== 1. Is EXPO_PUBLIC_* inlined in the built bundle? ====="
+          BUNDLE=$(find ~/Library/Developer/CoreSimulator -name '*.jsbundle' -path '*com.followme.app*' 2>/dev/null | head -1)
+          echo "bundle: ${BUNDLE:-NOT FOUND}"
+          if [ -n "$BUNDLE" ]; then
+            echo "bundle size: $(wc -c < "$BUNDLE") bytes"
+            echo "supabase.co occurrences: $(grep -c 'supabase\.co' "$BUNDLE" 2>/dev/null || echo 0)"
+            echo "ci-placeholder occurrences: $(grep -c 'ci-placeholder' "$BUNDLE" 2>/dev/null || echo 0)"
+            echo "literal 'process.env.EXPO_PUBLIC' (should be 0 if inlined): $(grep -c 'process\.env\.EXPO_PUBLIC' "$BUNDLE" 2>/dev/null || echo 0)"
+            echo "'Missing required environment' string present: $(grep -c 'Missing required environment' "$BUNDLE" 2>/dev/null || echo 0)"
+          fi
+
+          echo "===== 2. Crash reports ====="
+          ls -t ~/Library/Logs/DiagnosticReports/ 2>/dev/null | grep -i followme || echo "(no FollowMe crash report)"
+
+          echo "===== 3. os_log during fresh launch (grepped for the real error) ====="
+          xcrun simctl terminate booted com.followme.app 2>/dev/null || true
+          xcrun simctl spawn booted log stream --level debug --style compact \
+            --predicate 'processImagePath CONTAINS "FollowMe"' > oslog.txt 2>&1 &
+          STREAM_PID=$!
+          sleep 2
+          xcrun simctl launch booted com.followme.app || true
+          sleep 12
+          kill "$STREAM_PID" 2>/dev/null || true
+          echo "captured $(wc -l < oslog.txt) log lines"
+          echo "----- lines matching error markers -----"
+          grep -iE "Missing required|environment variable|Exception|Error:|RCTFatal|Unhandled|TypeError|undefined is not|supabase|Invariant|hermes|facebook::react" oslog.txt | head -60 || echo "(no matches)"
+
+      # Screenshots + logs from any failed flow, for debugging without a local run.
+      - name: Upload Maestro artifacts
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: maestro-output
+          path: |
+            ~/.maestro/tests/
+            oslog.txt
+          if-no-files-found: ignore

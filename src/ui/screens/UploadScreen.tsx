@@ -198,6 +198,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           <View style={styles.headerTop}>
             <Text style={styles.title}>New post</Text>
             <TouchableOpacity
+              testID="upload-close"
               onPress={() => navigation.goBack()}
               accessibilityLabel="Close"
               hitSlop={8}
@@ -214,7 +215,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
         {pickedAssets.length === 0 ? (
           /* Empty state — one big centered picker target. */
           <View style={styles.emptyState}>
-            <TouchableOpacity style={styles.pickButton} onPress={handlePickMedia} activeOpacity={0.8}>
+            <TouchableOpacity testID="upload-pick-photos" style={styles.pickButton} onPress={handlePickMedia} activeOpacity={0.8}>
               <View style={styles.pickIcon}>
                 <Ionicons name="images-outline" size={30} color={colors.accent} />
               </View>

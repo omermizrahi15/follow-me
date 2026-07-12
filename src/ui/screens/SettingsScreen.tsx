@@ -22,6 +22,7 @@ export function SettingsScreen(): React.JSX.Element {
         <Text style={styles.sectionLabel}>Account</Text>
         <View style={styles.card}>
           <TouchableOpacity
+            testID="settings-edit-profile"
             style={styles.row}
             onPress={() => navigation.navigate('EditProfile')}
             activeOpacity={0.7}
@@ -60,7 +61,7 @@ export function SettingsScreen(): React.JSX.Element {
           </View>
         </View>
 
-        <TouchableOpacity style={styles.signOutButton} onPress={() => void signOut()}>
+        <TouchableOpacity testID="settings-sign-out" style={styles.signOutButton} onPress={() => void signOut()}>
           <Ionicons name="log-out-outline" size={18} color={colors.danger} />
           <Text style={styles.signOutText}>Sign out</Text>
         </TouchableOpacity>
