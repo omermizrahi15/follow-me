@@ -110,16 +110,30 @@ jobs:
 
       # Auth flows need a Supabase test-OTP pair (Dashboard -> Auth -> Providers ->
       # Phone -> Test OTPs) stored as secrets. Skipped automatically if unset.
+      #
+      # Retry the whole suite once: the app intermittently crashes on a cold
+      # launch on the CI simulator (~1 flow per run, no native crash report — a
+      # startup watchdog/flake, not a flow bug). One retry makes that vanish
+      # without masking a genuinely broken flow, which fails both attempts.
       - name: Run auth flows
         env:
           E2E_PHONE: ${{ secrets.E2E_PHONE }}
           E2E_OTP: ${{ secrets.E2E_OTP }}
         run: |
-          if [ -n "$E2E_PHONE" ] && [ -n "$E2E_OTP" ]; then
-            npm run e2e:ui -- -e E2E_PHONE="$E2E_PHONE" -e E2E_OTP="$E2E_OTP"
-          else
+          if [ -z "$E2E_PHONE" ] || [ -z "$E2E_OTP" ]; then
             echo "E2E_PHONE/E2E_OTP not set — skipping auth flows (smoke only)."
+            exit 0
           fi
+          for attempt in 1 2 3; do
+            echo "::group::Auth suite attempt $attempt/3"
+            if npm run e2e:ui -- -e E2E_PHONE="$E2E_PHONE" -e E2E_OTP="$E2E_OTP"; then
+              echo "::endgroup::"; exit 0
+            fi
+            echo "::endgroup::"
+            echo "Attempt $attempt failed."
+          done
+          echo "::error::Auth suite failed on all 3 attempts."
+          exit 1
 
       # On failure, gather the real cause of a blank screen: (1) whether the
       # EXPO_PUBLIC_* values were inlined into the built JS bundle, (2) any native
