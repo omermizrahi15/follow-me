@@ -14,3 +14,10 @@ if git diff --cached --name-only --diff-filter=ACMR | grep -q '^supabase/functio
   deno check supabase/functions/*/index.ts
   deno test supabase/functions/
 fi
+
+# Native-vs-OTA reminder: when this commit touches the native layer (deps,
+# app config, ios project), print whether an OTA update is enough or a fresh
+# `eas build` is needed. Warning only — never blocks the commit.
+if git diff --cached --name-only | grep -qE '^(package\.json|app\.json|app\.config\.js|ios/)'; then
+  STAGED=1 node .github/scripts/native-build-check.mjs || true
+fi

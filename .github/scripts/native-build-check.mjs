@@ -7,20 +7,27 @@
 import { execSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
 
-const base = process.env.BASE_SHA || 'origin/main';
-const head = process.env.HEAD_SHA || 'HEAD';
-
 const sh = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim();
 const fileAt = (ref, path) => {
   try { return execSync(`git show ${ref}:${path}`, { encoding: 'utf8' }); }
   catch { return null; } // absent at that ref
 };
 
-let mergeBase;
-try { mergeBase = sh(`git merge-base ${base} ${head}`); }
-catch { mergeBase = base; }
-
-const changed = sh(`git diff --name-only ${mergeBase} ${head}`).split('\n').filter(Boolean);
+// Two modes: CI diffs BASE_SHA..HEAD_SHA (a PR); STAGED=1 diffs HEAD..index
+// (the pre-commit hook, warning at commit time). `git show :path` reads the
+// staged copy of a file.
+let changed, mergeBase, head;
+if (process.env.STAGED === '1') {
+  mergeBase = 'HEAD';
+  head = ''; // `git show :path` = the index
+  changed = sh('git diff --cached --name-only').split('\n').filter(Boolean);
+} else {
+  const base = process.env.BASE_SHA || 'origin/main';
+  head = process.env.HEAD_SHA || 'HEAD';
+  try { mergeBase = sh(`git merge-base ${base} ${head}`); }
+  catch { mergeBase = base; }
+  changed = sh(`git diff --name-only ${mergeBase} ${head}`).split('\n').filter(Boolean);
+}
 
 const rebuild = []; // reasons a native rebuild is required
 const notes = [];   // informational (OTA still fine)
@@ -104,10 +111,11 @@ if (changed.some((f) => f.startsWith('ios/'))) {
 
 // --- render ---
 const out = [];
+const unit = process.env.STAGED === '1' ? 'commit' : 'PR';
 if (rebuild.length) {
   out.push('## ⚠️ Native rebuild likely needed');
   out.push('');
-  out.push('This PR changes the **native layer**, so the automatic EAS Update (OTA) to staging on merge will **not** fully deliver it. After merging, rebuild and reinstall the staging app:');
+  out.push(`This ${unit} changes the **native layer**, so the automatic EAS Update (OTA) to staging on merge will **not** fully deliver it. After merging, rebuild and reinstall the staging app:`);
   out.push('');
   out.push('```bash');
   out.push('eas build --profile preview     # staging .ipa — install it, then OTA resumes as normal');
@@ -130,7 +138,9 @@ if (notes.length) {
 const report = out.join('\n');
 console.log(report);
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, report + '\n');
-for (const r of rebuild) {
-  console.log(`::warning title=Native rebuild needed::${r.title} — an OTA update won't deliver this; run 'eas build --profile preview' and reinstall staging.`);
+if (process.env.GITHUB_ACTIONS) {
+  for (const r of rebuild) {
+    console.log(`::warning title=Native rebuild needed::${r.title} — an OTA update won't deliver this; run 'eas build --profile preview' and reinstall staging.`);
+  }
 }
 process.exit(0); // never block
