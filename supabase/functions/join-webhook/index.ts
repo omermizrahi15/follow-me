@@ -23,9 +23,11 @@ import {
   parseInboundCommand,
   composeUnsubscribeConfirmation,
   composeResubscribeConfirmation,
+  formToParams,
   verifyTwilioSignature,
 } from '../_shared/optOut.ts';
-import { contactHandleFromWhatsApp, formToParams, publisherDisplayName, twiml } from './logic.ts';
+import { publisherDisplayName } from '../_shared/publisher.ts';
+import { contactHandleFromWhatsApp, twiml } from './logic.ts';
 
 const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID') ?? '';
 const TWILIO_AUTH_TOKEN = Deno.env.get('TWILIO_AUTH_TOKEN') ?? '';

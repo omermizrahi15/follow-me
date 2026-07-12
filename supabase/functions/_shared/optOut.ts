@@ -11,6 +11,15 @@ export type InboundCommand =
   | { kind: 'join'; publisherId: string }
   | { kind: 'unknown' };
 
+/** Flattens a Twilio webhook's form-encoded POST into a string map (drops File entries). */
+export function formToParams(form: FormData): Record<string, string> {
+  const params: Record<string, string> = {};
+  for (const [key, value] of form.entries()) {
+    if (typeof value === 'string') params[key] = value;
+  }
+  return params;
+}
+
 const STOP_KEYWORDS = new Set(['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT']);
 const START_KEYWORDS = new Set(['START', 'UNSTOP', 'YES', 'SUBSCRIBE']);
 

@@ -3,15 +3,6 @@
 
 import { isFailureStatus, isUnreachableErrorCode } from '../_shared/messageLog.ts';
 
-/** Flattens Twilio's form-encoded POST into a plain string map (drops File entries). */
-export function formToParams(form: FormData): Record<string, string> {
-  const params: Record<string, string> = {};
-  for (const [key, value] of form.entries()) {
-    if (typeof value === 'string') params[key] = value;
-  }
-  return params;
-}
-
 /** Twilio ErrorCode as a number, or null when absent / non-numeric. */
 export function parseErrorCode(raw: string): number | null {
   if (!raw) return null;

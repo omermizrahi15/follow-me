@@ -22,9 +22,9 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { verifyTwilioSignature } from '../_shared/optOut.ts';
+import { formToParams, verifyTwilioSignature } from '../_shared/optOut.ts';
 import { markSubscriberUnreachable } from '../_shared/messageLog.ts';
-import { formToParams, shouldMarkUnreachable } from './logic.ts';
+import { shouldMarkUnreachable } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';

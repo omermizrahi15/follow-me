@@ -21,6 +21,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { credsFromEnv, sendWhatsApp } from '../_shared/twilio.ts';
 import { logAcceptedSend } from '../_shared/messageLog.ts';
+import { publisherDisplayName } from '../_shared/publisher.ts';
 import { normalizeWhatsApp } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -36,12 +37,7 @@ async function lookupPublisherName(publisherId: string): Promise<string> {
   try {
     const { data } = await supabase.auth.admin.getUserById(publisherId);
     if (!data.user) return 'your publisher';
-    // `||` (not `??`) so an empty display_name falls through to a real fallback.
-    return (
-      (data.user.user_metadata as Record<string, string>)?.display_name ||
-      data.user.email?.split('@')[0] ||
-      'your publisher'
-    );
+    return publisherDisplayName(data.user.user_metadata as Record<string, string>, data.user.email);
   } catch {
     return 'your publisher';
   }

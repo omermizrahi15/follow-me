@@ -3,9 +3,18 @@ import {
   composeResubscribeConfirmation,
   composeUnsubscribeConfirmation,
   computeTwilioSignature,
+  formToParams,
   parseInboundCommand,
   verifyTwilioSignature,
 } from './optOut.ts';
+
+Deno.test('formToParams — keeps string entries and drops File entries', () => {
+  const form = new FormData();
+  form.append('MessageSid', 'SM1');
+  form.append('From', 'whatsapp:+1');
+  form.append('media', new Blob(['x']), 'x.jpg');
+  assertEquals(formToParams(form), { MessageSid: 'SM1', From: 'whatsapp:+1' });
+});
 
 Deno.test('parseInboundCommand — STOP keywords (case/space insensitive)', () => {
   for (const kw of ['STOP', 'stop', '  Stop ', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'END', 'QUIT']) {

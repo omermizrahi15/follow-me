@@ -29,6 +29,7 @@ import { buildPostTemplate } from '../_shared/postTemplate.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
+import { publisherIdentity } from '../_shared/publisher.ts';
 import { validateSendPost } from './logic.ts';
 
 // Supabase edge runtime: lets background work continue after the response is sent.
@@ -42,27 +43,6 @@ const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSessio
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-}
-
-async function publisherIdentity(publisherId: string): Promise<{ name: string; phone?: string }> {
-  // The profile's display name is what the publisher chose in the app; auth
-  // metadata is only a fallback (often empty for email signups).
-  let profileName = '';
-  try {
-    const { data } = await supabase
-      .from('publisher_profile')
-      .select('display_name')
-      .eq('publisher_id', publisherId)
-      .maybeSingle();
-    profileName = (data as { display_name?: string } | null)?.display_name ?? '';
-  } catch { /* fall through to auth metadata */ }
-  try {
-    const { data } = await supabase.auth.admin.getUserById(publisherId);
-    const meta = (data.user?.user_metadata ?? {}) as { full_name?: string };
-    return { name: profileName || meta.full_name || 'Your friend', phone: data.user?.phone };
-  } catch {
-    return { name: profileName || 'Your friend' };
-  }
 }
 
 Deno.serve(async req => {
@@ -79,7 +59,7 @@ Deno.serve(async req => {
   if (!validation.ok) return json({ error: validation.error }, 400);
   const { publisherId, to, mediaUrls, place } = validation.value;
 
-  const { name, phone } = await publisherIdentity(publisherId);
+  const { name, phone } = await publisherIdentity(supabase, publisherId);
   const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls);
   const caption = composeAutoPostBody(
     name,

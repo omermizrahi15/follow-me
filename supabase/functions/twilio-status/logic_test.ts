@@ -1,16 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
-import { formToParams, parseErrorCode, shouldMarkUnreachable } from './logic.ts';
-
-Deno.test('formToParams — flattens string entries and drops non-string ones', () => {
-  const form = new FormData();
-  form.append('MessageSid', 'SM1');
-  form.append('MessageStatus', 'delivered');
-  form.append('file', new Blob(['x']), 'x.txt'); // File entry — ignored
-  const params = formToParams(form);
-  assertEquals(params.MessageSid, 'SM1');
-  assertEquals(params.MessageStatus, 'delivered');
-  assert(!('file' in params));
-});
+import { parseErrorCode, shouldMarkUnreachable } from './logic.ts';
 
 Deno.test('parseErrorCode — numeric string, empty, and non-numeric', () => {
   assertEquals(parseErrorCode('21211'), 21211);
