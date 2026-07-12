@@ -12,7 +12,10 @@ tags:
     timeout: 15000
 - tapOn:
     id: "home-settings-button"
-- assertVisible: "Sign out"
+- extendedWaitUntil:
+    visible:
+      id: "settings-sign-out"
+    timeout: 10000
 - tapOn:
     id: "settings-sign-out"
 - extendedWaitUntil:

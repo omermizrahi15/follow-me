@@ -3,8 +3,9 @@ name: navigation
 tags:
   - auth
 ---
-# Walks the signed-in surface: Settings, Edit profile, the Upload modal and
-# the section nav. Reuses the session persisted by sign-in (no clearState).
+# Walks the signed-in surface: Settings, Edit profile, the Upload modal and the
+# section nav. Uses id-based extendedWaitUntil throughout so screen-transition
+# timing doesn't race a bare assertVisible. Reuses the session from sign-in.
 - launchApp
 - extendedWaitUntil:
     visible:
@@ -14,20 +15,36 @@ tags:
 # Home → Settings → Edit profile → back → back
 - tapOn:
     id: "home-settings-button"
-- assertVisible: "Edit profile"
+- extendedWaitUntil:
+    visible:
+      id: "settings-edit-profile"
+    timeout: 10000
 - tapOn:
     id: "settings-edit-profile"
-- assertVisible: "Your name"
+- extendedWaitUntil:
+    visible:
+      id: "edit-profile-name"
+    timeout: 10000
 - tapOn:
     id: "header-back"
-- assertVisible: "Sign out"
+- extendedWaitUntil:
+    visible:
+      id: "settings-sign-out"
+    timeout: 10000
 - tapOn:
     id: "header-back"
 
 # Home → Upload modal → close
+- extendedWaitUntil:
+    visible:
+      id: "home-add-post"
+    timeout: 10000
 - tapOn:
     id: "home-add-post"
-- assertVisible: "New post"
+- extendedWaitUntil:
+    visible:
+      id: "upload-pick-photos"
+    timeout: 10000
 - tapOn:
     id: "upload-close"
 

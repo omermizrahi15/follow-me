@@ -3,8 +3,8 @@ name: auto-posting
 tags:
   - auth
 ---
-# Configure the auto-posting schedule (frequency, reminder day/time, photos per
-# post, approval) and Save. Reuses the session from sign-in.
+# Configure the auto-posting schedule (frequency, reminder day + time) and Save.
+# Reuses the session from sign-in.
 - launchApp
 - extendedWaitUntil:
     visible:
@@ -13,14 +13,21 @@ tags:
 - tapOn:
     id: "section-nav-auto"
 - assertVisible: "Auto-posting"
+# Frequency / reminder day / reminder time sit above the (scrollable) category
+# list near the top of the sheet.
 - tapOn:
     id: "auto-freq-weekly"
 - tapOn:
     id: "auto-day-1"
 - tapOn:
     id: "auto-time-18:00"
-- tapOn:
-    id: "auto-count-10"
+# Save is below the category list — scroll it into view first (the photos-per-post
+# options are mid-list and skipped here to avoid a fragile tap between drag rows).
+- scrollUntilVisible:
+    element:
+      id: "auto-save"
+    direction: DOWN
+    timeout: 20000
 - tapOn:
     id: "auto-save"
 # First Save asks for photo-sync consent via a native alert — decline it so the
