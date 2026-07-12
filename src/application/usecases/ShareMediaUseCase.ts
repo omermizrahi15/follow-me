@@ -5,6 +5,7 @@ import type {
   IMediaRepository,
   ISubscriberRepository,
   INotifier,
+  INotificationLogger,
   IStorageService,
 } from '../../domain/interfaces';
 import { resolvePostingPlace } from '../services/resolvePostingPlace';
@@ -44,6 +45,7 @@ export class ShareMediaUseCase {
     private readonly notifier: INotifier,
     private readonly storage: IStorageService,
     private readonly geocoder?: IGeocoder,
+    private readonly deliveryLog?: INotificationLogger,
   ) {}
 
   async share(input: ShareMediaInput, onProgress?: (p: ShareProgress) => void): Promise<MediaDto[]> {
@@ -83,14 +85,41 @@ export class ShareMediaUseCase {
 
     const subscribers = await this.subscriberRepo.findActiveByPublisher(input.ownerId);
     onProgress?.({ stage: 'notifying', done: 0, total: subscribers.length });
+    const photoIds = mediaItems.map(m => m.id);
+    // Every (photo, subscriber) pair starts as 'pending' before any send, so a
+    // crash mid-share still leaves a trace of what was never delivered.
+    await this.safeLog(() =>
+      this.deliveryLog?.logPending(
+        subscribers.flatMap(s =>
+          photoIds.map(photoId => ({ photoId, subscriberId: s.id, publisherId: input.ownerId })),
+        ),
+      ),
+    );
     let notified = 0;
     await Promise.all(subscribers.map(async s => {
-      await this.notifier.notify(s, mediaItems);
+      try {
+        await this.notifier.notify(s, mediaItems);
+        await this.safeLog(() => this.deliveryLog?.markSent(photoIds, s.id));
+      } catch {
+        // The notifier has already exhausted its retries by the time it
+        // throws. Record the failure instead of rethrowing — one unreachable
+        // subscriber must not fail the whole share.
+        await this.safeLog(() => this.deliveryLog?.markFailed(photoIds, s.id));
+      }
       notified++;
       onProgress?.({ stage: 'notifying', done: notified, total: subscribers.length });
     }));
 
     return mediaItems.map(m => MediaMapper.toDto(m));
+  }
+
+  /** Delivery logging is best-effort: a broken log must never block a share. */
+  private async safeLog(fn: () => Promise<void> | undefined): Promise<void> {
+    try {
+      await fn();
+    } catch {
+      // Worst case a row stays 'pending' — acceptable for an audit trail.
+    }
   }
 
   /**

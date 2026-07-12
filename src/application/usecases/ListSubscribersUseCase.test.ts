@@ -33,6 +33,17 @@ describe('ListSubscribersUseCase', () => {
     expect(result[0]?.id).toBe('s1');
   });
 
+  it('includes unreachable subscribers so the publisher can see them', async (): Promise<void> => {
+    const { useCase, repo } = makeSut();
+    await repo.save(Subscriber.create({ id: 's1', publisherId: 'pub-1', contactHandle: '+972500000001', status: 'active' }));
+    await repo.save(Subscriber.create({ id: 's2', publisherId: 'pub-1', contactHandle: '+972500000002', status: 'unreachable' }));
+
+    const result = await useCase.list('pub-1');
+
+    expect(result).toHaveLength(2);
+    expect(result.find(s => s.id === 's2')?.status).toBe('unreachable');
+  });
+
   it('does not return subscribers belonging to other publishers', async (): Promise<void> => {
     const { useCase, repo } = makeSut();
     await repo.save(Subscriber.create({ id: 's1', publisherId: 'pub-1', contactHandle: '+972500000001', status: 'active' }));

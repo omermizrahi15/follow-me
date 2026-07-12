@@ -17,6 +17,7 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const { subscribers, loading, error, remove } = useSubscribers(publisherId);
   const { shareInvite } = useInviteLink();
+  const unreachableCount = subscribers.filter(s => s.status === 'unreachable').length;
 
   function confirmRemove(subscriber: SubscriberDto): void {
     Alert.alert(
@@ -44,6 +45,13 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
         Followers{subscribers.length > 0 ? ` · ${subscribers.length}` : ''}
       </Text>
 
+      {unreachableCount > 0 && (
+        <Text style={styles.unreachableSummary}>
+          {unreachableCount} of {subscribers.length} follower{subscribers.length !== 1 ? 's' : ''} can't be
+          reached on WhatsApp — their number may be invalid or they may have blocked messages.
+        </Text>
+      )}
+
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>
       ) : error != null ? (
@@ -58,7 +66,11 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
             </View>
             <View style={styles.rowInfo}>
               <Text style={styles.rowHandle}>{s.contactHandle}</Text>
-              <Text style={styles.rowStatus}>Active</Text>
+              {s.status === 'unreachable' ? (
+                <Text style={styles.rowStatusUnreachable}>Unreachable</Text>
+              ) : (
+                <Text style={styles.rowStatus}>Active</Text>
+              )}
             </View>
             <TouchableOpacity style={styles.removeButton} onPress={() => confirmRemove(s)}>
               <Text style={styles.removeButtonText}>Remove</Text>
@@ -101,6 +113,8 @@ const styles = StyleSheet.create({
   rowInfo: { flex: 1 },
   rowHandle: { ...typography.body, fontSize: 14, fontWeight: '600', color: colors.text },
   rowStatus: { color: colors.success, fontSize: 11, marginTop: 1 },
+  rowStatusUnreachable: { color: colors.danger, fontSize: 11, marginTop: 1 },
+  unreachableSummary: { ...typography.caption, color: colors.danger, lineHeight: 18, marginBottom: spacing.xs },
   removeButton: {
     backgroundColor: colors.surface,
     borderRadius: radius.sm,

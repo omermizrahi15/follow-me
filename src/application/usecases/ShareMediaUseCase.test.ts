@@ -5,6 +5,7 @@ import {
   InMemoryMediaRepository,
   InMemorySubscriberRepository,
   InMemoryNotifier,
+  InMemoryNotificationLogger,
   InMemoryStorageService,
 } from '../../test-support/fakes';
 
@@ -18,14 +19,16 @@ function makeSut(): {
   subscriberRepo: InMemorySubscriberRepository;
   notifier: InMemoryNotifier;
   geocoder: FakeGeocoder;
+  deliveryLog: InMemoryNotificationLogger;
 } {
   const mediaRepo = new InMemoryMediaRepository();
   const subscriberRepo = new InMemorySubscriberRepository();
   const notifier = new InMemoryNotifier();
   const storage = new InMemoryStorageService();
   const geocoder = new FakeGeocoder();
-  const useCase = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage, geocoder);
-  return { useCase, mediaRepo, subscriberRepo, notifier, geocoder };
+  const deliveryLog = new InMemoryNotificationLogger();
+  const useCase = new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storage, geocoder, deliveryLog);
+  return { useCase, mediaRepo, subscriberRepo, notifier, geocoder, deliveryLog };
 }
 
 const singleItem = [{ mediaId: 'media-1', localUri: 'file:///local/photo.jpg', filename: 'photo.jpg' }];
@@ -233,6 +236,73 @@ describe('ShareMediaUseCase — subscriber filtering', () => {
     await subscriberRepo.save(makeSubscriber('sub-other', 'user-2'));
     await useCase.share({ ownerId: 'user-1', items: singleItem });
     expect(notifier.sent).toHaveLength(0);
+  });
+});
+
+describe('ShareMediaUseCase — delivery logging', () => {
+  it('marks every (photo, subscriber) pair sent on success', async (): Promise<void> => {
+    const { useCase, subscriberRepo, deliveryLog } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+    await subscriberRepo.save(makeSubscriber('sub-2', 'user-1'));
+    await useCase.share({ ownerId: 'user-1', items: multipleItems });
+    expect(deliveryLog.all()).toHaveLength(6); // 3 photos × 2 subscribers
+    expect(deliveryLog.all().every(d => d.status === 'sent')).toBe(true);
+    expect(deliveryLog.statusOf('media-1', 'sub-1')).toBe('sent');
+  });
+
+  it('stamps the publisher on every delivery entry', async (): Promise<void> => {
+    const { useCase, subscriberRepo, deliveryLog } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
+    expect(deliveryLog.all().every(d => d.publisherId === 'user-1')).toBe(true);
+  });
+
+  it('marks deliveries failed when the notifier gives up, without failing the share', async (): Promise<void> => {
+    const { useCase, subscriberRepo, notifier, deliveryLog } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-ok', 'user-1'));
+    await subscriberRepo.save(makeSubscriber('sub-bad', 'user-1'));
+    notifier.failFor('sub-bad');
+
+    const dtos = await useCase.share({ ownerId: 'user-1', items: singleItem });
+
+    expect(dtos).toHaveLength(1); // the share itself succeeds
+    expect(deliveryLog.statusOf('media-1', 'sub-ok')).toBe('sent');
+    expect(deliveryLog.statusOf('media-1', 'sub-bad')).toBe('failed');
+  });
+
+  it('still notifies the other subscribers when one delivery fails', async (): Promise<void> => {
+    const { useCase, subscriberRepo, notifier } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-bad', 'user-1'));
+    await subscriberRepo.save(makeSubscriber('sub-ok', 'user-1'));
+    notifier.failFor('sub-bad');
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
+    expect(notifier.wasNotified('sub-ok')).toBe(true);
+  });
+
+  it('logs nothing when there are no subscribers', async (): Promise<void> => {
+    const { useCase, deliveryLog } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: multipleItems });
+    expect(deliveryLog.all()).toHaveLength(0);
+  });
+
+  it('still shares and notifies when the delivery log is down', async (): Promise<void> => {
+    const { useCase, subscriberRepo, notifier, deliveryLog } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+    deliveryLog.failing = true;
+    const dtos = await useCase.share({ ownerId: 'user-1', items: singleItem });
+    expect(dtos).toHaveLength(1);
+    expect(notifier.wasNotified('sub-1')).toBe(true);
+  });
+
+  it('works without a delivery log wired at all', async (): Promise<void> => {
+    const notifier = new InMemoryNotifier();
+    const subscriberRepo = new InMemorySubscriberRepository();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+    const useCase = new ShareMediaUseCase(
+      new InMemoryMediaRepository(), subscriberRepo, notifier, new InMemoryStorageService(),
+    );
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
+    expect(notifier.wasNotified('sub-1')).toBe(true);
   });
 });
 

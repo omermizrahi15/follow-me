@@ -124,7 +124,8 @@ async function handleStop(contactHandle: string, from: string, detail: string): 
   // Unknown number — stay silent (don't confirm an unsubscribe we never had).
   if (subscribers.length === 0) return new Response('', { status: 204 });
 
-  for (const sub of subscribers.filter(s => s.status === 'active')) {
+  // An explicit STOP beats 'unreachable' — record the opt-out either way.
+  for (const sub of subscribers.filter(s => s.status === 'active' || s.status === 'unreachable')) {
     await supabase.from('subscribers').update({ status: 'revoked' }).eq('id', sub.id);
     await logEvent('opt_out', {
       subscriberId: sub.id,
@@ -154,7 +155,9 @@ async function handleStart(contactHandle: string, from: string, detail: string):
 
   if (subscribers.length === 0) return new Response('', { status: 204 });
 
-  for (const sub of subscribers.filter(s => s.status === 'revoked')) {
+  // A START from the number proves it's reachable again, so 'unreachable'
+  // rows reactivate here too.
+  for (const sub of subscribers.filter(s => s.status === 'revoked' || s.status === 'unreachable')) {
     await supabase.from('subscribers').update({ status: 'active' }).eq('id', sub.id);
     await logEvent('opt_in', {
       subscriberId: sub.id,
