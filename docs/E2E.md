@@ -87,6 +87,18 @@ Note: `workflow_run` only fires once this workflow is on the default branch, and
 | `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | optional | Same as above |
 | `EXPO_PUBLIC_CLASSIFY_FN_URL` | optional | Same as above (AI photo suggestions) |
 
+## Web E2E — the subscribe page
+
+The follower-facing subscribe page (`docs/join/index.html`) is a static browser page, not part of the iOS app, so Maestro can't reach it. It's covered separately with **Playwright** ([`web-e2e/subscribe.spec.ts`](../web-e2e/subscribe.spec.ts)): render the form, successful subscribe → confirmation, the exact `{publisherId, contactHandle}` payload sent to the `subscribe` edge function, server-error and network-error handling. The `subscribe` call is intercepted, so tests are deterministic and create no real subscriptions.
+
+```sh
+npm run e2e:web          # headless chromium, ~6s; serves docs/ on :8080
+npx playwright test --ui # interactive
+```
+
+Runs on Ubuntu in ~1-2 min, so — unlike the simulator suite — it gates **every** push/PR ([`.github/workflows/web-e2e.yml`](../.github/workflows/web-e2e.yml)). Needs `python3` (present on the runner) to serve `docs/`.
+
 ## Not covered (yet)
 
 - Photo picking/upload past the system photo picker (Maestro can tap into it, but the flow stops at the modal for now).
+- The subscribe page's real backend round-trip (the edge function itself) — the Playwright tests mock it; the function has its own server-side tests.

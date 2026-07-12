@@ -12,10 +12,6 @@ on:
     workflows: [CI] # the Ubuntu typecheck/lint/test workflow (.github/workflows/ci.yml)
     types: [completed]
     branches: [main]
-  # TEMP: verify the full auth suite on PR #51 now that the test-OTP secrets
-  # exist. Remove before merge so simulator E2E stays post-main + dispatch only.
-  pull_request:
-    branches: [main]
 
 jobs:
   maestro:
