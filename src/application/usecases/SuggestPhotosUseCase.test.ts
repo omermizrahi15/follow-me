@@ -21,7 +21,7 @@ beforeEach(() => { candidateSeq = 0; });
 function classification(id: string, over: Partial<PhotoClassification> = {}): PhotoClassification {
   return {
     candidate: candidate(id),
-    category: 'view_only',
+    category: 'nature',
     confidence: 0.9,
     quality: 0.8,
     caption: 'a photo',

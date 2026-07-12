@@ -26,13 +26,11 @@ export function deduplicateCandidates(candidates: SharedCandidate[]): SharedCand
 export type SharedCategory =
   | 'selfie_with_view'
   | 'sunset_sunrise'
-  | 'view_only'
   | 'architecture'
   | 'selfie_with_people'
   | 'food'
   | 'nature'
   | 'night_scene'
-  | 'activity'
   | 'cultural'
   | 'other';
 

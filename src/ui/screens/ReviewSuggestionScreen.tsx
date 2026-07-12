@@ -21,19 +21,18 @@ import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary
 import { resolvePlaceForCoordinates } from '../../composition/container';
 import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
+import { validCoordinate } from '../../domain/services/coordinate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 const CATEGORY_LABEL: Record<PhotoCategory, string> = {
   selfie_with_view: 'Selfie + view',
   sunset_sunrise: 'Sunset / sunrise',
-  view_only: 'View',
   architecture: 'Architecture',
   selfie_with_people: 'Selfie + people',
   food: 'Food',
   nature: 'Nature',
   night_scene: 'Night scene',
-  activity: 'Activity',
   cultural: 'Cultural',
   other: 'Other',
 };
@@ -183,7 +182,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
               coordsRef.current.set(
                 id,
                 info.location != null
-                  ? { latitude: info.location.latitude, longitude: info.location.longitude }
+                  ? validCoordinate(info.location.latitude, info.location.longitude) ?? undefined
                   : undefined,
               );
             } catch {
@@ -272,7 +271,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
             try {
               const info = await MediaLibrary.getAssetInfoAsync(c.candidate.id);
               if (info.location != null) {
-                coordinate = { latitude: info.location.latitude, longitude: info.location.longitude };
+                coordinate = validCoordinate(info.location.latitude, info.location.longitude) ?? undefined;
               }
             } catch { /* no GPS — the posting just goes out without a place */ }
           }

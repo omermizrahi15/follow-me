@@ -63,13 +63,11 @@ describe('PublisherConfig', () => {
       expect(config.enabledCategories).toEqual([
         'selfie_with_view',
         'sunset_sunrise',
-        'view_only',
         'architecture',
         'selfie_with_people',
         'food',
         'nature',
         'night_scene',
-        'activity',
         'cultural',
       ]);
       expect(config.minQuality).toBe(0.15);

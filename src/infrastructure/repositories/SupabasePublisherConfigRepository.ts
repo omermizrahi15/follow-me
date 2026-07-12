@@ -43,6 +43,19 @@ interface Database {
 
 type ConfigRow = Database['public']['Tables']['publisher_config']['Row'];
 
+/**
+ * Keep only categories the app still supports, dropping retired ones (e.g. legacy
+ * 'view_only'/'activity') that older rows or the old DB default may still carry.
+ * Falls back to all selectable categories when nothing valid remains, so a scan
+ * never silently returns zero photos.
+ */
+function sanitizeCategories(raw: unknown): PhotoCategory[] {
+  const kept = Array.isArray(raw)
+    ? raw.filter((c): c is PhotoCategory => SELECTABLE_CATEGORIES.includes(c as PhotoCategory))
+    : [];
+  return kept.length > 0 ? kept : [...SELECTABLE_CATEGORIES];
+}
+
 function rowToConfig(row: ConfigRow): PublisherConfig {
   return PublisherConfig.create({
     publisherId: row.publisher_id,
@@ -52,11 +65,10 @@ function rowToConfig(row: ConfigRow): PublisherConfig {
     notifyDayOfWeek: row.notify_day_of_week,
     notifyTime: row.notify_time,
     // Guard against null/empty from older rows or manual edits — an empty
-    // category list would make every scan return nothing.
-    enabledCategories:
-      Array.isArray(row.enabled_categories) && row.enabled_categories.length > 0
-        ? (row.enabled_categories as PhotoCategory[])
-        : [...SELECTABLE_CATEGORIES],
+    // category list would make every scan return nothing. Also drop any
+    // retired categories (e.g. legacy 'view_only'/'activity') so PublisherConfig
+    // validation doesn't reject an otherwise-valid row.
+    enabledCategories: sanitizeCategories(row.enabled_categories),
     // lookbackDays is now derived from frequency — not read from DB
     minQuality: row.min_quality,
     timezone: row.timezone,

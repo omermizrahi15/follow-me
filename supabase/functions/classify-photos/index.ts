@@ -47,13 +47,11 @@ const PROMPT = `You classify a single photo for a social "share my travels" app.
 Choose exactly one category:
 - selfie_with_view: photographer visibly in frame with a scenic/landscape background.
 - sunset_sunrise: dominant subject is a golden-hour, sunrise, or sunset sky (with or without people).
-- view_only: scenery, landscape, or landmark — no people prominently in frame.
 - architecture: buildings, bridges, streets, or urban scenes without focus on nature or people.
 - selfie_with_people: group shot or close portrait of people; no notable scenery.
 - food: a dish, drink, or meal is the primary subject.
 - nature: forests, beaches, wildlife, plants — natural scenes without a prominent selfie.
 - night_scene: night photography, city lights, stars, or dark-sky shots.
-- activity: sports, hiking, swimming, dancing, or any experience captured in motion.
 - cultural: museums, art, religious or historical sites, traditions, or performances.
 - other: anything else — screenshots, documents, receipts, memes, blurry/unusable images.
 

@@ -48,13 +48,11 @@ const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
 const CATEGORY_LABELS: Record<PhotoCategory, string> = {
   selfie_with_view: 'Selfie + view',
   sunset_sunrise: 'Sunset / sunrise',
-  view_only: 'View only',
   architecture: 'Architecture',
   selfie_with_people: 'Selfie + people',
   food: 'Food & drinks',
   nature: 'Nature',
   night_scene: 'Night scene',
-  activity: 'Activity',
   cultural: 'Cultural',
   other: 'Other',
 };
