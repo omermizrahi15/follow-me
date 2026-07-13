@@ -24,8 +24,9 @@ import {
   recentCandidateUrls,
   deleteUploadedPhotos,
 } from '../../../composition/container';
-import { PublisherConfig } from '../../../domain/entities/PublisherConfig';
+import { PublisherConfig, FREQUENCY_DAYS } from '../../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
+import { isWeekdayCadence } from '../../../domain/services/autoPostSchedule';
 import { SELECTABLE_CATEGORIES } from '../../../domain/entities/PhotoClassification';
 import type { PhotoCategory } from '../../../domain/entities/PhotoClassification';
 import { SuggestionCache } from '../../../infrastructure/cache/SuggestionCache';
@@ -46,10 +47,10 @@ const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
   { value: 'monthly', label: '30 days' },
 ];
 const CATEGORY_LABELS: Record<PhotoCategory, string> = {
-  selfie_with_view: 'Selfie + view',
+  selfie_with_view: 'People + view',
   sunset_sunrise: 'Sunset / sunrise',
   architecture: 'Architecture',
-  selfie_with_people: 'Selfie + people',
+  selfie_with_people: 'People',
   food: 'Food & drinks',
   nature: 'Nature',
   night_scene: 'Night scene',
@@ -390,8 +391,8 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
 
   function handleDeleteUploaded(): void {
     Alert.alert(
-      'Delete uploaded photos?',
-      'This removes every photo the app has uploaded to your private cloud space. Auto-posting and notification previews will need a fresh sync (happens on your next Save).',
+      'Remove your photos from the cloud?',
+      'This deletes every private copy the app has uploaded for auto-posting. Photos on your phone and posts already sent are untouched. Auto-posting will re-upload on your next Save.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -451,24 +452,44 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         </View>
       </View>
 
-      {/* Schedule */}
+      {/* Schedule. Weekly cadences pick a weekday; day-count cadences (every
+          3/30 days) have no natural weekday — the next slot is shown instead. */}
       <View style={styles.group}>
-        <Text style={styles.groupLabel}>Reminder day</Text>
-        <View style={styles.options}>
-          {DAY_LABELS.map((label, day) => (
-            <TouchableOpacity
-              key={day}
-              testID={`auto-day-${day}`}
-              style={[styles.dayOption, notifyDayOfWeek === day && styles.optionActive]}
-              onPress={() => setNotifyDayOfWeek(day)}
-            >
-              <Text style={[styles.optionText, notifyDayOfWeek === day && styles.optionTextActive]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-        <Text style={[styles.groupLabel, styles.spacer]}>Reminder time</Text>
+        {isWeekdayCadence(FREQUENCY_DAYS[frequency]) ? (
+          <>
+            <Text style={styles.groupLabel}>Reminder day</Text>
+            <View style={styles.options}>
+              {DAY_LABELS.map((label, day) => (
+                <TouchableOpacity
+                  key={day}
+                  testID={`auto-day-${day}`}
+                  style={[styles.dayOption, notifyDayOfWeek === day && styles.optionActive]}
+                  onPress={() => setNotifyDayOfWeek(day)}
+                >
+                  <Text style={[styles.optionText, notifyDayOfWeek === day && styles.optionTextActive]}>
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={[styles.groupLabel, styles.spacer]}>Reminder time</Text>
+          </>
+        ) : (
+          <>
+            <Text style={styles.groupLabel}>Reminder day</Text>
+            <Text style={styles.intervalNote} testID="auto-interval-note">
+              Every {FREQUENCY_DAYS[frequency]} days there’s no fixed weekday — the next one lands
+              by{' '}
+              {new Date(Date.now() + FREQUENCY_DAYS[frequency] * 24 * 60 * 60 * 1000).toLocaleDateString([], {
+                weekday: 'long',
+                month: 'short',
+                day: 'numeric',
+              })}
+              , then every {FREQUENCY_DAYS[frequency]} days after each post.
+            </Text>
+            <Text style={[styles.groupLabel, styles.spacer]}>Reminder time</Text>
+          </>
+        )}
         <View style={styles.options}>
           {TIME_PRESETS.map(t => (
             <TouchableOpacity
@@ -559,9 +580,16 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       </View>
 
       {/* Privacy: user-initiated wipe of the cloud photo pool. */}
-      <TouchableOpacity onPress={handleDeleteUploaded} hitSlop={8}>
-        <Text style={styles.deleteUploadedLink}>Delete my uploaded photos</Text>
-      </TouchableOpacity>
+      <View style={styles.deleteUploadedBlock}>
+        <TouchableOpacity onPress={handleDeleteUploaded} hitSlop={8}>
+          <Text style={styles.deleteUploadedLink}>Remove my photos from the cloud</Text>
+        </TouchableOpacity>
+        <Text style={styles.deleteUploadedHint}>
+          Auto-posting keeps private copies of your recent photos in the cloud so it can post while
+          the app is closed. This deletes those copies — photos on your phone and posts already sent
+          are not affected.
+        </Text>
+      </View>
 
       <TouchableOpacity
         testID="auto-save"
@@ -625,6 +653,7 @@ const styles = StyleSheet.create({
   },
   groupLabel: { ...typography.caption, fontSize: 13, fontWeight: '600', color: colors.text, marginBottom: spacing.sm },
   spacer: { marginTop: spacing.md },
+  intervalNote: { ...typography.caption, fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
   hint: { ...typography.caption, fontSize: 11, color: colors.textMuted, marginBottom: spacing.sm },
   options: { flexDirection: 'row', gap: spacing.xs },
   option: {
@@ -717,12 +746,20 @@ const styles = StyleSheet.create({
     borderColor: '#4a4a8a',
   },
   devButtonFull: { flex: 1 },
+  deleteUploadedBlock: { gap: spacing.xs },
   deleteUploadedLink: {
     ...typography.caption,
     fontSize: 12,
     color: colors.danger,
     textAlign: 'center',
     textDecorationLine: 'underline',
+  },
+  deleteUploadedHint: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.textMuted,
+    textAlign: 'center',
+    paddingHorizontal: spacing.md,
   },
   devText: { color: '#a0a0ff', fontWeight: '600', fontSize: 13 },
 });

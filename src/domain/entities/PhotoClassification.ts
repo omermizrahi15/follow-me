@@ -6,12 +6,12 @@ import type { PhotoCandidate } from './PhotoCandidate';
  * that doesn't fit (screenshots, receipts, blurry shots) and is always excluded.
  */
 export type PhotoCategory =
-  | 'selfie_with_view'    // You in frame with scenic background
+  | 'selfie_with_view'    // People in frame with scenic background (selfie or not)
   | 'sunset_sunrise'      // Golden-hour / sunrise / sunset sky
   | 'architecture'        // Buildings, streets, urban scenes
-  | 'selfie_with_people'  // Group/people photos, no notable scenery
+  | 'selfie_with_people'  // People photos — group, portrait, or candid; no notable scenery
   | 'food'                // Food & drinks
-  | 'nature'              // Wildlife, plants, natural scenes (no selfie)
+  | 'nature'              // Wildlife, plants, natural scenes (people not the subject)
   | 'night_scene'         // Night photography, city lights after dark
   | 'cultural'            // Museums, art, historical, religious sites
   | 'other';

@@ -6,13 +6,19 @@ import { useProfile } from './useProfile';
 // Public subscribe page (GitHub Pages); the publisher id travels as the `?p=` param.
 const JOIN_BASE_URL = 'https://omermizrahi15.github.io/follow-me/join/';
 
+// Staging publishers only exist in the staging Supabase project, so their links
+// must tell the join page which environment to subscribe against (the page
+// defaults to production). Static env reference — Expo inlines it at bundle time.
+const APP_VARIANT = process.env.EXPO_PUBLIC_APP_VARIANT as string | undefined;
+
 /**
  * Single source of truth for the publisher's shareable join link and the
  * WhatsApp invite message. Reused by the Me page, the Followers section,
  * onboarding, and the post-share prompt so the URL and copy never drift.
  */
 export function buildJoinLink(publisherId: string): string {
-  return `${JOIN_BASE_URL}?p=${publisherId}`;
+  const envParam = APP_VARIANT === 'staging' ? '&env=staging' : '';
+  return `${JOIN_BASE_URL}?p=${publisherId}${envParam}`;
 }
 
 export function buildInviteMessage(joinLink: string): string {

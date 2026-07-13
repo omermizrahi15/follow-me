@@ -15,6 +15,7 @@ import type { RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { useSuggestedPhotos } from '../hooks/useSuggestedPhotos';
 import { useShareMedia } from '../hooks/useShareMedia';
+import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { usePublisherId } from '../context/AuthContext';
 import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
 import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
@@ -26,10 +27,10 @@ import type { PhotoCategory, PhotoClassification } from '../../domain/entities/P
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 const CATEGORY_LABEL: Record<PhotoCategory, string> = {
-  selfie_with_view: 'Selfie + view',
+  selfie_with_view: 'People + view',
   sunset_sunrise: 'Sunset / sunrise',
   architecture: 'Architecture',
-  selfie_with_people: 'Selfie + people',
+  selfie_with_people: 'People',
   food: 'Food',
   nature: 'Nature',
   night_scene: 'Night scene',
@@ -130,6 +131,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
   const publisherId = usePublisherId();
   const { phase, found, unique, classified, total, partial, batch, pool, photosPerPost, fromCache, error, reload } = useSuggestedPhotos(publisherId);
   const { share, loading: sharing, error: shareError, progress: shareProgress } = useShareMedia();
+  // Keeps the footer's place input above the keyboard (this screen renders in
+  // sheets/modals where KeyboardAvoidingView mis-measures — see the hook doc).
+  const keyboardPadding = useKeyboardBottomPadding();
   // `slots` is the ordered list of photo IDs shown in the grid — one entry per grid position.
   // Initialised from `batch` when classification finishes; swapping replaces in-place.
   const [slots, setSlots] = useState<string[]>([]);
@@ -470,7 +474,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           </ScrollView>
 
           {phase === 'done' && kept.length > 0 && (
-            <View style={innerStyles.footer}>
+            <View style={[innerStyles.footer, keyboardPadding > 0 && { paddingBottom: keyboardPadding }]}>
               {shareError != null && <Text style={innerStyles.errorNote}>{shareError}</Text>}
               <View style={innerStyles.placeRow}>
                 <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
