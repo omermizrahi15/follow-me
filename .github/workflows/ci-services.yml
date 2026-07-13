@@ -41,6 +41,10 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: v2.x
+          # Cache remote deps (esm.sh, jsr) keyed on deno.lock — otherwise every
+          # matrix job cold-downloads them, and a CDN hiccup (e.g. an esm.sh 522)
+          # fails CI spuriously.
+          cache: true
       - name: Lint
         run: deno lint "supabase/functions/${{ matrix.fn }}/" supabase/functions/_shared/
       - name: Typecheck
