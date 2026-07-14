@@ -1,4 +1,5 @@
 import { Media } from '../../domain/entities/Media';
+import type { Song } from '../../domain/entities/Song';
 import type {
   Coordinate,
   IGeocoder,
@@ -29,6 +30,8 @@ export interface ShareMediaInput {
    * from the items' GPS coordinates.
    */
   location?: string | null;
+  /** The posting's soundtrack, when the publisher picked one (issue #54). */
+  song?: Song;
 }
 
 export interface ShareProgress {
@@ -78,6 +81,7 @@ export class ShareMediaUseCase {
         createdAt: new Date(),
         postingId,
         ...(location != null ? { location } : {}),
+        ...(input.song != null ? { song: input.song } : {}),
       }),
     );
 

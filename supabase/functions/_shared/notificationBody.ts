@@ -7,16 +7,25 @@ export interface GalleryLink {
   photoCount: number;
 }
 
+export interface CaptionSong {
+  title: string;
+  artist: string;
+}
+
 export function composeAutoPostBody(
   publisherName: string,
   publisherPhone?: string,
   gallery?: GalleryLink | null,
   place?: string | null,
+  song?: CaptionSong | null,
 ): string {
   const headline = place != null && place.trim() !== ''
     ? `Check out ${publisherName}'s latest photos from ${place.trim()} 📸`
     : `Check out ${publisherName}'s latest photos 📸`;
   const lines = [headline];
+  if (song != null) {
+    lines.push(`🎵 ${song.title} — ${song.artist}`);
+  }
   if (gallery != null) {
     lines.push(`See all ${gallery.photoCount} photos: ${gallery.url}`);
   }

@@ -40,6 +40,7 @@ export class ListFeedUseCase {
       id: postingId,
       createdAt: newest.createdAt.toISOString(),
       location: group.find(m => m.location != null)?.location ?? null,
+      song: group.find(m => m.song != null)?.song ?? null,
       media: group.map(m => ({ id: m.id, url: m.url })),
     };
   }

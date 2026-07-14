@@ -28,7 +28,7 @@ import { logAcceptedSend, logRejectedSend, markSubscriberUnreachable } from '../
 import { buildPostTemplate } from '../_shared/postTemplate.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 import { collageUrl } from '../_shared/collage.ts';
-import { savePostGallery } from '../_shared/postGallery.ts';
+import { savePostGallery, sanitizeSong } from '../_shared/postGallery.ts';
 
 // Supabase edge runtime: lets background work continue after the response is sent.
 declare const EdgeRuntime: { waitUntil(promise: Promise<unknown>): void } | undefined;
@@ -67,7 +67,7 @@ async function publisherIdentity(publisherId: string): Promise<{ name: string; p
 Deno.serve(async req => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  let body: { publisherId?: string; to?: string; mediaUrls?: string[]; place?: string };
+  let body: { publisherId?: string; to?: string; mediaUrls?: string[]; place?: string; song?: unknown };
   try {
     body = await req.json();
   } catch {
@@ -75,6 +75,7 @@ Deno.serve(async req => {
   }
 
   const { publisherId, to, mediaUrls, place } = body;
+  const song = sanitizeSong(body.song);
   if (!publisherId || !to || !Array.isArray(mediaUrls) || mediaUrls.length === 0) {
     return json({ error: 'publisherId, to and non-empty mediaUrls are required' }, 400);
   }
@@ -83,12 +84,13 @@ Deno.serve(async req => {
   }
 
   const { name, phone } = await publisherIdentity(publisherId);
-  const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls);
+  const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls, song);
   const caption = composeAutoPostBody(
     name,
     phone,
     galleryUrl != null ? { url: galleryUrl, photoCount: mediaUrls.length } : null,
     place,
+    song,
   );
 
   // Preferred path: the whole batch as ONE message — a Cloudinary-composed

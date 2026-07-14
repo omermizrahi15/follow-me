@@ -1,3 +1,5 @@
+import type { Song } from '../../domain/entities/Song';
+
 export interface MediaDto {
   id: string;
   ownerId: string;
@@ -15,6 +17,8 @@ export interface FeedPostingDto {
   id: string;
   createdAt: string; // ISO string of the newest item in the posting
   location: string | null;
+  /** The posting's soundtrack, when the publisher attached one (issue #54). */
+  song: Song | null;
   media: FeedMediaDto[];
 }
 

@@ -5,6 +5,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import type { FeedMedia } from '../components/PhotoFeed';
+import { SongBar } from '../components/SongBar';
 import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
 import { colors, radius, shadow, spacing } from '../theme/theme';
 
@@ -48,6 +49,11 @@ export function PostingDetailScreen(): React.JSX.Element {
           <Text style={styles.date}>
             {posting.date.toUpperCase()} · {count} {count === 1 ? 'ITEM' : 'ITEMS'}
           </Text>
+          {posting.song != null && (
+            <View style={styles.songBar}>
+              <SongBar song={posting.song} />
+            </View>
+          )}
         </View>
         {posting.media.map(m => (
           <MediaItem key={m.id} media={m} />
@@ -82,6 +88,7 @@ const styles = StyleSheet.create({
     ...shadow.raised,
   },
   titleBlock: { paddingHorizontal: spacing.xl, marginBottom: spacing.lg },
+  songBar: { marginTop: spacing.md },
   place: { color: colors.text, fontSize: 28, fontWeight: '700', letterSpacing: -0.5 },
   date: {
     color: colors.textSecondary,

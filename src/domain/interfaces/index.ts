@@ -5,6 +5,7 @@ import type { PhotoCandidate } from '../entities/PhotoCandidate';
 import type { PhotoClassification } from '../entities/PhotoClassification';
 import type { CandidatePhoto } from '../entities/CandidatePhoto';
 import type { PublisherProfile } from '../entities/PublisherProfile';
+import type { Song } from '../entities/Song';
 
 export interface IMediaRepository {
   save(media: Media): Promise<void>;
@@ -168,6 +169,34 @@ export interface INotificationScheduler {
   /** Cancel any existing reminder and schedule a new weekly one. */
   scheduleWeeklyReminder(schedule: ReminderSchedule): Promise<void>;
   cancelReminder(): Promise<void>;
+}
+
+/** Searches a public music catalog for songs with preview/artwork (issue #54). */
+export interface IMusicCatalog {
+  /** Free-text search, best matches first; empty when nothing matches. Never throws for "no results". */
+  searchSongs(term: string, limit?: number): Promise<Song[]>;
+}
+
+/**
+ * Suggests songs for a posting (issue #54). Implementations may call an AI
+ * service with the posting's context; null means "no suggestion available"
+ * (unconfigured or failed) — the picker then falls back to manual search.
+ */
+export interface ISongSuggester {
+  suggest(context: SongSuggestionContext): Promise<Song[] | null>;
+}
+
+export interface SongSuggestionContext {
+  /** The posting's place label, when known ("Lisbon, Portugal"). */
+  place?: string;
+  photoCount?: number;
+  /**
+   * Local uris of the posting's photos — the suggester shows (a few of) them
+   * to the AI so the song matches what's actually in the pictures.
+   */
+  photoUris?: string[];
+  /** Songs already offered — the "try another" reroll excludes them. */
+  exclude?: Song[];
 }
 
 export interface IPublisherProfileRepository {

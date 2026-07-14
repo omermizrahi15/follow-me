@@ -20,6 +20,15 @@ async function postId(publisherId: string, mediaUrls: string[]): Promise<string>
     .join('');
 }
 
+/** The posting's soundtrack, rendered as a music bar by the gallery (issue #54). */
+export interface PostSong {
+  title: string;
+  artist: string;
+  artworkUrl?: string;
+  previewUrl?: string;
+  sourceUrl?: string;
+}
+
 /**
  * Records the post row that the gallery page reads, and returns the public
  * gallery URL — or null on failure, because the link is an enhancement and
@@ -31,16 +40,35 @@ export async function savePostGallery(
   supabase: SupabaseClient,
   publisherId: string,
   mediaUrls: string[],
+  song?: PostSong | null,
 ): Promise<string | null> {
   try {
     const id = await postId(publisherId, mediaUrls);
     const { error } = await supabase
       .from('posts')
-      .upsert({ id, publisher_id: publisherId, media_urls: mediaUrls });
+      .upsert({ id, publisher_id: publisherId, media_urls: mediaUrls, song: song ?? null });
     if (error != null) throw new Error(error.message);
     return `${GALLERY_BASE_URL}?id=${id}`;
   } catch (err) {
     console.error('savePostGallery failed:', err);
     return null;
   }
+}
+
+/**
+ * Validates an untrusted request-body song. Title and artist are required;
+ * optional fields must be https URLs (they end up in a public page). Null when
+ * the value isn't usable — a bad song never blocks the send.
+ */
+export function sanitizeSong(value: unknown): PostSong | null {
+  if (typeof value !== 'object' || value == null || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  const title = typeof record.title === 'string' ? record.title.trim().slice(0, 200) : '';
+  const artist = typeof record.artist === 'string' ? record.artist.trim().slice(0, 200) : '';
+  if (title === '' || artist === '') return null;
+  const url = (key: 'artworkUrl' | 'previewUrl' | 'sourceUrl'): { [k: string]: string } | null => {
+    const v = record[key];
+    return typeof v === 'string' && v.startsWith('https://') ? { [key]: v } : null;
+  };
+  return { title, artist, ...url('artworkUrl'), ...url('previewUrl'), ...url('sourceUrl') };
 }

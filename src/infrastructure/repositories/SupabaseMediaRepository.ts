@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { IMediaRepository } from '../../domain/interfaces';
 import { Media } from '../../domain/entities/Media';
+import { parseSong } from '../../domain/entities/Song';
 
 interface Database {
   public: {
@@ -13,6 +14,7 @@ interface Database {
           created_at: string;
           posting_id: string | null;
           location: string | null;
+          song: unknown;
         };
         Insert: {
           id: string;
@@ -21,6 +23,7 @@ interface Database {
           created_at: string;
           posting_id?: string | null;
           location?: string | null;
+          song?: unknown;
         };
         Update: {
           id?: string;
@@ -29,6 +32,7 @@ interface Database {
           created_at?: string;
           posting_id?: string | null;
           location?: string | null;
+          song?: unknown;
         };
         Relationships: [];
       };
@@ -43,6 +47,9 @@ interface Database {
 type MediaRow = Database['public']['Tables']['media']['Row'];
 
 function rowToMedia(row: MediaRow): Media {
+  // parseSong guards against malformed jsonb — a bad song column must not
+  // break the whole feed, it just renders without a music bar.
+  const song = parseSong(row.song);
   return Media.create({
     id: row.id,
     ownerId: row.owner_id,
@@ -50,6 +57,7 @@ function rowToMedia(row: MediaRow): Media {
     createdAt: new Date(row.created_at),
     ...(row.posting_id != null ? { postingId: row.posting_id } : {}),
     ...(row.location != null ? { location: row.location } : {}),
+    ...(song != null ? { song } : {}),
   });
 }
 
@@ -68,6 +76,7 @@ export class SupabaseMediaRepository implements IMediaRepository {
       created_at: media.createdAt.toISOString(),
       posting_id: media.postingId ?? null,
       location: media.location ?? null,
+      song: media.song ?? null,
     });
     if (error != null) throw new Error(error.message);
   }

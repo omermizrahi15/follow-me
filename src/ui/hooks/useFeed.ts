@@ -24,6 +24,7 @@ function toFeedPosting(dto: FeedPostingDto): FeedPosting {
     date: formatDate(dto.createdAt),
     media: dto.media.map(m => ({ id: m.id, uri: m.url })),
     ...(dto.location != null ? { place: dto.location } : {}),
+    ...(dto.song != null ? { song: dto.song } : {}),
   };
 }
 
