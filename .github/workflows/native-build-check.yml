@@ -1,4 +1,4 @@
-name: Native build check
+name: CI · native rebuild check
 
 # Warns on a PR when a change needs a fresh `eas build` (native binary) rather
 # than just an over-the-air EAS Update. OTA can only swap JS/assets; native

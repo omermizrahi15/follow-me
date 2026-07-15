@@ -1,4 +1,4 @@
-name: Deploy services
+name: CD · services (Edge Functions)
 
 # Per-service CD for the Edge Functions. On merge to main, only the functions
 # you changed deploy to STAGING, each in its own matrix job. Any function can be

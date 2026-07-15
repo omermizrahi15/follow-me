@@ -1,4 +1,4 @@
-name: Deploy database
+name: CD · database (migrations)
 
 # CD for database migrations, independent of app and services. On merge to main
 # it applies pending migrations to STAGING. Production migrations are applied

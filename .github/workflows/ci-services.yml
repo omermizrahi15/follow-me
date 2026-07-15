@@ -1,4 +1,4 @@
-name: CI services
+name: CI · services
 
 # Per-service CI for the Supabase Edge Functions (Deno). Only the functions you
 # touched are tested, each in its own matrix job. A change under _shared/ fans

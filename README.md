@@ -103,13 +103,22 @@ CI runs the integration suite against **staging** on every PR that touches `src/
 
 ### CI/CD — separated by concern
 
-Three independent concerns, each with its own path-triggered CI and CD. Touch one and only its pipeline runs; deploy one without touching the others.
+Every workflow is named with a `CI ·` or `CD ·` prefix, so the Actions sidebar groups
+checks (run on PRs, verify) apart from deploys (run on merge to `main`, ship). This
+table is the full map — what you see under *Actions* is exactly these:
 
-| Concern | Runtime | CI (on touch) | CD |
+| Workflow (Actions name) | File | When it runs | What it does |
 |---|---|---|---|
-| **App** (JS bundle) | Node / Jest | [`ci.yml`](.github/workflows/ci.yml) — typecheck + lint + test | [`deploy-app.yml`](.github/workflows/deploy-app.yml) — EAS Update (OTA) |
-| **Services** (each Edge Function) | Deno | [`ci-services.yml`](.github/workflows/ci-services.yml) — per-service lint + typecheck + test | [`deploy-services.yml`](.github/workflows/deploy-services.yml) — per-service `functions deploy` |
-| **Database** (migrations) | — | (applied by CD) | [`deploy-db.yml`](.github/workflows/deploy-db.yml) — `db push` |
+| **CI · app** | [`ci.yml`](.github/workflows/ci.yml) | every PR touching `src/**` | typecheck + eslint + jest (the `validate` job is the required merge check) |
+| **CI · services** | [`ci-services.yml`](.github/workflows/ci-services.yml) | PR touching `supabase/functions/**` | per-changed-function Deno lint + typecheck + test, one matrix job each |
+| **CI · integration (staging)** | [`integration.yml`](.github/workflows/integration.yml) | PR touching `src/infrastructure/` or `supabase/` | integration suite against the real staging Supabase |
+| **CI · e2e web (join page)** | [`web-e2e.yml`](.github/workflows/web-e2e.yml) | PR touching `docs/join/` or `web-e2e/` | Playwright on the public subscribe page |
+| **CI · e2e app (Maestro)** | [`e2e-ui.yml`](.github/workflows/e2e-ui.yml) | after `CI · app` passes on `main`, nightly, or on demand — never on the PR critical path (~15-min simulator build) | Maestro UI flows on the iOS simulator |
+| **CI · native rebuild check** | [`native-build-check.yml`](.github/workflows/native-build-check.yml) | PR touching `package.json`/`app.json`/`app.config.js`/`ios/**` | warns when the change needs `eas build` (can't ship OTA); never blocks |
+| **CD · app (EAS OTA)** | [`deploy-app.yml`](.github/workflows/deploy-app.yml) | merge to `main` (app paths) | EAS Update (OTA) → staging channel; production via *Run workflow* |
+| **CD · services (Edge Functions)** | [`deploy-services.yml`](.github/workflows/deploy-services.yml) | merge to `main` (function paths) | per-changed-function `functions deploy` → staging; production via *Run workflow* |
+| **CD · database (migrations)** | [`deploy-db.yml`](.github/workflows/deploy-db.yml) | merge to `main` (`supabase/migrations/`) | `db push` → staging; production via *Run workflow* |
+| **pages build and deployment** | *(GitHub-managed)* | merge to `main` (`docs/**`) | publishes GitHub Pages — this is the CD for the join page; the name can't be changed |
 
 **Per-service granularity.** `ci-services.yml` and `deploy-services.yml` diff the commit and act **only on the functions that changed** — each in its own matrix job — via [`scripts/changed-functions.sh`](scripts/changed-functions.sh). A change under `supabase/functions/_shared/**` fans out to every function (they all depend on it). Deploys use [`scripts/deploy-functions.sh`](scripts/deploy-functions.sh), the single source of truth for each function's `verify_jwt` setting.
 

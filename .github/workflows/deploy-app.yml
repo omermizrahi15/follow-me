@@ -1,4 +1,4 @@
-name: Deploy app
+name: CD · app (EAS OTA)
 
 # CD for the mobile app (the JS bundle), independent of the services. On merge
 # to main it ships an EAS Update (OTA) to the staging channel; installed staging

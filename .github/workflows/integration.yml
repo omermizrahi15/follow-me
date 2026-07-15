@@ -1,4 +1,4 @@
-name: Integration (staging)
+name: CI · integration (staging)
 
 # Integration tests hit the real staging Supabase project, so only run them
 # when infrastructure actually changed — unit tests cover everything else.

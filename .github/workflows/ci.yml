@@ -1,4 +1,4 @@
-name: CI app
+name: CI · app
 
 # App CI (Node/Jest). Scoped to app code so a service-only change doesn't drag
 # the whole app suite. `_shared/**` is included because the app's parity tests
