@@ -1,20 +1,18 @@
 import type { PhotoCandidate } from './PhotoCandidate';
 
 /**
- * The 10 scene categories a photo can fall into, ordered from most to least
+ * The 8 scene categories a photo can fall into, ordered from most to least
  * desirable for a travel/lifestyle share. `other` is a catch-all for anything
  * that doesn't fit (screenshots, receipts, blurry shots) and is always excluded.
  */
 export type PhotoCategory =
-  | 'selfie_with_view'    // You in frame with scenic background
+  | 'selfie_with_view'    // People in frame with scenic background (selfie or not)
   | 'sunset_sunrise'      // Golden-hour / sunrise / sunset sky
-  | 'view_only'           // Landscape, landmark, scenery — no selfie
   | 'architecture'        // Buildings, streets, urban scenes
-  | 'selfie_with_people'  // Group/people photos, no notable scenery
+  | 'selfie_with_people'  // People photos — group, portrait, or candid; no notable scenery
   | 'food'                // Food & drinks
-  | 'nature'              // Wildlife, plants, natural scenes (no selfie)
+  | 'nature'              // Wildlife, plants, natural scenes (people not the subject)
   | 'night_scene'         // Night photography, city lights after dark
-  | 'activity'            // Sports, adventures, experiences in motion
   | 'cultural'            // Museums, art, historical, religious sites
   | 'other';
 
@@ -22,13 +20,11 @@ export type PhotoCategory =
 export const SELECTABLE_CATEGORIES: readonly PhotoCategory[] = [
   'selfie_with_view',
   'sunset_sunrise',
-  'view_only',
   'architecture',
   'selfie_with_people',
   'food',
   'nature',
   'night_scene',
-  'activity',
   'cultural',
 ] as const;
 

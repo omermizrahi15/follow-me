@@ -1,0 +1,80 @@
+name: CD · services (Edge Functions)
+
+# Per-service CD for the Edge Functions. On merge to main, only the functions
+# you changed deploy to STAGING, each in its own matrix job. Any function can be
+# shipped to any environment on demand via "Run workflow".
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/functions/**']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+      functions:
+        description: Space-separated function names, or "all"
+        default: all
+
+concurrency:
+  group: deploy-services-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.d.outputs.matrix }}
+      any: ${{ steps.d.outputs.any }}
+      environment: ${{ steps.d.outputs.environment }}
+      ref: ${{ steps.d.outputs.ref }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: d
+        env:
+          BASE_SHA: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            ENV="${{ github.event.inputs.environment }}"
+            SEL="${{ github.event.inputs.functions }}"
+            if [ "$SEL" = "all" ] || [ -z "$SEL" ]; then
+              FNS=$(find supabase/functions -mindepth 1 -maxdepth 1 -type d ! -name '_shared' -exec basename {} \; | sort)
+            else
+              FNS="$SEL"
+            fi
+            JSON=$(printf '%s\n' $FNS | jq -R . | jq -cs .)
+            echo "any=true" >> "$GITHUB_OUTPUT"
+            echo "matrix={\"fn\":$JSON}" >> "$GITHUB_OUTPUT"
+          else
+            ENV="staging"
+            bash scripts/changed-functions.sh
+          fi
+          echo "environment=$ENV" >> "$GITHUB_OUTPUT"
+          case "$ENV" in
+            staging)    echo "ref=xszvrvnxduwpymyabvcg" >> "$GITHUB_OUTPUT" ;;
+            production) echo "ref=eigvoazyrimzbzcjlscp" >> "$GITHUB_OUTPUT" ;;
+          esac
+
+  deploy:
+    name: ${{ matrix.fn }} → ${{ needs.detect.outputs.environment }}
+    needs: detect
+    if: needs.detect.outputs.any == 'true'
+    runs-on: ubuntu-latest
+    environment: ${{ needs.detect.outputs.environment }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Deploy ${{ matrix.fn }}
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: bash scripts/deploy-functions.sh "${{ needs.detect.outputs.ref }}" "${{ matrix.fn }}"

@@ -21,6 +21,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { credsFromEnv, sendWhatsApp } from '../_shared/twilio.ts';
 import { logAcceptedSend } from '../_shared/messageLog.ts';
+import { publisherDisplayName } from '../_shared/publisher.ts';
+import { normalizeWhatsApp } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -35,12 +37,7 @@ async function lookupPublisherName(publisherId: string): Promise<string> {
   try {
     const { data } = await supabase.auth.admin.getUserById(publisherId);
     if (!data.user) return 'your publisher';
-    // `||` (not `??`) so an empty display_name falls through to a real fallback.
-    return (
-      (data.user.user_metadata as Record<string, string>)?.display_name ||
-      data.user.email?.split('@')[0] ||
-      'your publisher'
-    );
+    return publisherDisplayName(data.user.user_metadata as Record<string, string>, data.user.email);
   } catch {
     return 'your publisher';
   }
@@ -78,13 +75,6 @@ function json(body: unknown, status = 200): Response {
     status,
     headers: { ...cors, 'Content-Type': 'application/json' },
   });
-}
-
-// Validate + normalize to E.164 (e.g. "+972501234567"); null when implausible.
-function normalizeWhatsApp(raw: string): string | null {
-  const cleaned = raw.trim().replace(/[\s()-]/g, '');
-  if (!/^\+?[1-9]\d{7,14}$/.test(cleaned)) return null;
-  return cleaned.startsWith('+') ? cleaned : `+${cleaned}`;
 }
 
 // try/catch because getUserById throws on a malformed (non-UUID) id.

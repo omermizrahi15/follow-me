@@ -13,6 +13,7 @@ export class ScheduleReminderUseCase {
       dayOfWeek: config.notifyDayOfWeek,
       hour: config.notifyHour,
       minute: config.notifyMinute,
+      intervalDays: config.lookbackDays,
     });
   }
 

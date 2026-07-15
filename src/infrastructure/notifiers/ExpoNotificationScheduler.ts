@@ -21,6 +21,26 @@ export class ExpoNotificationScheduler implements INotificationScheduler {
 
     await this.cancelReminder();
 
+    const intervalDays = schedule.intervalDays ?? 7;
+    // Day-count cadences (every 3/30 days) have no weekday to anchor on, so
+    // they repeat by elapsed time from now. Whole-week cadences anchor on the
+    // chosen weekday (biweekly approximates to weekly locally — the server
+    // path owns exact spacing; this is the no-push-permission fallback).
+    const trigger =
+      intervalDays % 7 === 0
+        ? {
+            type: SchedulableTriggerInputTypes.WEEKLY as const,
+            // expo weekday is 1-7 (1 = Sunday); domain dayOfWeek is 0-6 (0 = Sunday).
+            weekday: schedule.dayOfWeek + 1,
+            hour: schedule.hour,
+            minute: schedule.minute,
+          }
+        : {
+            type: SchedulableTriggerInputTypes.TIME_INTERVAL as const,
+            seconds: intervalDays * 24 * 60 * 60,
+            repeats: true,
+          };
+
     await Notifications.scheduleNotificationAsync({
       identifier: REMINDER_ID,
       content: {
@@ -30,13 +50,7 @@ export class ExpoNotificationScheduler implements INotificationScheduler {
         interruptionLevel: 'timeSensitive',
         data: { screen: REMINDER_TARGET_SCREEN },
       },
-      trigger: {
-        type: SchedulableTriggerInputTypes.WEEKLY,
-        // expo weekday is 1-7 (1 = Sunday); domain dayOfWeek is 0-6 (0 = Sunday).
-        weekday: schedule.dayOfWeek + 1,
-        hour: schedule.hour,
-        minute: schedule.minute,
-      },
+      trigger,
     });
   }
 

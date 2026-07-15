@@ -75,7 +75,7 @@ function assertParity(
   expect(sharedIds).toEqual(domainIds);
 }
 
-const ALL: PhotoCategory[] = ['selfie_with_view', 'selfie_with_people', 'view_only', 'food'];
+const ALL: PhotoCategory[] = ['selfie_with_view', 'selfie_with_people', 'nature', 'food'];
 
 describe('deduplicateCandidates parity (domain vs _shared)', () => {
   function makeCandidates(pairs: [string, number][]): PhotoCandidate[] {
@@ -108,8 +108,8 @@ describe('photoSelection parity (domain vs _shared)', () => {
   const sample: Row[] = [
     { id: 'f1', category: 'food', confidence: 0.9, quality: 0.99, createdAtMs: day(1) },
     { id: 'f2', category: 'food', confidence: 0.9, quality: 0.8, createdAtMs: day(2) },
-    { id: 'v1', category: 'view_only', confidence: 0.9, quality: 0.7, createdAtMs: day(3) },
-    { id: 'v2', category: 'view_only', confidence: 0.9, quality: 0.7, createdAtMs: day(5) },
+    { id: 'v1', category: 'nature', confidence: 0.9, quality: 0.7, createdAtMs: day(3) },
+    { id: 'v2', category: 'nature', confidence: 0.9, quality: 0.7, createdAtMs: day(5) },
     { id: 's1', category: 'selfie_with_view', confidence: 0.6, quality: 0.9, createdAtMs: day(4) },
     { id: 'lowq', category: 'food', confidence: 0.9, quality: 0.2, createdAtMs: day(6) },
     { id: 'lowc', category: 'food', confidence: 0.3, quality: 0.9, createdAtMs: day(7) },
@@ -121,7 +121,7 @@ describe('photoSelection parity (domain vs _shared)', () => {
   });
 
   it('matches when categories are restricted', () => {
-    assertParity(sample, { enabledCategories: ['food', 'view_only'], minQuality: 0.4, photosPerPost: 5 });
+    assertParity(sample, { enabledCategories: ['food', 'nature'], minQuality: 0.4, photosPerPost: 5 });
   });
 
   it('matches with already-sent exclusions', () => {

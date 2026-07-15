@@ -25,6 +25,7 @@
  *      SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (auto-injected).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { buildPrompt, normalizeCandidates, sanitizePhotos, sanitizeTracks } from './logic.ts';
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.0-flash';
@@ -32,10 +33,6 @@ const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
-
-const CANDIDATE_COUNT = 5;
-const MAX_LIST = 30; // cap on exclude/seeds lists — guards the prompt size
-const MAX_PHOTOS = 3; // inline images per request — guards worker memory
 
 async function authenticatedUserId(req: Request): Promise<string | null> {
   const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
@@ -61,40 +58,6 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-interface TrackRef {
-  title: string;
-  artist: string;
-}
-
-interface PhotoInput {
-  base64: string;
-  mimeType: string;
-}
-
-function sanitizePhotos(value: unknown): PhotoInput[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((p): p is Record<string, unknown> => typeof p === 'object' && p != null)
-    .map(p => ({
-      base64: typeof p.base64 === 'string' ? p.base64 : '',
-      mimeType: typeof p.mimeType === 'string' && p.mimeType.startsWith('image/') ? p.mimeType : 'image/jpeg',
-    }))
-    .filter(p => p.base64 !== '')
-    .slice(0, MAX_PHOTOS);
-}
-
-function sanitizeTracks(value: unknown): TrackRef[] {
-  if (!Array.isArray(value)) return [];
-  return value
-    .filter((t): t is Record<string, unknown> => typeof t === 'object' && t != null)
-    .map(t => ({
-      title: typeof t.title === 'string' ? t.title.trim() : '',
-      artist: typeof t.artist === 'string' ? t.artist.trim() : '',
-    }))
-    .filter(t => t.title !== '' && t.artist !== '')
-    .slice(0, MAX_LIST);
-}
-
 const RESPONSE_SCHEMA = {
   type: 'OBJECT',
   properties: {
@@ -114,49 +77,6 @@ const RESPONSE_SCHEMA = {
   required: ['candidates'],
 };
 
-function buildPrompt(input: {
-  place?: string;
-  month?: string;
-  photoCount?: number;
-  photoAttached: boolean;
-  exclude: TrackRef[];
-  seeds: TrackRef[];
-}): string {
-  const lines: string[] = [
-    'You pick a soundtrack for a photo post in a "share my travels with friends" app.',
-    `Suggest ${CANDIDATE_COUNT} real, findable songs (no made-up tracks, no obscure remixes) that fit the post.`,
-    'Favor widely loved songs a music service search will definitely find. Vary the artists.',
-  ];
-  if (input.photoAttached) {
-    lines.push(
-      '',
-      "The post's photos are attached. Look at them and match the song to what is actually IN them —",
-      'the mood, scenery, light, and energy (a calm beach sunset wants something different from a night out).',
-      'The photos outrank every other signal below.',
-    );
-  }
-  lines.push('', 'The post:');
-  if (input.place) lines.push(`- Taken in: ${input.place}`);
-  if (input.month) lines.push(`- Time of year: ${input.month}`);
-  if (input.photoCount) lines.push(`- ${input.photoCount} photo${input.photoCount === 1 ? '' : 's'}`);
-  if (!input.place && !input.month && !input.photoAttached) {
-    lines.push('- No context known — suggest feel-good, widely loved travel/memories songs.');
-  }
-  if (input.place) {
-    lines.push('', 'Mix it up: some suggestions may nod to the place or its music scene, others should just match the mood — do NOT make every pick a literal on-the-nose location reference.');
-  }
-  if (input.seeds.length > 0) {
-    lines.push('', "The publisher's recently played songs — match their taste. Prefer suggesting these exact songs when one fits the photos, otherwise songs clearly similar in style:");
-    for (const t of input.seeds) lines.push(`- "${t.title}" by ${t.artist}`);
-  }
-  if (input.exclude.length > 0) {
-    lines.push('', 'Already suggested — do NOT repeat these (nor other songs by mostly the same artists):');
-    for (const t of input.exclude) lines.push(`- "${t.title}" by ${t.artist}`);
-  }
-  lines.push('', 'For each song give a one-line reason (max ~10 words) a friend would say.');
-  return lines.join('\n');
-}
-
 /** One retry on transient failures (5xx / 429) with a short backoff. */
 async function callGemini(body: string): Promise<Response> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
@@ -164,7 +84,7 @@ async function callGemini(body: string): Promise<Response> {
   const first = await fetch(url, request);
   if (first.ok || (first.status < 500 && first.status !== 429)) return first;
   await first.body?.cancel();
-  await new Promise(resolve => setTimeout(resolve, 800));
+  await new Promise((resolve) => setTimeout(resolve, 800));
   return fetch(url, request);
 }
 
@@ -205,7 +125,7 @@ Deno.serve(async (req: Request) => {
       contents: [{
         parts: [
           { text: prompt },
-          ...photos.map(p => ({ inlineData: { mimeType: p.mimeType, data: p.base64 } })),
+          ...photos.map((p) => ({ inlineData: { mimeType: p.mimeType, data: p.base64 } })),
         ],
       }],
       generationConfig: {
@@ -237,15 +157,5 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'Suggestion service unavailable' }, 502);
   }
 
-  const candidates = (Array.isArray(parsed.candidates) ? parsed.candidates : [])
-    .filter((c): c is Record<string, unknown> => typeof c === 'object' && c != null)
-    .map(c => ({
-      title: typeof c.title === 'string' ? c.title.trim() : '',
-      artist: typeof c.artist === 'string' ? c.artist.trim() : '',
-      reason: typeof c.reason === 'string' ? c.reason.trim() : '',
-    }))
-    .filter(c => c.title !== '' && c.artist !== '')
-    .slice(0, CANDIDATE_COUNT);
-
-  return json({ candidates });
+  return json({ candidates: normalizeCandidates(parsed.candidates) });
 });

@@ -67,4 +67,34 @@ test.describe('subscribe page', () => {
 
     await expect(page.locator('#error')).toHaveText('Network error. Please try again.');
   });
+
+  // Staging publishers only exist in the staging Supabase project — links from
+  // the staging app carry ?env=staging and must hit that project's function.
+  test('routes to the staging function when the link carries env=staging', async ({ page }) => {
+    let calledHost = '';
+    await page.route(SUBSCRIBE, route => {
+      calledHost = new URL(route.request().url()).host;
+      return fulfillJson(route, 200, { ok: true });
+    });
+    await page.goto(`${JOIN}&env=staging`);
+    await page.fill('#phone', '+972501234567');
+    await page.getByRole('button', { name: 'Subscribe' }).click();
+
+    await expect(page.getByRole('heading', { name: "You're subscribed!" })).toBeVisible();
+    expect(calledHost).toBe('xszvrvnxduwpymyabvcg.supabase.co');
+  });
+
+  test('defaults to the production function without env (and for unknown env values)', async ({ page }) => {
+    let calledHost = '';
+    await page.route(SUBSCRIBE, route => {
+      calledHost = new URL(route.request().url()).host;
+      return fulfillJson(route, 200, { ok: true });
+    });
+    await page.goto(`${JOIN}&env=bogus`);
+    await page.fill('#phone', '+972501234567');
+    await page.getByRole('button', { name: 'Subscribe' }).click();
+
+    await expect(page.getByRole('heading', { name: "You're subscribed!" })).toBeVisible();
+    expect(calledHost).toBe('eigvoazyrimzbzcjlscp.supabase.co');
+  });
 });

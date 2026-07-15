@@ -11,6 +11,7 @@
  * are removed and the orphaned assets age out via Cloudinary's own tooling.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { cloudinaryDestroySignature, publicIdFromUrl } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -35,20 +36,10 @@ async function authenticatedUserId(req: Request): Promise<string | null> {
   }
 }
 
-function publicIdFromUrl(url: string): string | null {
-  const m = url.match(/\/image\/upload\/(?:[^/]+\/)*?v\d+\/(.+?)(\.[A-Za-z0-9]+)?$/);
-  return m?.[1] ?? null;
-}
-
-async function sha1Hex(input: string): Promise<string> {
-  const digest = await crypto.subtle.digest('SHA-1', new TextEncoder().encode(input));
-  return [...new Uint8Array(digest)].map(b => b.toString(16).padStart(2, '0')).join('');
-}
-
 /** Signed Cloudinary destroy — returns true when the asset was deleted. */
 async function destroyCloudinaryAsset(publicId: string): Promise<boolean> {
   const timestamp = Math.floor(Date.now() / 1000);
-  const signature = await sha1Hex(`public_id=${publicId}&timestamp=${timestamp}${CLOUDINARY_SECRET}`);
+  const signature = await cloudinaryDestroySignature(publicId, timestamp, CLOUDINARY_SECRET);
   const form = new URLSearchParams({
     public_id: publicId,
     timestamp: String(timestamp),

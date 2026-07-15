@@ -27,7 +27,7 @@ function make(opts: Opts = {}): PhotoClassification {
       // Each call uses a different day so temporal-dedup tests don't collide.
       createdAt: opts.createdAt ?? new Date(Date.UTC(2026, 5, 1 + dayOffset)),
     },
-    category: opts.category ?? 'view_only',
+    category: opts.category ?? 'nature',
     confidence: opts.confidence ?? 0.9,
     quality: opts.quality ?? 0.8,
     caption: 'a photo',
@@ -119,9 +119,9 @@ describe('PhotoSelectionService — filtering', () => {
   });
 
   it('excludes categories the publisher disabled', () => {
-    const cfg = config({ enabledCategories: ['view_only'] });
+    const cfg = config({ enabledCategories: ['nature'] });
     const batch = service.selectBatch(
-      [make({ id: 'kept', category: 'view_only' }), make({ id: 'dropped', category: 'food' })],
+      [make({ id: 'kept', category: 'nature' }), make({ id: 'dropped', category: 'food' })],
       cfg,
     );
     expect(ids(batch)).toEqual(['kept']);
@@ -137,12 +137,12 @@ describe('PhotoSelectionService — filtering', () => {
   });
 
   it('deduplicates photos with the same scene in pass 1, but uses them in pass 2 to fill quota', () => {
-    const cfg = config({ enabledCategories: ['view_only'], photosPerPost: 5 });
+    const cfg = config({ enabledCategories: ['nature'], photosPerPost: 5 });
     const batch = service.selectBatch(
       [
-        { ...make({ id: 'a', category: 'view_only', quality: 0.9 }), scene: 'beach-sunset' },
-        { ...make({ id: 'b', category: 'view_only', quality: 0.8 }), scene: 'beach-sunset' },
-        { ...make({ id: 'c', category: 'view_only', quality: 0.7 }), scene: 'mountain-view' },
+        { ...make({ id: 'a', category: 'nature', quality: 0.9 }), scene: 'beach-sunset' },
+        { ...make({ id: 'b', category: 'nature', quality: 0.8 }), scene: 'beach-sunset' },
+        { ...make({ id: 'c', category: 'nature', quality: 0.7 }), scene: 'mountain-view' },
       ],
       cfg,
     );
@@ -151,14 +151,14 @@ describe('PhotoSelectionService — filtering', () => {
   });
 
   it('deduplicates same-scene photos across different categories (global scene set)', () => {
-    // 'a' (selfie_with_view) and 'b' (view_only) share scene "beach-sunset" — different categories.
+    // 'a' (selfie_with_view) and 'b' (nature) share scene "beach-sunset" — different categories.
     // Without global scene dedup they would both appear; with it, only 'a' (higher quality) does.
-    const cfg = config({ enabledCategories: ['selfie_with_view', 'view_only'], photosPerPost: 5 });
+    const cfg = config({ enabledCategories: ['selfie_with_view', 'nature'], photosPerPost: 5 });
     const batch = service.selectBatch(
       [
         { ...make({ id: 'a', category: 'selfie_with_view', quality: 0.9 }), scene: 'beach-sunset' },
-        { ...make({ id: 'b', category: 'view_only', quality: 0.85 }), scene: 'beach-sunset' },
-        { ...make({ id: 'c', category: 'view_only', quality: 0.7 }), scene: 'mountain-view' },
+        { ...make({ id: 'b', category: 'nature', quality: 0.85 }), scene: 'beach-sunset' },
+        { ...make({ id: 'c', category: 'nature', quality: 0.7 }), scene: 'mountain-view' },
       ],
       cfg,
     );
@@ -172,12 +172,12 @@ describe('PhotoSelectionService — filtering', () => {
   it('never dedups photos with blank or whitespace-only scenes', () => {
     // Blank scenes carry no visual-similarity signal — three photos with
     // empty/whitespace scenes must all be selectable, not collapse into one.
-    const cfg = config({ enabledCategories: ['view_only'], photosPerPost: 5 });
+    const cfg = config({ enabledCategories: ['nature'], photosPerPost: 5 });
     const batch = service.selectBatch(
       [
-        { ...make({ id: 'a', category: 'view_only', quality: 0.9 }), scene: '' },
-        { ...make({ id: 'b', category: 'view_only', quality: 0.8 }), scene: '   ' },
-        { ...make({ id: 'c', category: 'view_only', quality: 0.7 }), scene: '' },
+        { ...make({ id: 'a', category: 'nature', quality: 0.9 }), scene: '' },
+        { ...make({ id: 'b', category: 'nature', quality: 0.8 }), scene: '   ' },
+        { ...make({ id: 'c', category: 'nature', quality: 0.7 }), scene: '' },
       ],
       cfg,
       new Set(),
@@ -187,13 +187,13 @@ describe('PhotoSelectionService — filtering', () => {
 
   it('respects scene dedup when the quota is already met by diverse photos', () => {
     // 5 distinct-scene photos fill quota=5 in pass 1; the same-scene extra is never pulled in.
-    const cfg = config({ enabledCategories: ['view_only'], photosPerPost: 5 });
+    const cfg = config({ enabledCategories: ['nature'], photosPerPost: 5 });
     const diversePhotos = ['scene-a', 'scene-b', 'scene-c', 'scene-d', 'scene-e'].map((s, i) => ({
-      ...make({ id: `d${i}`, category: 'view_only' as const }),
+      ...make({ id: `d${i}`, category: 'nature' as const }),
       scene: s,
     }));
     // Lower quality so it sorts after all the diverse photos — it should never be reached.
-    const sameScene = { ...make({ id: 'extra', category: 'view_only' as const, quality: 0.1 }), scene: 'scene-a' };
+    const sameScene = { ...make({ id: 'extra', category: 'nature' as const, quality: 0.1 }), scene: 'scene-a' };
     const batch = service.selectBatch([...diversePhotos, sameScene], cfg);
     // quota filled by the 5 diverse photos; 'extra' is never reached.
     expect(ids(batch)).not.toContain('extra');
@@ -209,7 +209,7 @@ describe('PhotoSelectionService — ranking within a category', () => {
         make({ id: 'best', quality: 0.95 }),
         make({ id: 'low', quality: 0.45 }),
       ],
-      config({ enabledCategories: ['view_only'] }),
+      config({ enabledCategories: ['nature'] }),
     );
     expect(ids(batch)).toEqual(['best', 'mid', 'low']);
   });
@@ -220,7 +220,7 @@ describe('PhotoSelectionService — ranking within a category', () => {
         make({ id: 'older', quality: 0.8, createdAt: new Date('2026-06-01T00:00:00Z') }),
         make({ id: 'newer', quality: 0.8, createdAt: new Date('2026-06-10T00:00:00Z') }),
       ],
-      config({ enabledCategories: ['view_only'] }),
+      config({ enabledCategories: ['nature'] }),
     );
     expect(ids(batch)).toEqual(['newer', 'older']);
   });
@@ -228,8 +228,8 @@ describe('PhotoSelectionService — ranking within a category', () => {
 
 describe('PhotoSelectionService — diversity', () => {
   it('round-robins across categories instead of filling with one', () => {
-    // food has more, higher-quality photos, but view_only must still appear.
-    const cfg = config({ enabledCategories: ['view_only', 'food'] });
+    // food has more, higher-quality photos, but nature must still appear.
+    const cfg = config({ enabledCategories: ['nature', 'food'] });
     const batch = service.selectBatch(
       [
         make({ id: 'f1', category: 'food', quality: 0.99 }),
@@ -237,17 +237,17 @@ describe('PhotoSelectionService — diversity', () => {
         make({ id: 'f3', category: 'food', quality: 0.97 }),
         make({ id: 'f4', category: 'food', quality: 0.96 }),
         make({ id: 'f5', category: 'food', quality: 0.95 }),
-        make({ id: 'v1', category: 'view_only', quality: 0.7 }),
-        make({ id: 'v2', category: 'view_only', quality: 0.6 }),
+        make({ id: 'v1', category: 'nature', quality: 0.7 }),
+        make({ id: 'v2', category: 'nature', quality: 0.6 }),
       ],
       cfg,
     );
-    // interleave in enabledCategories order until view_only is exhausted, then food fills
+    // interleave in enabledCategories order until nature is exhausted, then food fills
     expect(ids(batch)).toEqual(['v1', 'f1', 'v2', 'f2', 'f3']);
   });
 
   it('falls back to a single category when only one is present', () => {
-    const cfg = config({ enabledCategories: ['food', 'view_only'] });
+    const cfg = config({ enabledCategories: ['food', 'nature'] });
     const batch = service.selectBatch(
       [
         make({ id: 'a', category: 'food', quality: 0.5 }),
@@ -263,7 +263,7 @@ describe('PhotoSelectionService — diversity', () => {
 describe('PhotoSelectionService — capacity', () => {
   it('caps the batch at photosPerPost', () => {
     const classifications = Array.from({ length: 8 }, (_, i) =>
-      make({ id: `p${i}`, category: 'view_only', quality: 1 - i * 0.05 }),
+      make({ id: `p${i}`, category: 'nature', quality: 1 - i * 0.05 }),
     );
     const batch = service.selectBatch(classifications, config({ photosPerPost: 5 }));
     expect(batch).toHaveLength(5);

@@ -22,6 +22,8 @@ import { buildPostTemplate } from '../_shared/postTemplate.ts';
 import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
+import { publisherIdentity } from '../_shared/publisher.ts';
+import { approvalPushContent, parseNotifyTime } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -112,14 +114,7 @@ async function pushApprovalBatch(
   const batchId = crypto.randomUUID();
 
   // Build a readable summary from captions (e.g. "Sunset · Street food · Mountain view").
-  const preview = batch
-    .slice(0, 3)
-    .map(p => p.caption)
-    .filter(Boolean)
-    .join(' · ');
-
-  const title = `${batch.length} photo${batch.length !== 1 ? 's' : ''} ready to post 📸`;
-  const body = preview.length > 0 ? preview : "Your AI-selected photos are ready to review.";
+  const { title, body } = approvalPushContent(batch.map(p => p.caption), batch.length);
 
   await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
@@ -147,13 +142,14 @@ async function pushApprovalBatch(
 
 /** Process a publisher who requires approval: compute the batch and send a rich push. */
 async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<string> {
-  const [hour, minute] = config.notify_time.split(':').map(Number);
+  const { hour, minute } = parseNotifyTime(config.notify_time);
   const due = isAutoPostDue(
     {
       dayOfWeek: config.notify_day_of_week,
-      hour: hour ?? 0,
-      minute: minute ?? 0,
+      hour,
+      minute,
       timezone: config.timezone,
+      intervalDays: config.lookback_days,
       lastAutoPostAt: config.last_auto_post_at != null ? new Date(config.last_auto_post_at) : null,
     },
     now,
@@ -259,35 +255,15 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
   return `pushed ${selectedBatch.length} photos (${poolPayload.length} in pool)`;
 }
 
-async function publisherIdentity(publisherId: string): Promise<{ name: string; phone?: string }> {
-  // The profile's display name is what the publisher chose in the app; auth
-  // metadata is only a fallback (often empty for email signups).
-  let profileName = '';
-  try {
-    const { data } = await supabase
-      .from('publisher_profile')
-      .select('display_name')
-      .eq('publisher_id', publisherId)
-      .maybeSingle();
-    profileName = (data as { display_name?: string } | null)?.display_name ?? '';
-  } catch { /* fall through to auth metadata */ }
-  try {
-    const { data } = await supabase.auth.admin.getUserById(publisherId);
-    const meta = (data.user?.user_metadata ?? {}) as { full_name?: string };
-    return { name: profileName || meta.full_name || 'Your friend', phone: data.user?.phone };
-  } catch {
-    return { name: profileName || 'Your friend' };
-  }
-}
-
 async function processAutoPublisher(config: ConfigRow, now: Date): Promise<string> {
-  const [hour, minute] = config.notify_time.split(':').map(Number);
+  const { hour, minute } = parseNotifyTime(config.notify_time);
   const due = isAutoPostDue(
     {
       dayOfWeek: config.notify_day_of_week,
-      hour: hour ?? 0,
-      minute: minute ?? 0,
+      hour,
+      minute,
       timezone: config.timezone,
+      intervalDays: config.lookback_days,
       lastAutoPostAt: config.last_auto_post_at != null ? new Date(config.last_auto_post_at) : null,
     },
     now,
@@ -356,7 +332,7 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     return 'reminder (empty batch)';
   }
 
-  const { name, phone } = await publisherIdentity(config.publisher_id);
+  const { name, phone } = await publisherIdentity(supabase, config.publisher_id);
   const urls = batch.map(b => b.url);
   const galleryUrl = await savePostGallery(supabase, config.publisher_id, urls);
   const caption = composeAutoPostBody(

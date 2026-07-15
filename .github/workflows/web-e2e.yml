@@ -1,13 +1,15 @@
-name: Web E2E (subscribe page)
+name: CI · e2e web (join page)
 
 # The public subscribe page (docs/join/) is a static browser page the iOS app
-# can't cover. This runs headless on Ubuntu in ~1-2 min, so — unlike the
-# simulator suite — it's cheap enough to gate every PR.
+# can't cover. This runs headless on Ubuntu in ~1-2 min. Path-filtered like
+# every other pipeline: it only runs when the page or its tests change.
 on:
   push:
     branches: [main]
+    paths: ['docs/join/**', 'web-e2e/**', 'playwright.config.ts']
   pull_request:
     branches: [main]
+    paths: ['docs/join/**', 'web-e2e/**', 'playwright.config.ts']
 
 jobs:
   web-e2e:

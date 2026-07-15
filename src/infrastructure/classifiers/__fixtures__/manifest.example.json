@@ -1,6 +1,6 @@
 [
   { "file": "selfie_with_view.jpg", "expected": "selfie_with_view" },
   { "file": "selfie_with_people.jpg", "expected": "selfie_with_people" },
-  { "file": "view_only.jpg", "expected": "view_only" },
+  { "file": "nature.jpg", "expected": "nature" },
   { "file": "food.jpg", "expected": "food" }
 ]

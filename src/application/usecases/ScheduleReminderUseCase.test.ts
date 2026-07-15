@@ -20,7 +20,23 @@ describe('ScheduleReminderUseCase', () => {
 
     await useCase.execute(config(3, '07:45'));
 
-    expect(scheduler.scheduled).toEqual({ dayOfWeek: 3, hour: 7, minute: 45 });
+    expect(scheduler.scheduled).toEqual({ dayOfWeek: 3, hour: 7, minute: 45, intervalDays: 7 });
+  });
+
+  it('passes the posting cadence so day-count frequencies repeat by interval', async () => {
+    const scheduler = new FakeNotificationScheduler();
+    const useCase = new ScheduleReminderUseCase(scheduler);
+
+    await useCase.execute(
+      PublisherConfig.create({
+        publisherId: 'pub-1',
+        frequency: '3days',
+        photosPerPost: 5,
+        requireApproval: true,
+      }),
+    );
+
+    expect(scheduler.scheduled?.intervalDays).toBe(3);
   });
 
   it('uses default schedule when config omits it', async () => {
@@ -36,6 +52,6 @@ describe('ScheduleReminderUseCase', () => {
       }),
     );
 
-    expect(scheduler.scheduled).toEqual({ dayOfWeek: 0, hour: 18, minute: 0 });
+    expect(scheduler.scheduled).toEqual({ dayOfWeek: 0, hour: 18, minute: 0, intervalDays: 7 });
   });
 });

@@ -34,8 +34,8 @@ class MockFormData {
 }
 (global as unknown as Record<string, unknown>).FormData = MockFormData;
 
-function makeSut(): CloudinaryStorageService {
-  return new CloudinaryStorageService('my-cloud', 'my-preset');
+function makeSut(folder?: string): CloudinaryStorageService {
+  return new CloudinaryStorageService('my-cloud', 'my-preset', folder);
 }
 
 function mockSuccess(secureUrl = 'https://res.cloudinary.com/test/photo.jpg'): void {
@@ -138,5 +138,19 @@ describe('CloudinaryStorageService — endpoint and response handling', () => {
     await expect(makeSut().upload('file:///photo.jpg', 'photo.jpg')).rejects.toThrow(
       'Cloudinary upload failed (413): File size too large',
     );
+  });
+});
+
+describe('CloudinaryStorageService — environment folder', () => {
+  it('sends the folder when one is configured (staging isolation)', async () => {
+    mockSuccess();
+    await makeSut('staging').upload('file:///photo.jpg', 'photo.jpg');
+    expect(lastFormData.get('folder')).toBe('staging');
+  });
+
+  it('omits the folder param when none is configured', async () => {
+    mockSuccess();
+    await makeSut().upload('file:///photo.jpg', 'photo.jpg');
+    expect(lastFormData.has('folder')).toBe(false);
   });
 });
