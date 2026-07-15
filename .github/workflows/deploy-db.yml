@@ -1,0 +1,40 @@
+name: CD · database (migrations)
+
+# CD for database migrations, independent of app and services. On merge to main
+# it applies pending migrations to STAGING. Production migrations are applied
+# only by explicit promotion via "Run workflow" (guarded by the `production`
+# environment) — never automatically.
+on:
+  push:
+    branches: [main]
+    paths: ['supabase/migrations/**']
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: Target environment
+        type: choice
+        options: [staging, production]
+        default: staging
+
+concurrency:
+  group: deploy-db-${{ github.event.inputs.environment || 'staging' }}
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    name: Migrate ${{ github.event.inputs.environment || 'staging' }}
+    runs-on: ubuntu-latest
+    environment: ${{ github.event.inputs.environment || 'staging' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: Push migrations
+        run: |
+          ENV="${{ github.event.inputs.environment || 'staging' }}"
+          if [ "$ENV" = "production" ]; then
+            supabase db push --db-url "${{ secrets.PROD_DB_URL }}"
+          else
+            supabase db push --db-url "${{ secrets.STAGING_DB_URL }}"
+          fi

@@ -9,19 +9,18 @@ import {
   ActivityIndicator,
   StyleSheet,
   SafeAreaView,
-  KeyboardAvoidingView,
-  Platform,
   useWindowDimensions,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import type { RootNavigationProp } from '../navigation/types';
-import { gpsFromExif } from '../../domain/services/exifGps';
-import type { GpsExif } from '../../domain/services/exifGps';
+import { coordinatesForPickedAssets } from '../../domain/services/pickedAssetCoordinates';
+import { mediaLibraryAssetLocation } from '../../infrastructure/media/assetLocation';
 import type { Coordinate } from '../../domain/interfaces';
 import { resolvePlaceForCoordinates } from '../../composition/container';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { useSubscribers } from '../hooks/useSubscribers';
+import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { usePublisherId } from '../context/AuthContext';
 import { InviteLinkCard } from '../components/InviteLinkCard';
 import { colors, radius, spacing, typography } from '../theme/theme';
@@ -37,9 +36,12 @@ const FEW_FOLLOWERS_THRESHOLD = 3;
 export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const { share, progress: shareProgress } = useShareMedia();
   // Exact pixel size for the 3-column grid — %-width + aspectRatio collapses
-  // inside the KeyboardAvoidingView/ScrollView chain on iOS.
+  // inside the ScrollView chain on iOS.
   const { width: windowWidth } = useWindowDimensions();
   const tileSize = Math.floor((windowWidth - spacing.xl * 2 - spacing.sm * 2) / 3);
+  // KeyboardAvoidingView under-pads inside this screen's pageSheet modal, so
+  // the footer pads itself by the keyboard's height instead.
+  const keyboardPadding = useKeyboardBottomPadding();
   const publisherId = usePublisherId();
   const { subscribers, loading: subscribersLoading } = useSubscribers(publisherId);
   const [pickedAssets, setPickedAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
@@ -65,9 +67,11 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
     void (async (): Promise<void> => {
       setPlaceLoading(true);
       try {
-        const coordinates = pickedAssets
-          .map(a => gpsFromExif(a.exif as GpsExif | null | undefined))
-          .filter((c): c is Coordinate => c != null);
+        // EXIF first, then a photo-library lookup — iOS's picker strips GPS
+        // EXIF, so without the fallback most iOS batches resolve no place.
+        const coordinates = (
+          await coordinatesForPickedAssets(pickedAssets, mediaLibraryAssetLocation)
+        ).filter((c): c is Coordinate => c != null);
         // Checked via a function call so lint doesn't flow-narrow across awaits.
         const isStale = (): boolean => run.cancelled || placeEditedRef.current;
         if (isStale()) return;
@@ -102,8 +106,11 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
       setLoading(true);
       setError(null);
       try {
+        // Same EXIF-then-library resolution as the place preview (cached, so
+        // these lookups were already paid for by the preview effect).
+        const coordinates = await coordinatesForPickedAssets(pickedAssets, mediaLibraryAssetLocation);
         const items = pickedAssets.map((asset, i) => {
-          const coordinate = gpsFromExif(asset.exif as GpsExif | null | undefined);
+          const coordinate = coordinates[i];
           return {
             mediaId: `${Date.now()}-${i}`,
             localUri: asset.uri,
@@ -190,10 +197,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
 
   return (
     <SafeAreaView style={styles.container}>
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
+      <View style={styles.flex}>
         <View style={styles.header}>
           <View style={styles.headerTop}>
             <Text style={styles.title}>New post</Text>
@@ -246,7 +250,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
               </TouchableOpacity>
             </ScrollView>
 
-            <View style={styles.footer}>
+            <View style={[styles.footer, keyboardPadding > 0 && { paddingBottom: keyboardPadding }]}>
               {error != null && <Text style={styles.errorNote}>{error}</Text>}
               <View style={styles.placeRow}>
                 <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
@@ -307,7 +311,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
             </View>
           </>
         )}
-      </KeyboardAvoidingView>
+      </View>
     </SafeAreaView>
   );
 }

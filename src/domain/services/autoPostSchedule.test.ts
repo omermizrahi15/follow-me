@@ -62,3 +62,63 @@ describe('isAutoPostDue', () => {
     expect(isAutoPostDue(input, now)).toBe(true);
   });
 });
+
+describe('isAutoPostDue — day-count cadences (every N days, no weekday)', () => {
+  const every3: AutoPostScheduleInput = { ...base, intervalDays: 3 };
+
+  it('ignores the configured weekday — fires at the time slot on ANY day', () => {
+    // Wednesday, not the configured Sunday.
+    const now = new Date('2026-06-24T14:00:00Z'); // Wed 10:00 EDT
+    expect(isAutoPostDue(every3, now)).toBe(true);
+  });
+
+  it('never posted → due at the first matching time slot', () => {
+    const now = new Date('2026-06-22T14:10:00Z'); // Monday, inside window
+    expect(isAutoPostDue(every3, now)).toBe(true);
+  });
+
+  it('does not fire again before the interval has elapsed', () => {
+    const input: AutoPostScheduleInput = {
+      ...every3,
+      lastAutoPostAt: new Date('2026-06-21T14:00:00Z'),
+    };
+    // Only 2 days later — the 10:00 slot passes but the 3-day gap hasn't.
+    expect(isAutoPostDue(input, new Date('2026-06-23T14:00:00Z'))).toBe(false);
+  });
+
+  it('fires at the first slot after the interval elapses', () => {
+    const input: AutoPostScheduleInput = {
+      ...every3,
+      lastAutoPostAt: new Date('2026-06-21T14:00:00Z'),
+    };
+    expect(isAutoPostDue(input, new Date('2026-06-24T14:00:00Z'))).toBe(true); // day 3
+  });
+
+  it('still respects the time-of-day window', () => {
+    const input: AutoPostScheduleInput = {
+      ...every3,
+      lastAutoPostAt: new Date('2026-06-20T14:00:00Z'),
+    };
+    expect(isAutoPostDue(input, new Date('2026-06-24T20:00:00Z'))).toBe(false); // 16:00 EDT ≠ slot
+  });
+});
+
+describe('isAutoPostDue — biweekly actually skips the in-between week', () => {
+  const biweekly: AutoPostScheduleInput = { ...base, intervalDays: 14 };
+
+  it('does not fire on the very next matching weekday', () => {
+    const input: AutoPostScheduleInput = {
+      ...biweekly,
+      lastAutoPostAt: new Date('2026-06-21T14:00:00Z'),
+    };
+    expect(isAutoPostDue(input, new Date('2026-06-28T14:00:00Z'))).toBe(false); // 1 week later
+  });
+
+  it('fires two weeks later', () => {
+    const input: AutoPostScheduleInput = {
+      ...biweekly,
+      lastAutoPostAt: new Date('2026-06-21T14:00:00Z'),
+    };
+    expect(isAutoPostDue(input, new Date('2026-07-05T14:00:00Z'))).toBe(true); // 2 weeks later
+  });
+});

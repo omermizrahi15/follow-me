@@ -1,0 +1,31 @@
+name: CI · native rebuild check
+
+# Warns on a PR when a change needs a fresh `eas build` (native binary) rather
+# than just an over-the-air EAS Update. OTA can only swap JS/assets; native
+# module or app-config changes require recompiling and reinstalling the app —
+# and would otherwise ship silently as an OTA that never actually lands.
+# Non-blocking: it writes a job summary + annotations, never fails the build.
+on:
+  pull_request:
+    paths:
+      - 'package.json'
+      - 'app.json'
+      - 'app.config.js'
+      - 'ios/**'
+
+jobs:
+  check:
+    name: Native rebuild needed?
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need base + head to diff the PR
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Analyze diff for native-affecting changes
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: node .github/scripts/native-build-check.mjs

@@ -7,10 +7,12 @@ export interface AutoPostScheduleInput {
   minute: number;
   timezone: string;
   lastAutoPostAt: Date | null;
+  /** Posting cadence in days (defaults to weekly). 7/14 fire on dayOfWeek; 3/30 by elapsed days. */
+  intervalDays?: number;
 }
 
 const DEFAULT_WINDOW_MINUTES = 30;
-const REFIRE_GUARD_MS = 23 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
 export function localParts(now: Date, timezone: string): { weekday: number; minutesOfDay: number } {
@@ -29,16 +31,25 @@ export function localParts(now: Date, timezone: string): { weekday: number; minu
   return { weekday, minutesOfDay: hour * 60 + minute };
 }
 
+/** Whether a cadence fires on a fixed weekday (weekly/biweekly) or by elapsed days. */
+export function isWeekdayCadence(intervalDays: number): boolean {
+  return intervalDays % 7 === 0;
+}
+
 export function isAutoPostDue(
   input: AutoPostScheduleInput,
   now: Date,
   windowMinutes: number = DEFAULT_WINDOW_MINUTES,
 ): boolean {
-  if (input.lastAutoPostAt != null && now.getTime() - input.lastAutoPostAt.getTime() < REFIRE_GUARD_MS) {
+  const intervalDays = input.intervalDays ?? 7;
+  // Full interval minus 1h tolerance (DST/cron jitter). Also makes biweekly
+  // actually fire every OTHER week — the weekday check alone fires weekly.
+  const minGapMs = (intervalDays * 24 - 1) * HOUR_MS;
+  if (input.lastAutoPostAt != null && now.getTime() - input.lastAutoPostAt.getTime() < minGapMs) {
     return false;
   }
   const { weekday, minutesOfDay } = localParts(now, input.timezone);
-  if (weekday !== input.dayOfWeek) return false;
+  if (isWeekdayCadence(intervalDays) && weekday !== input.dayOfWeek) return false;
   const scheduled = input.hour * 60 + input.minute;
   return minutesOfDay >= scheduled && minutesOfDay < scheduled + windowMinutes;
 }

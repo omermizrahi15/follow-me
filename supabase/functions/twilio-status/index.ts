@@ -22,12 +22,9 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { verifyTwilioSignature } from '../_shared/optOut.ts';
-import {
-  isFailureStatus,
-  isUnreachableErrorCode,
-  markSubscriberUnreachable,
-} from '../_shared/messageLog.ts';
+import { formToParams, verifyTwilioSignature } from '../_shared/optOut.ts';
+import { markSubscriberUnreachable } from '../_shared/messageLog.ts';
+import { shouldMarkUnreachable } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -39,11 +36,7 @@ const supabase = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSessio
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return new Response('Method not allowed', { status: 405 });
 
-  const form = await req.formData();
-  const params: Record<string, string> = {};
-  for (const [key, value] of form.entries()) {
-    if (typeof value === 'string') params[key] = value;
-  }
+  const params = formToParams(await req.formData());
 
   if (TWILIO_AUTH_TOKEN) {
     const ok = await verifyTwilioSignature({
@@ -82,8 +75,7 @@ Deno.serve(async (req: Request) => {
   // Unknown SID (e.g. a message sent before logging existed) — nothing to do.
   if (updated == null) return new Response('', { status: 204 });
 
-  const code = errorCode ? Number(errorCode) : null;
-  if (isFailureStatus(status) && isUnreachableErrorCode(Number.isNaN(code) ? null : code)) {
+  if (shouldMarkUnreachable(status, errorCode)) {
     await markSubscriberUnreachable(supabase, updated.publisher_id, updated.contact_handle);
   }
 

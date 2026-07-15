@@ -8,13 +8,13 @@ labels real photos into the right rule category.
 1. Add one clear example photo per rule into this folder, e.g.:
    - `selfie_with_view.jpg` — a selfie with a scenic background
    - `selfie_with_people.jpg` — a group selfie / people-focused selfie
-   - `view_only.jpg` — a landscape/landmark with no people
+   - `nature.jpg` — a natural scene (forest, beach, wildlife) with no people
    - `food.jpg` — a dish or drink
    You can add several per category and edge cases (a blurry shot, a screenshot →
    `other`) to probe the model.
 
 2. Copy `manifest.example.json` to `manifest.json` and list your files with their
-   expected category (`selfie_with_view` | `selfie_with_people` | `view_only` | `food` | `other`).
+   expected category (`selfie_with_view` | `selfie_with_people` | `nature` | `food` | `other`).
 
 3. Deploy the function and export its URL + your Supabase anon key:
    ```sh

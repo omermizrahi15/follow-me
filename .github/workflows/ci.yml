@@ -1,10 +1,37 @@
-name: CI
+name: CI · app
 
+# App CI (Node/Jest). Scoped to app code so a service-only change doesn't drag
+# the whole app suite. `_shared/**` is included because the app's parity tests
+# (e.g. photoSelectionParity) assert the app logic matches the Deno copies.
 on:
   push:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'App.js'
+      - 'app.json'
+      - 'app.config.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'jest.config.json'
+      - 'jest.setup.ts'
+      - 'tsconfig.json'
+      - 'supabase/functions/_shared/**'
+      - '.github/workflows/ci.yml'
   pull_request:
     branches: [main]
+    paths:
+      - 'src/**'
+      - 'App.js'
+      - 'app.json'
+      - 'app.config.js'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'jest.config.json'
+      - 'jest.setup.ts'
+      - 'tsconfig.json'
+      - 'supabase/functions/_shared/**'
+      - '.github/workflows/ci.yml'
 
 jobs:
   validate:

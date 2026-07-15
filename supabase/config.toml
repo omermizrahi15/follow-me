@@ -3,6 +3,10 @@
 # --no-verify-jwt flag) silently re-enables the JWT gate and breaks the caller.
 project_id = "follow-me"
 
+# Public join redirect, hit with no auth header.
+[functions.join]
+verify_jwt = false
+
 # Twilio webhooks: authenticated by X-Twilio-Signature, not JWT.
 [functions.join-webhook]
 verify_jwt = false

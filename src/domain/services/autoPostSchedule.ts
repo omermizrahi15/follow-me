@@ -1,9 +1,9 @@
 /**
- * Pure scheduling check for autonomous posting. Given a publisher's weekly
- * schedule (in their own timezone) and the last time we auto-posted, decide
- * whether the current moment is a firing slot. Pure + deterministic (only input
- * is `now`), so it's unit-tested exhaustively. Mirrored by the Deno `_shared`
- * copy used by the auto-post Edge Function.
+ * Pure scheduling check for autonomous posting. Given a publisher's cadence
+ * (in their own timezone) and the last time we auto-posted, decide whether the
+ * current moment is a firing slot. Pure + deterministic (only input is `now`),
+ * so it's unit-tested exhaustively. Mirrored by the Deno `_shared` copy used
+ * by the auto-post Edge Function.
  */
 export interface AutoPostScheduleInput {
   /** 0 = Sunday … 6 = Saturday (local to `timezone`). */
@@ -14,12 +14,18 @@ export interface AutoPostScheduleInput {
   timezone: string;
   /** Last successful/attempted auto-post, or null if never. */
   lastAutoPostAt: Date | null;
+  /**
+   * Posting cadence in days (= the lookback window; defaults to weekly).
+   * Whole-week cadences (7, 14) fire on `dayOfWeek`; day-count cadences
+   * (3, 30) have no natural weekday, so they fire at the first `hour:minute`
+   * slot after a full interval has elapsed — on whatever day that lands.
+   */
+  intervalDays?: number;
 }
 
 /** Cron fires every ~15 min; the window must cover that so a slot isn't missed. */
 const DEFAULT_WINDOW_MINUTES = 30;
-/** Guards against re-posting within the same day's slot. */
-const REFIRE_GUARD_MS = 23 * 60 * 60 * 1000;
+const HOUR_MS = 60 * 60 * 1000;
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -46,17 +52,28 @@ export function localParts(now: Date, timezone: string): LocalParts {
   return { weekday, minutesOfDay: hour * 60 + minute };
 }
 
+/** Whether a cadence fires on a fixed weekday (weekly/biweekly) or by elapsed days. */
+export function isWeekdayCadence(intervalDays: number): boolean {
+  return intervalDays % 7 === 0;
+}
+
 export function isAutoPostDue(
   input: AutoPostScheduleInput,
   now: Date,
   windowMinutes: number = DEFAULT_WINDOW_MINUTES,
 ): boolean {
-  if (input.lastAutoPostAt != null && now.getTime() - input.lastAutoPostAt.getTime() < REFIRE_GUARD_MS) {
+  const intervalDays = input.intervalDays ?? 7;
+  // A full interval must elapse between posts, minus 1h of tolerance so DST
+  // shifts or cron jitter can't push a slot just out of reach. This also makes
+  // biweekly actually fire every OTHER week — the weekday check alone would
+  // fire it weekly.
+  const minGapMs = (intervalDays * 24 - 1) * HOUR_MS;
+  if (input.lastAutoPostAt != null && now.getTime() - input.lastAutoPostAt.getTime() < minGapMs) {
     return false;
   }
 
   const { weekday, minutesOfDay } = localParts(now, input.timezone);
-  if (weekday !== input.dayOfWeek) return false;
+  if (isWeekdayCadence(intervalDays) && weekday !== input.dayOfWeek) return false;
 
   const scheduled = input.hour * 60 + input.minute;
   return minutesOfDay >= scheduled && minutesOfDay < scheduled + windowMinutes;

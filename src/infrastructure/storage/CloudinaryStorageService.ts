@@ -27,9 +27,15 @@ function imageWidth(uri: string): Promise<number> {
 }
 
 export class CloudinaryStorageService implements IStorageService {
+  /**
+   * `folder` routes uploads into a Cloudinary folder (an allowed unsigned-upload
+   * param) so staging builds never mix assets with production — set via
+   * EXPO_PUBLIC_CLOUDINARY_FOLDER, absent in production.
+   */
   constructor(
     private cloudName: string,
     private uploadPreset: string,
+    private folder?: string,
   ) {}
 
   async upload(localUri: string, filename: string): Promise<string> {
@@ -38,6 +44,7 @@ export class CloudinaryStorageService implements IStorageService {
     const formData = new FormData();
     formData.append('file', file as unknown as Blob);
     formData.append('upload_preset', this.uploadPreset);
+    if (this.folder) formData.append('folder', this.folder);
 
     const response = await fetch(
       `https://api.cloudinary.com/v1_1/${this.cloudName}/image/upload`,

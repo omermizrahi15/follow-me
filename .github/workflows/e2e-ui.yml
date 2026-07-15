@@ -1,4 +1,4 @@
-name: E2E UI (Maestro)
+name: CI · e2e app (Maestro)
 
 # Building the native iOS app takes ~15 min, so this NEVER runs on the PR
 # critical path. Instead it runs AFTER the fast Ubuntu "CI" workflow passes on
@@ -9,7 +9,9 @@ on:
   schedule:
     - cron: '0 6 * * *' # 06:00 UTC nightly
   workflow_run:
-    workflows: [CI] # the Ubuntu typecheck/lint/test workflow (.github/workflows/ci.yml)
+    # Must match ci.yml's `name:` EXACTLY — renaming that workflow silently
+    # breaks this trigger (it had already drifted once: "CI" vs "CI app").
+    workflows: ["CI · app"]
     types: [completed]
     branches: [main]
 

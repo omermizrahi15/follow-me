@@ -50,9 +50,11 @@ const configRepo = new SupabasePublisherConfigRepository(supabaseUrl, supabaseKe
 const candidateRepo = new SupabaseCandidatePhotoRepository(supabaseUrl, supabaseKey);
 const profileRepo = new SupabasePublisherProfileRepository(supabaseUrl, supabaseKey);
 // Shared photo uploader (Cloudinary) — used for posts and profile avatars.
+// The optional folder isolates staging uploads from production assets.
 export const storage = new CloudinaryStorageService(
   requireEnv(process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME as string | undefined, 'EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
   requireEnv(process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET as string | undefined, 'EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
+  process.env.EXPO_PUBLIC_CLOUDINARY_FOLDER as string | undefined,
 );
 // Manual posts send WhatsApp via the send-post Edge Function (Twilio creds stay
 // server-side, issue #24). Subscribe confirmations are server-side too (the

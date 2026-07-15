@@ -1,0 +1,19 @@
+{
+  "//": "Deno tooling for the Supabase Edge Functions (the 'services'). Separate from the app's Node/Jest world. Used by the per-service CI (ci-services.yml).",
+  "tasks": {
+    "test": "deno test supabase/functions/",
+    "lint": "deno lint supabase/functions/",
+    "check": "deno check supabase/functions/**/index.ts"
+  },
+  "imports": {
+    "@std/assert": "jsr:@std/assert@1"
+  },
+  "fmt": {
+    "singleQuote": true,
+    "indentWidth": 2,
+    "lineWidth": 100
+  },
+  "lint": {
+    "rules": { "tags": ["recommended"] }
+  }
+}

@@ -34,7 +34,11 @@ const PUBLISHER = 'integration-test-sub-publisher';
 const OTHER_PUBLISHER = 'integration-test-sub-other';
 
 describeIf(RUN)('SupabaseSubscriberRepository — anon SELECT policy (integration)', () => {
-  const admin = createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false } });
+  // describe.skip still evaluates this body, and createClient throws on a
+  // missing key — guard so absent creds skip the suite instead of failing it.
+  const admin = RUN
+    ? createClient(supabaseUrl, serviceKey, { auth: { persistSession: false } })
+    : (null as never);
 
   async function clean(): Promise<void> {
     await admin.from('subscribers').delete().in('publisher_id', [PUBLISHER, OTHER_PUBLISHER]);
