@@ -581,7 +581,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
 
       {/* Privacy: user-initiated wipe of the cloud photo pool. */}
       <View style={styles.deleteUploadedBlock}>
-        <TouchableOpacity onPress={handleDeleteUploaded} hitSlop={8}>
+        <TouchableOpacity testID="auto-remove-cloud-photos" onPress={handleDeleteUploaded} hitSlop={8}>
           <Text style={styles.deleteUploadedLink}>Remove my photos from the cloud</Text>
         </TouchableOpacity>
         <Text style={styles.deleteUploadedHint}>
