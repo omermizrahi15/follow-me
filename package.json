@@ -11,7 +11,7 @@
     "test:integration": "jest --testPathPattern=integration\\.test --testPathIgnorePatterns=[]",
     "test:e2e": "jest --testPathPattern=e2e --testPathIgnorePatterns=[]",
     "test:all": "jest --testPathIgnorePatterns=[]",
-    "e2e:ui": "maestro test --exclude-tags ai .maestro",
+    "e2e:ui": "maestro test --exclude-tags ai,quarantine .maestro",
     "e2e:ui:smoke": "maestro test --include-tags smoke .maestro",
     "e2e:ui:ai": "maestro test --include-tags ai .maestro",
     "e2e:ui:build": "expo run:ios --configuration Release",

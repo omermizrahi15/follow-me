@@ -1,0 +1,50 @@
+appId: com.followme.app
+name: remove-cloud-photos
+tags:
+  - auth
+  # Regression flow for issue #58 — the final assertion encodes the FIXED
+  # behavior and fails today. Remove the quarantine tag (and the matching
+  # exclude in package.json's e2e:ui script) when the fix lands.
+  - quarantine
+---
+# Auto-posting → "Remove my photos from the cloud" → confirm Delete → the
+# warning link must clear after a successful wipe (it currently stays: #58).
+# Reuses the session from sign-in.
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000
+- tapOn:
+    id: "section-nav-auto"
+- assertVisible: "Auto-posting"
+# Expand the sheet to near-full so the bottom of the section is reachable
+# without fighting the 42%-height default.
+- swipe:
+    from:
+      id: "home-sheet-handle"
+    direction: UP
+# The delete link sits at the very bottom, below the category list.
+# Center-screen swipes are safe here: only the ≡ drag handles on the right
+# edge of each category row capture the gesture.
+- scrollUntilVisible:
+    element:
+      id: "auto-remove-cloud-photos"
+    direction: DOWN
+    timeout: 30000
+- tapOn:
+    id: "auto-remove-cloud-photos"
+# Native confirm alert ("?" is a regex char in Maestro text matchers — use .*).
+- assertVisible: "Remove your photos from the cloud.*"
+- tapOn: "Delete"
+# Server round-trip (delete-candidates edge function) → success alert.
+- extendedWaitUntil:
+    visible: "Deleted"
+    timeout: 20000
+- tapOn: "OK"
+# Expected behavior (issue #58): after a successful wipe the warning link is
+# gone until photos are re-uploaded on the next Save. Today it stays — this
+# is the regression assertion.
+- assertNotVisible: "Remove my photos from the cloud"
+- tapOn:
+    id: "section-nav-me"
