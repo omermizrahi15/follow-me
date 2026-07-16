@@ -23,7 +23,7 @@ import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 import { publisherIdentity } from '../_shared/publisher.ts';
-import { approvalPushContent, parseNotifyTime } from './logic.ts';
+import { approvalPushContent, parseNotifyTime, reminderPushContent, type ReminderReason } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -78,15 +78,16 @@ async function classify(photos: { id: string; url: string }[]): Promise<RawClass
   return body.classifications ?? [];
 }
 
-async function pushReminder(token: string): Promise<void> {
+async function pushReminder(token: string, reason: ReminderReason): Promise<void> {
   if (!token) return;
+  const { title, body } = reminderPushContent(reason);
   await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       to: token,
-      title: 'Ready for your next post?',
-      body: "We couldn't auto-pick photos this time — tap to choose some.",
+      title,
+      body,
       data: { screen: 'ReviewSuggestion' },
     }),
   });
@@ -175,7 +176,7 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
   };
 
   if (rows.length === 0) {
-    await pushReminder(token);
+    await pushReminder(token, 'no-candidates');
     await stamp();
     return 'reminder (no candidates)';
   }
@@ -216,7 +217,7 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
   );
 
   if (selectedBatch.length === 0) {
-    await pushReminder(token);
+    await pushReminder(token, 'empty-batch');
     await stamp();
     return 'reminder (empty batch)';
   }
@@ -286,7 +287,7 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
   };
 
   if (rows.length === 0) {
-    await pushReminder(config.expo_push_token ?? '');
+    await pushReminder(config.expo_push_token ?? '', 'no-candidates');
     await stamp();
     return 'reminder (no candidates)';
   }
@@ -327,7 +328,7 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
   );
 
   if (batch.length === 0) {
-    await pushReminder(config.expo_push_token ?? '');
+    await pushReminder(config.expo_push_token ?? '', 'empty-batch');
     await stamp();
     return 'reminder (empty batch)';
   }
