@@ -1,5 +1,5 @@
 import { assertEquals } from '@std/assert';
-import { approvalPushContent, parseNotifyTime } from './logic.ts';
+import { approvalPushContent, parseNotifyTime, reminderPushContent } from './logic.ts';
 
 Deno.test('parseNotifyTime — splits HH:MM', () => {
   assertEquals(parseNotifyTime('09:30'), { hour: 9, minute: 30 });
@@ -27,4 +27,13 @@ Deno.test('approvalPushContent — previews the first 3 captions (blanks dropped
 
 Deno.test('approvalPushContent — generic body when there are no captions', () => {
   assertEquals(approvalPushContent(['', ''], 2).body, 'Your AI-selected photos are ready to review.');
+});
+
+Deno.test('reminderPushContent — distinct copy per fallback reason', () => {
+  const noCandidates = reminderPushContent('no-candidates');
+  const emptyBatch = reminderPushContent('empty-batch');
+  assertEquals(noCandidates.title, 'Ready for your next post?');
+  assertEquals(emptyBatch.title, 'Ready for your next post?');
+  assertEquals(noCandidates.body, 'No recent photos have synced yet — open the app to upload some.');
+  assertEquals(emptyBatch.body, "None of your recent photos fit your filters — tap to choose some yourself.");
 });
