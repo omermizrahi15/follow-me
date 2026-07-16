@@ -65,6 +65,8 @@ interface RawClassification {
   quality: number;
   caption: string;
   scene: string;
+  /** AI's best-guess place name; may be '' or absent from older deployments. */
+  place?: string;
 }
 
 async function classify(photos: { id: string; url: string }[]): Promise<RawClassification[]> {
@@ -99,6 +101,8 @@ interface BatchPhoto {
   caption: string;
   quality: number;
   scene: string;
+  /** AI's best-guess place name ('' when the image had no location signal). */
+  place: string;
   createdAt: number;
 }
 
@@ -221,8 +225,9 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
     return 'reminder (empty batch)';
   }
 
-  // Build the caption lookup from raw classifications.
+  // Build the caption/place lookups from raw classifications.
   const captionById = new Map(classified.map(c => [c.id, c.caption ?? '']));
+  const placeById = new Map(classified.map(c => [c.id, c.place ?? '']));
 
   const batchSelectedIds = new Set(selectedBatch.map(b => b.assetId));
   const batchPayload: BatchPhoto[] = selectedBatch.map(b => ({
@@ -232,6 +237,7 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
     caption: captionById.get(b.assetId) ?? '',
     quality: b.quality,
     scene: b.scene,
+    place: placeById.get(b.assetId) ?? '',
     createdAt: b.createdAt,
   }));
 
@@ -247,6 +253,7 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
       caption: captionById.get(c.assetId) ?? '',
       quality: c.quality,
       scene: c.scene,
+      place: placeById.get(c.assetId) ?? '',
       createdAt: c.createdAt,
     }));
 

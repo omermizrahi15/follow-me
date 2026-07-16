@@ -38,6 +38,7 @@ Deno.test('parseClassification — normalizes a well-formed model response', () 
     quality: 0.7,
     caption: 'A forest trail',
     scene: 'Mountain-Trail',
+    place: ' Interlaken, Switzerland ',
   });
   assertEquals(c, {
     id: 'id1',
@@ -46,10 +47,11 @@ Deno.test('parseClassification — normalizes a well-formed model response', () 
     quality: 0.7,
     caption: 'A forest trail',
     scene: 'mountain-trail', // lowercased + trimmed
+    place: 'Interlaken, Switzerland', // trimmed, case preserved
   });
 });
 
 Deno.test('parseClassification — defends against junk/missing fields', () => {
-  const c = parseClassification('id2', { category: 'weird', confidence: 5, quality: 'x', caption: 123 });
-  assertEquals(c, { id: 'id2', category: 'other', confidence: 1, quality: 0, caption: '', scene: '' });
+  const c = parseClassification('id2', { category: 'weird', confidence: 5, quality: 'x', caption: 123, place: 42 });
+  assertEquals(c, { id: 'id2', category: 'other', confidence: 1, quality: 0, caption: '', scene: '', place: '' });
 });

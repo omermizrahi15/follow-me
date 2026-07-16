@@ -22,6 +22,8 @@ export interface Classification {
   quality: number;
   caption: string;
   scene: string;
+  /** Best-guess place name ("City, Country"); '' when the image has no location signal. */
+  place: string;
 }
 
 /** btoa over arbitrary bytes, chunked to avoid the argument-count limit on large images. */
@@ -55,5 +57,6 @@ export function parseClassification(id: string, parsed: Record<string, unknown>)
     quality: clamp01(parsed.quality),
     caption: typeof parsed.caption === 'string' ? parsed.caption : '',
     scene: typeof parsed.scene === 'string' ? parsed.scene.toLowerCase().trim() : '',
+    place: typeof parsed.place === 'string' ? parsed.place.trim() : '',
   };
 }

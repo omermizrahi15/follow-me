@@ -1,4 +1,4 @@
-import { representativeCoordinate, representativeCoordinates } from './postingLocation';
+import { representativeCoordinate, representativeCoordinates, suggestPlaceFromGuesses } from './postingLocation';
 
 describe('representativeCoordinate', () => {
   it('returns null for an empty batch', () => {
@@ -75,5 +75,38 @@ describe('representativeCoordinates — multi-place clustering', () => {
   it('honours a smaller max', () => {
     const reps = representativeCoordinates([lisbon, porto, madrid], 2);
     expect(reps).toHaveLength(2);
+  });
+});
+
+describe('suggestPlaceFromGuesses', () => {
+  it('returns null when there are no guesses at all', () => {
+    expect(suggestPlaceFromGuesses([])).toBeNull();
+    expect(suggestPlaceFromGuesses(['', '  ', undefined])).toBeNull();
+  });
+
+  it('returns the single guess', () => {
+    expect(suggestPlaceFromGuesses(['Lisbon, Portugal'])).toBe('Lisbon, Portugal');
+  });
+
+  it('ranks by agreement — the most common guess comes first', () => {
+    const result = suggestPlaceFromGuesses([
+      'Porto, Portugal',
+      'Lisbon, Portugal',
+      'Lisbon, Portugal',
+    ]);
+    expect(result).toBe('Lisbon, Portugal & Porto, Portugal');
+  });
+
+  it('dedupes case-insensitively, keeping the first spelling', () => {
+    expect(suggestPlaceFromGuesses(['Lisbon, Portugal', 'lisbon, portugal'])).toBe('Lisbon, Portugal');
+  });
+
+  it('trims guesses and skips empties without losing the rest', () => {
+    expect(suggestPlaceFromGuesses(['', ' Rome, Italy ', undefined])).toBe('Rome, Italy');
+  });
+
+  it('caps the suggestion at three places', () => {
+    const result = suggestPlaceFromGuesses(['A', 'A', 'B', 'B', 'C', 'D']);
+    expect(result).toBe('A, B & C');
   });
 });
