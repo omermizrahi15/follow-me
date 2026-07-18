@@ -1,11 +1,14 @@
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { loadConfig, syncCandidatePhotos } from '../../composition/container';
+import { hasPhotoSyncConsent } from '../data/photoSyncConsent';
 
 /**
- * Keeps the cloud candidate set fresh for autonomous posting: when the publisher
- * has approval turned off, re-syncs recent library photos on mount and whenever
- * the app returns to the foreground. No-op (and no uploads) when approval is on.
+ * Keeps the cloud candidate set fresh for the server posting pipeline: re-syncs
+ * recent library photos on mount and whenever the app returns to the foreground.
+ * Both modes need it — autonomous posting selects from cloud candidates, and the
+ * approval flow's server push computes its suggested batch from the same set.
+ * No-op (and no uploads) until the user has consented to photo upload.
  */
 export function useAutoSync(publisherId: string | null): void {
   useEffect(() => {
@@ -14,10 +17,9 @@ export function useAutoSync(publisherId: string | null): void {
     const run = (): void => {
       void (async (): Promise<void> => {
         try {
+          if (!(await hasPhotoSyncConsent())) return;
           const config = await loadConfig.execute(publisherId);
-          if (!config.requireApproval) {
-            await syncCandidatePhotos.execute(publisherId, config.lookbackDays);
-          }
+          await syncCandidatePhotos.execute(publisherId, config.lookbackDays);
         } catch {
           /* best-effort background sync */
         }

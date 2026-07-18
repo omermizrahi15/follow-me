@@ -205,7 +205,7 @@ export function HomeScreen(): React.JSX.Element {
 
       {/* Draggable sheet — solid white all the way down */}
       <Animated.View style={[styles.sheet, { height: heightAnim }]}>
-        <View style={styles.handleArea} {...panResponder.panHandlers}>
+        <View testID="home-sheet-handle" style={styles.handleArea} {...panResponder.panHandlers}>
           <View style={styles.handle} />
         </View>
         <View style={styles.sheetBody}>

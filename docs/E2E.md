@@ -46,6 +46,7 @@ A booted iOS simulator with the app installed is required (`xcrun simctl boot "i
 | `edit-profile` | `auth` | Edit name + bio → Save → new name shows on the Me page |
 | `add-post` | `auth` | Me → Add post → New-post modal + picker entry point → close |
 | `auto-posting` | `auth` | Configure frequency / reminder day+time / photos-per-post → Save |
+| `remove-cloud-photos` | `auth`, `quarantine` | "Remove my photos from the cloud" → confirm → warning clears (regression for [#58](https://github.com/omermizrahi15/follow-me/issues/58); quarantined until the fix lands) |
 | `followers` | `auth` | Followers section list/empty state + invite entry point |
 | `sign-out` | `auth` | Settings → Sign out → back to the phone sign-in screen |
 | `ai-visual-check` | `ai` | Fuzzy "does this screen look right" assertions via `assertWithAI` |
@@ -61,7 +62,7 @@ The heavy lifting is meant to be done by Claude Code via the [`e2e-ui` skill](..
 - **"add an E2E flow for X"** — Claude reads the screen source, adds missing `testID`s, writes the flow, runs it until green.
 - **"the E2E flows are failing"** — Claude reproduces the single failing flow, diffs `maestro hierarchy` output against the selectors, and repairs flow or `testID`.
 
-Conventions (also enforced by the skill): select by `testID` (`id:` in Maestro), one journey per file, tag `smoke`/`auth`/`ai`, `extendedWaitUntil` for network waits.
+Conventions (also enforced by the skill): select by `testID` (`id:` in Maestro), one journey per file, tag `smoke`/`auth`/`ai`, `extendedWaitUntil` for network waits. A flow that encodes the *expected* behavior of a known open bug additionally gets the `quarantine` tag, which the default `e2e:ui` script excludes — remove the tag (and its exclude in `package.json` if it's the last quarantined flow) together with the bug fix.
 
 ## CI
 

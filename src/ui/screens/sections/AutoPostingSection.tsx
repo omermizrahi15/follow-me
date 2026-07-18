@@ -9,7 +9,6 @@ import {
   Alert,
 } from 'react-native';
 import type { GestureResponderEvent } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Ionicons } from '@expo/vector-icons';
 import { usePublisherId } from '../../context/AuthContext';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -27,6 +26,7 @@ import {
 import { PublisherConfig, FREQUENCY_DAYS } from '../../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
 import { isWeekdayCadence } from '../../../domain/services/autoPostSchedule';
+import { confirmPhotoSync } from '../../data/photoSyncConsent';
 import { SELECTABLE_CATEGORIES } from '../../../domain/entities/PhotoClassification';
 import type { PhotoCategory } from '../../../domain/entities/PhotoClassification';
 import { SuggestionCache } from '../../../infrastructure/cache/SuggestionCache';
@@ -62,34 +62,6 @@ type OrderedCategory = { cat: PhotoCategory; enabled: boolean };
 
 /** Row height in the category list — must match catRow style. */
 const ITEM_H = 48;
-
-/** One-time consent flag for uploading recent photos to the cloud. */
-const SYNC_CONSENT_KEY = 'photo-sync-consent-v1';
-
-/**
- * Photo upload is privacy-sensitive — ask explicitly the first time.
- * Resolves true when the user has consented (now or previously).
- */
-async function confirmPhotoSync(): Promise<boolean> {
-  const stored = await AsyncStorage.getItem(SYNC_CONSENT_KEY).catch(() => null);
-  if (stored != null) return true;
-  return new Promise(resolve => {
-    Alert.alert(
-      'Upload recent photos?',
-      'To prepare posts for you — even while the app is closed — your recent photos are uploaded to your private cloud space. Only photos from your configured time window are uploaded.',
-      [
-        { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
-        {
-          text: 'Allow',
-          onPress: () => {
-            void AsyncStorage.setItem(SYNC_CONSENT_KEY, new Date().toISOString()).catch(() => undefined);
-            resolve(true);
-          },
-        },
-      ],
-    );
-  });
-}
 
 function buildOrderedList(enabledInOrder: PhotoCategory[]): OrderedCategory[] {
   const enabledSet = new Set(enabledInOrder);
@@ -581,7 +553,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
 
       {/* Privacy: user-initiated wipe of the cloud photo pool. */}
       <View style={styles.deleteUploadedBlock}>
-        <TouchableOpacity onPress={handleDeleteUploaded} hitSlop={8}>
+        <TouchableOpacity testID="auto-remove-cloud-photos" onPress={handleDeleteUploaded} hitSlop={8}>
           <Text style={styles.deleteUploadedLink}>Remove my photos from the cloud</Text>
         </TouchableOpacity>
         <Text style={styles.deleteUploadedHint}>
