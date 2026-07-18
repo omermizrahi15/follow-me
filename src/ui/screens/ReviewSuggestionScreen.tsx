@@ -147,6 +147,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
   const [place, setPlace] = useState('');
   const [placeLoading, setPlaceLoading] = useState(false);
   const placeEditedRef = useRef(false);
+  // Which step of the resolution chain produced the place — surfaced under the
+  // field so an empty suggestion is explained, never silent (issue #63).
+  const [placeSource, setPlaceSource] = useState<'photos' | 'scan' | 'ai' | 'none' | null>(null);
   // Posting song — optional, picked via the same sheet as the manual Upload flow.
   const [song, setSong] = useState<Song | null>(null);
   const [songPickerOpen, setSongPickerOpen] = useState(false);
@@ -163,6 +166,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
       placeEditedRef.current = false;
       coordsRef.current.clear();
       setPlace('');
+      setPlaceSource(null);
       setSong(null);
     }
     if (phase === 'done' && !slotsInitRef.current && batch.length > 0) {
@@ -216,6 +220,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         await probeGps(slots);
         if (isStale()) return;
         let coordinates = gpsOf(slots);
+        let source: 'photos' | 'scan' | 'ai' = 'photos';
 
         // The selection has no GPS — borrow it from the rest of the scan.
         if (coordinates.length === 0) {
@@ -226,6 +231,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           await probeGps(restIds);
           if (isStale()) return;
           coordinates = gpsOf(restIds);
+          source = 'scan';
         }
 
         let resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
@@ -239,8 +245,12 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           resolved =
             suggestPlaceFromGuesses(selectedGuesses) ??
             suggestPlaceFromGuesses([...batch, ...pool].map(c => c.place));
+          source = 'ai';
         }
-        if (!isStale()) setPlace(resolved ?? '');
+        if (!isStale()) {
+          setPlace(resolved ?? '');
+          setPlaceSource(resolved != null ? source : 'none');
+        }
       } finally {
         if (!run.cancelled) setPlaceLoading(false);
       }
@@ -522,6 +532,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                   value={place}
                   onChangeText={text => {
                     placeEditedRef.current = true;
+                    setPlaceSource(null);
                     setPlace(text);
                   }}
                   placeholder={placeLoading ? 'Finding the place…' : 'Add a place (optional)'}
@@ -537,6 +548,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                   <TouchableOpacity
                     onPress={() => {
                       placeEditedRef.current = true;
+                      setPlaceSource(null);
                       setPlace('');
                     }}
                     hitSlop={8}
@@ -546,6 +558,22 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                   </TouchableOpacity>
                 ) : null}
               </View>
+              {placeSource != null && (
+                <Text
+                  style={[
+                    innerStyles.placeSourceNote,
+                    placeSource === 'none' && innerStyles.placeSourceWarn,
+                  ]}
+                >
+                  {placeSource === 'photos'
+                    ? "Place from the selected photos' GPS"
+                    : placeSource === 'scan'
+                    ? 'Place from other photos taken around the same time'
+                    : placeSource === 'ai'
+                    ? 'Place guessed by AI from the photo content'
+                    : 'No place found — the photos carry no GPS and the AI made no guess. Type one to include it.'}
+                </Text>
+              )}
               {song == null ? (
                 <TouchableOpacity
                   testID="review-add-song"
@@ -683,6 +711,15 @@ const innerStyles = StyleSheet.create({
     fontSize: 14,
     color: colors.text,
   },
+  placeSourceNote: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: -2,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  placeSourceWarn: { color: '#C87A00' },
   songRow: {
     flexDirection: 'row',
     alignItems: 'center',
