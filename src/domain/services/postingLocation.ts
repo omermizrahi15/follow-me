@@ -59,6 +59,27 @@ export function representativeCoordinates(coordinates: Coordinate[], max = 3): C
     .filter((c): c is Coordinate => c != null);
 }
 
+/**
+ * A place name from the AI's per-photo content guesses — the fallback when no
+ * photo in the batch carries GPS. Guesses are trimmed, deduped case-insensitively
+ * (first spelling wins), ranked by how many photos agree (ties keep input order),
+ * and the top 3 joined like GPS-resolved places. Null only when every guess is
+ * empty — a batch of pure screenshots/documents.
+ */
+export function suggestPlaceFromGuesses(guesses: Array<string | undefined>): string | null {
+  const counts = new Map<string, { name: string; count: number }>();
+  for (const guess of guesses) {
+    const name = guess?.trim() ?? '';
+    if (name === '') continue;
+    const key = name.toLowerCase();
+    const entry = counts.get(key);
+    if (entry != null) entry.count += 1;
+    else counts.set(key, { name, count: 1 });
+  }
+  const ranked = [...counts.values()].sort((a, b) => b.count - a.count).map(e => e.name);
+  return formatPlaceList(ranked.slice(0, 3));
+}
+
 /** "A" / "A & B" / "A, B & C" — how a posting names its place(s). */
 export function formatPlaceList(places: string[]): string | null {
   const [first, second, third] = places;
