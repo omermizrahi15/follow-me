@@ -221,6 +221,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         if (isStale()) return;
         let coordinates = gpsOf(slots);
         let source: 'photos' | 'scan' | 'ai' = 'photos';
+        if (__DEV__) console.log(`[place] GPS on ${coordinates.length}/${slots.length} selected photos`);
 
         // The selection has no GPS — borrow it from the rest of the scan.
         if (coordinates.length === 0) {
@@ -248,6 +249,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           source = 'ai';
         }
         if (!isStale()) {
+          if (__DEV__) console.log(`[place] resolved via ${resolved != null ? source : 'nothing'}: ${JSON.stringify(resolved)}`);
           setPlace(resolved ?? '');
           setPlaceSource(resolved != null ? source : 'none');
         }
