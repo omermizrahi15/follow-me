@@ -19,3 +19,19 @@ export function approvalPushContent(captions: string[], batchLength: number): { 
   const body = preview.length > 0 ? preview : 'Your AI-selected photos are ready to review.';
   return { title, body };
 }
+
+/** Why the pipeline fell back to a pick-manually reminder instead of a photo batch. */
+export type ReminderReason = 'no-candidates' | 'empty-batch';
+
+/**
+ * Title/body for the fallback reminder push. The two failure modes need
+ * different user action (sync photos vs. loosen filters / take new shots),
+ * so the copy distinguishes them — and the reason lands in telemetry.
+ */
+export function reminderPushContent(reason: ReminderReason): { title: string; body: string } {
+  const body =
+    reason === 'no-candidates'
+      ? 'No recent photos have synced yet — open the app to upload some.'
+      : "None of your recent photos fit your filters — tap to choose some yourself.";
+  return { title: 'Ready for your next post?', body };
+}

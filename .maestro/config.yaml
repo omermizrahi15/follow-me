@@ -15,5 +15,6 @@ executionOrder:
     - edit-profile
     - add-post
     - auto-posting
+    - remove-cloud-photos
     - followers
     - sign-out

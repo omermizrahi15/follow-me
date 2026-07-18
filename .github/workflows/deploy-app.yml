@@ -49,7 +49,9 @@ jobs:
         # commit message with quotes/newlines can't break or inject the shell.
         env:
           UPDATE_MSG: ${{ github.event.head_commit.message || format('manual → {0}', github.event.inputs.environment) }}
-        run: eas update --branch "$CHANNEL" --message "$UPDATE_MSG" --non-interactive
+        # --platform ios: the app is iOS-only (app.json platforms) and the
+        # default (all platforms) fails exporting the nonexistent android bundle.
+        run: eas update --branch "$CHANNEL" --message "$UPDATE_MSG" --platform ios --non-interactive
       - name: Upload source maps to Sentry
         # OTA bundles replace the JS that shipped in the binary, so crash stack
         # traces stay readable only if the maps for THIS update reach Sentry

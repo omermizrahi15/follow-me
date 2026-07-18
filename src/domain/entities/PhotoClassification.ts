@@ -47,4 +47,11 @@ export interface PhotoClassification {
    * should share the same slug so the selection service can deduplicate them.
    */
   scene: string;
+  /**
+   * The AI's best guess at the real-world place shown ("City, Country"), from
+   * image content alone — used as the posting-place fallback when no photo in
+   * the batch carries GPS. '' / absent when the image had no location signal
+   * (or the classification predates this field).
+   */
+  place?: string;
 }
