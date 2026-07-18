@@ -23,6 +23,7 @@ import { resolvePlaceForCoordinates } from '../../composition/container';
 import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
+import { suggestPlaceFromGuesses } from '../../domain/services/postingLocation';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -164,9 +165,14 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
     }
   }, [phase, batch, photosPerPost]);
 
-  // Resolve the batch's GPS → place name whenever the selection changes, so
-  // the user sees (and can edit) the place before posting. Their manual edit
-  // always wins over re-resolution.
+  // Resolve the batch's place whenever the selection changes, so the user
+  // sees (and can edit) the place before posting. Their manual edit always
+  // wins over re-resolution. Resolution order — a suggestion must appear even
+  // when the selected photos carry no GPS:
+  //   1. GPS of the selected photos → reverse geocode.
+  //   2. GPS of any other photo from the same scan (batch + pool) — same
+  //      lookback window, almost always the same trip.
+  //   3. The AI's content-based place guess(es) across the batch.
   useEffect(() => {
     if (phase !== 'done' || slots.length === 0) return;
     // Object property (not a local) so eslint doesn't flow-narrow it — the
@@ -177,37 +183,64 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
       try {
         // All lookups in parallel — sequential awaits made the first
         // resolution take many seconds on iCloud-backed libraries.
-        await Promise.all(
-          slots.map(async id => {
-            if (coordsRef.current.has(id)) return;
-            try {
-              const info = await MediaLibrary.getAssetInfoAsync(id);
-              // Cache misses too (undefined) so we don't refetch per selection change.
-              coordsRef.current.set(
-                id,
-                info.location != null
-                  ? validCoordinate(info.location.latitude, info.location.longitude) ?? undefined
-                  : undefined,
-              );
-            } catch {
-              coordsRef.current.set(id, undefined);
-            }
-          }),
-        );
-        const coordinates = slots
-          .map(id => coordsRef.current.get(id))
-          .filter((c): c is Coordinate => c != null);
+        const probeGps = (ids: string[]): Promise<void[]> =>
+          Promise.all(
+            ids.map(async id => {
+              if (coordsRef.current.has(id)) return;
+              try {
+                const info = await MediaLibrary.getAssetInfoAsync(id);
+                // Cache misses too (undefined) so we don't refetch per selection change.
+                coordsRef.current.set(
+                  id,
+                  info.location != null
+                    ? validCoordinate(info.location.latitude, info.location.longitude) ?? undefined
+                    : undefined,
+                );
+              } catch {
+                coordsRef.current.set(id, undefined);
+              }
+            }),
+          );
+        const gpsOf = (ids: string[]): Coordinate[] =>
+          ids.map(id => coordsRef.current.get(id)).filter((c): c is Coordinate => c != null);
+
         // Checked via a function call so lint doesn't flow-narrow across awaits.
         const isStale = (): boolean => run.cancelled || placeEditedRef.current;
+
+        await probeGps(slots);
         if (isStale()) return;
-        const resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
+        let coordinates = gpsOf(slots);
+
+        // The selection has no GPS — borrow it from the rest of the scan.
+        if (coordinates.length === 0) {
+          const slotIds = new Set(slots);
+          const restIds = [...batch, ...pool]
+            .map(c => c.candidate.id)
+            .filter(id => !slotIds.has(id));
+          await probeGps(restIds);
+          if (isStale()) return;
+          coordinates = gpsOf(restIds);
+        }
+
+        let resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
+        if (isStale()) return;
+
+        // No GPS anywhere (or the geocoder failed) — fall back to what the AI
+        // saw in the photos, selected ones first.
+        if (resolved == null) {
+          const byId = new Map([...batch, ...pool].map(c => [c.candidate.id, c]));
+          const selectedGuesses = slots.map(id => byId.get(id)?.place);
+          resolved =
+            suggestPlaceFromGuesses(selectedGuesses) ??
+            suggestPlaceFromGuesses([...batch, ...pool].map(c => c.place));
+        }
         if (!isStale()) setPlace(resolved ?? '');
       } finally {
         if (!run.cancelled) setPlaceLoading(false);
       }
     })();
     return () => { run.cancelled = true; };
-  }, [phase, slots]);
+  }, [phase, slots, batch, pool]);
 
   const photoById = useMemo(() => {
     const map = new Map<string, PhotoClassification>();

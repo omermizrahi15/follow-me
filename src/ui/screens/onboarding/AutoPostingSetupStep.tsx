@@ -22,6 +22,7 @@ import {
 import { PublisherConfig } from '../../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
 import { colors, radius, spacing, typography } from '../../theme/theme';
+import { confirmPhotoSync } from '../../data/photoSyncConsent';
 
 type Props = {
   publisherId: string;
@@ -79,18 +80,22 @@ export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: 
     void (async (): Promise<void> => {
       setSaving(true);
       try {
-        let token = pushToken;
-        if (!askBeforePost) {
-          token = (await registerPushToken()) ?? '';
-          setPushToken(token);
-        }
+        // Both modes rely on the server pipeline (approval mode gets its batch
+        // pushed by the server too), so always register the push token and keep
+        // recent photos synced to the cloud.
+        const token = (await registerPushToken().catch(() => null)) ?? pushToken;
+        setPushToken(token);
         const config = buildCurrentConfig(token);
         await saveConfig.execute(config);
-        if (askBeforePost) {
-          await scheduleReminder.execute(config).catch(() => undefined);
-        } else {
-          await scheduleReminder.cancel().catch(() => undefined);
+        if (await confirmPhotoSync()) {
           await syncCandidatePhotos.execute(publisherId, config.lookbackDays).catch(() => undefined);
+        }
+        if (token !== '') {
+          // Server owns the reminder — cancel the local one to avoid double-notifying.
+          await scheduleReminder.cancel().catch(() => undefined);
+        } else {
+          // No push token (permissions denied / simulator) — local reminder fallback.
+          await scheduleReminder.execute(config).catch(() => undefined);
         }
         onDone();
       } finally {

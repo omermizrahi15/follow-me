@@ -1,7 +1,7 @@
 /**
  * Supabase Edge Function: POST /classify-photos
  * Body: { "photos": [{ "id": string, "url"?: string, "base64"?: string, "mimeType"?: string }] }
- * Returns: { "classifications": [{ id, category, confidence, quality, caption, scene }] }
+ * Returns: { "classifications": [{ id, category, confidence, quality, caption, scene, place }] }
  *
  * The single place provider specifics live. It holds GEMINI_API_KEY (never shipped
  * in the app) and asks Gemini Flash to classify each photo into one of the rule
@@ -63,6 +63,12 @@ Also rate:
   or subject of the photo, ignoring who is in it (e.g. "beach-sunset", "restaurant-dinner",
   "mountain-trail", "old-city-market"). Two photos of the same place MUST share the same
   slug. Prefer generic location terms over unique details so similar shots collide.
+- place: your single best guess at the real-world place shown, as "City, Country"
+  (e.g. "Lisbon, Portugal"), or "Region, Country" / just "Country" when that is all
+  you can tell. ALWAYS guess, even at low confidence — landmarks, signage, language,
+  architecture, vegetation and food style are all fair clues. Use "" only when the
+  image carries no location signal at all (a plain screenshot, document, or tight
+  close-up with no surroundings).
 
 Respond with JSON only.`;
 
@@ -74,8 +80,9 @@ const RESPONSE_SCHEMA = {
     quality: { type: 'NUMBER' },
     caption: { type: 'STRING' },
     scene: { type: 'STRING' },
+    place: { type: 'STRING' },
   },
-  required: ['category', 'confidence', 'quality', 'caption', 'scene'],
+  required: ['category', 'confidence', 'quality', 'caption', 'scene', 'place'],
 };
 
 const cors: Record<string, string> = {
@@ -191,7 +198,7 @@ Deno.serve(async (req: Request) => {
       classifications.push(await classifyOne(photo));
     } catch (err) {
       console.error(`classify ${photo.id} failed:`, err);
-      classifications.push({ id: photo.id, category: 'other', confidence: 0, quality: 0, caption: '', scene: '' });
+      classifications.push({ id: photo.id, category: 'other', confidence: 0, quality: 0, caption: '', scene: '', place: '' });
     }
   }
 
