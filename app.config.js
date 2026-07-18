@@ -29,6 +29,20 @@ module.exports = ({ config }) => {
       ...config.ios,
       bundleIdentifier: v.bundleIdentifier,
     },
+    plugins: [
+      ...(config.plugins ?? []),
+      // Crash reporting (issue #10): wires the native Sentry SDK and hooks the
+      // build so source maps + debug symbols upload during `eas build`. Org and
+      // project come from SENTRY_ORG / SENTRY_PROJECT (EAS env vars) so nothing
+      // account-specific is hardcoded; upload needs SENTRY_AUTH_TOKEN too.
+      [
+        '@sentry/react-native/expo',
+        {
+          organization: process.env.SENTRY_ORG,
+          project: process.env.SENTRY_PROJECT,
+        },
+      ],
+    ],
     // EAS Update (over-the-air JS updates). Both variants share one EAS project
     // and update URL; the per-profile `channel` in eas.json routes production vs
     // staging. runtimeVersion tracks the app version so a native rebuild is only

@@ -52,3 +52,18 @@ jobs:
         # --platform ios: the app is iOS-only (app.json platforms) and the
         # default (all platforms) fails exporting the nonexistent android bundle.
         run: eas update --branch "$CHANNEL" --message "$UPDATE_MSG" --platform ios --non-interactive
+      - name: Upload source maps to Sentry
+        # OTA bundles replace the JS that shipped in the binary, so crash stack
+        # traces stay readable only if the maps for THIS update reach Sentry
+        # (`eas update` leaves the export in dist/). Skips with a notice until
+        # the Sentry secrets are configured — never fails the deploy.
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+        run: |
+          if [ -z "$SENTRY_AUTH_TOKEN" ]; then
+            echo "::notice::SENTRY_AUTH_TOKEN not configured — skipping Sentry source map upload"
+            exit 0
+          fi
+          npx sentry-expo-upload-sourcemaps dist

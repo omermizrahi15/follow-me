@@ -147,6 +147,39 @@ Setup:
    share text (`buildInviteMessage`) is sent from the publisher's own phone via
    the OS share sheet, NOT through Twilio, so it needs no template.
 
+## Error monitoring — Sentry (issue #10)
+
+`@sentry/react-native` is initialised at the top of `App.js` (before the root
+component mounts) and captures unhandled JS exceptions, React render errors
+(root wrapped with `Sentry.wrap`) and native crashes. Use-case failures are
+tagged `operation: share_photo`, `sync_candidate_photos`, … via the `monitored`
+wrapper in `src/composition/container.ts`, so Sentry can be filtered by flow.
+
+Local dev and simulator builds NEVER report: monitoring activates only when
+`EXPO_PUBLIC_APP_VARIANT` is `staging`/`production` (set by the EAS
+preview/production profiles) AND a DSN is present. The `environment` field in
+each event mirrors the variant, so staging noise is separable from production.
+
+One-time setup (until done, Sentry is silently off and CI skips the upload):
+
+1. Create a React Native project at sentry.io; note the **org slug**,
+   **project slug** and **DSN** (the DSN is public-safe — it can only ingest).
+2. Paste the DSN into `EXPO_PUBLIC_SENTRY_DSN` in BOTH `eas.json` build
+   profiles (currently `""` = disabled). The OTA workflow reads the same
+   profiles, so this covers builds and updates alike.
+3. Source maps / debug symbols:
+   - EAS env vars for builds: `SENTRY_ORG`, `SENTRY_PROJECT` (plain) and
+     `SENTRY_AUTH_TOKEN` (secret) — the `@sentry/react-native/expo` config
+     plugin uploads during `eas build`. NOTE: once the plugin is in the app
+     config, an EAS build without `SENTRY_AUTH_TOKEN` fails at the upload
+     step — set `SENTRY_DISABLE_AUTO_UPLOAD=true` to build without it.
+   - GitHub Actions (repo Settings): variables `SENTRY_ORG`,
+     `SENTRY_PROJECT` + secret `SENTRY_AUTH_TOKEN` — `deploy-app.yml` uploads
+     maps for every OTA update (readable stack traces need the maps of the
+     exact update that crashed).
+4. Adding the native SDK is a native change: ship a fresh `eas build` (both
+   variants) before relying on crash reports; an OTA update alone won't load it.
+
 ## Ops checklist before enabling autonomous mode in production
 
 1. Migrations up to `20240017` applied (`supabase db push`).

@@ -1,8 +1,14 @@
 import { registerRootComponent } from 'expo';
 import * as Notifications from 'expo-notifications';
+import { initErrorMonitoring, withErrorMonitoring } from './src/infrastructure/monitoring/sentry';
 import { AppNavigator } from './src/ui/navigation/AppNavigator';
 import { registerNotificationCategories } from './src/infrastructure/notifiers/NotificationCategories';
 import { SuggestionCache } from './src/infrastructure/cache/SuggestionCache';
+
+// Crash reporting first, before the root component mounts — everything that
+// fails past this line (JS exceptions, native crashes) is captured. No-op in
+// local dev; only EAS preview/production builds report (issue #10).
+initErrorMonitoring();
 
 // Show notifications even when the app is foregrounded.
 Notifications.setNotificationHandler({
@@ -32,4 +38,6 @@ Notifications.addNotificationReceivedListener(notification => {
   }
 });
 
-registerRootComponent(AppNavigator);
+// Sentry's wrapper adds an error boundary around the root so React render
+// errors are captured with component context.
+registerRootComponent(withErrorMonitoring(AppNavigator));
