@@ -14,11 +14,7 @@ import { GeminiPhotoClassifier } from '../infrastructure/classifiers/GeminiPhoto
 import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri } from '../infrastructure/media/ExpoMediaLibrary';
 import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotificationScheduler';
 import { registerExpoPushToken } from '../infrastructure/notifiers/ExpoPushToken';
-import type { Coordinate, ISentPhotoTracker, SongSuggestionContext } from '../domain/interfaces';
-import type { Song } from '../domain/entities/Song';
-import { ITunesMusicCatalog } from '../infrastructure/music/ITunesMusicCatalog';
-import { EdgeFunctionSongSuggester } from '../infrastructure/music/EdgeFunctionSongSuggester';
-import { expoReadSuggestionPhoto } from '../infrastructure/media/suggestionPhoto';
+import type { Coordinate, ISentPhotoTracker } from '../domain/interfaces';
 import { resolvePostingPlace } from '../application/services/resolvePostingPlace';
 import { ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
 import { WhatsAppEdgeNotifier } from '../infrastructure/notifiers/WhatsAppEdgeNotifier';
@@ -97,28 +93,6 @@ const sentPhotoTracker: ISentPhotoTracker = {
 };
 // Names the posting's place ("Lisbon, Portugal") from the batch's EXIF GPS.
 const geocoder = new BigDataCloudGeocoder();
-
-// Posting soundtrack (issue #54): keyless iTunes Search supplies previews and
-// artwork; the suggest-song Edge Function (Gemini) proposes candidates that
-// are resolved against that catalog.
-const musicCatalog = new ITunesMusicCatalog();
-const songSuggester = new EdgeFunctionSongSuggester(
-  `${supabaseUrl}/functions/v1/suggest-song`,
-  supabaseKey,
-  musicCatalog,
-  // Requires a signed-in user's JWT (anon key rejected) — same posture as
-  // classify-photos. authService is declared below; the closure runs later.
-  async () => (await authService.getSession())?.access_token ?? null,
-  // Downsized post photos ride along so the AI matches the song to them.
-  expoReadSuggestionPhoto,
-);
-
-/** Free-text song search for the picker's manual mode. */
-export const searchSongs = (term: string): Promise<Song[]> => musicCatalog.searchSongs(term);
-
-/** AI song suggestions for a posting; null when unavailable (picker falls back to search). */
-export const suggestSong = (context: SongSuggestionContext): Promise<Song[] | null> =>
-  songSuggester.suggest(context);
 
 /** Pre-resolves the posting's place so the review screen can show/edit it. */
 export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<string | null> =>

@@ -25,17 +25,6 @@ describe('Media', () => {
     expect(media.postingId).toBeUndefined();
   });
 
-  it('stores the posting song when provided', () => {
-    const song = { title: 'Vienna', artist: 'Billy Joel' };
-    const media = Media.create({ ...validProps, song });
-    expect(media.song).toEqual(song);
-  });
-
-  it('has no song by default', () => {
-    const media = Media.create(validProps);
-    expect(media.song).toBeUndefined();
-  });
-
   it('throws if ownerId is missing', () => {
     expect(() => Media.create({ ...validProps, ownerId: '' }))
       .toThrow('Media must have an owner');

@@ -23,8 +23,6 @@ import { useSubscribers } from '../hooks/useSubscribers';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { usePublisherId } from '../context/AuthContext';
 import { InviteLinkCard } from '../components/InviteLinkCard';
-import { SongPickerSheet } from '../components/SongPickerSheet';
-import type { Song } from '../../domain/entities/Song';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 type Props = {
@@ -55,9 +53,6 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const [place, setPlace] = useState('');
   const [placeLoading, setPlaceLoading] = useState(false);
   const placeEditedRef = useRef(false);
-  // Posting soundtrack — optional, picked via the AI/search sheet (issue #54).
-  const [song, setSong] = useState<Song | null>(null);
-  const [songPickerOpen, setSongPickerOpen] = useState(false);
 
   const showInvitePrompt =
     !promptDismissed && !subscribersLoading && subscribers.length < FEW_FOLLOWERS_THRESHOLD;
@@ -130,7 +125,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           : placeLoading || place === ''
           ? undefined
           : place;
-        await share(items, publisherId, location, song ?? undefined);
+        await share(items, publisherId, location);
         setDone(true);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Upload failed');
@@ -189,7 +184,6 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
             onPress={() => {
               setDone(false);
               setPickedAssets([]);
-              setSong(null);
               setPromptDismissed(false);
               navigation.goBack();
             }}
@@ -289,42 +283,6 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
                   </TouchableOpacity>
                 ) : null}
               </View>
-              {song == null ? (
-                <TouchableOpacity
-                  testID="upload-add-song"
-                  style={styles.songRow}
-                  onPress={() => setSongPickerOpen(true)}
-                  accessibilityLabel="Add a song"
-                >
-                  <Ionicons name="musical-notes-outline" size={16} color={colors.textSecondary} />
-                  <Text style={styles.songPlaceholder}>Add a song (optional)</Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                </TouchableOpacity>
-              ) : (
-                <View style={styles.songRow}>
-                  {song.artworkUrl != null ? (
-                    <Image source={{ uri: song.artworkUrl }} style={styles.songArt} />
-                  ) : (
-                    <Ionicons name="musical-notes" size={16} color={colors.accent} />
-                  )}
-                  <TouchableOpacity
-                    style={styles.songNames}
-                    onPress={() => setSongPickerOpen(true)}
-                    accessibilityLabel="Change song"
-                  >
-                    <Text style={styles.songText} numberOfLines={1}>
-                      {song.title} <Text style={styles.songArtistText}>— {song.artist}</Text>
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setSong(null)}
-                    hitSlop={8}
-                    accessibilityLabel="Remove song"
-                  >
-                    <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-                  </TouchableOpacity>
-                </View>
-              )}
               <Text style={styles.followerNote}>
                 Will be sent to all your active followers via WhatsApp
               </Text>
@@ -354,17 +312,6 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           </>
         )}
       </View>
-
-      <SongPickerSheet
-        visible={songPickerOpen}
-        place={placeLoading ? undefined : place || undefined}
-        photoUris={pickedAssets.map(a => a.uri)}
-        onSelect={s => {
-          setSong(s);
-          setSongPickerOpen(false);
-        }}
-        onClose={() => setSongPickerOpen(false)}
-      />
     </SafeAreaView>
   );
 }
@@ -457,21 +404,6 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: colors.text,
   },
-  songRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  songPlaceholder: { flex: 1, fontSize: 14, color: colors.textMuted },
-  songArt: { width: 24, height: 24, borderRadius: radius.sm, backgroundColor: colors.surface },
-  songNames: { flex: 1 },
-  songText: { fontSize: 14, color: colors.text, fontWeight: '600' },
-  songArtistText: { color: colors.textSecondary, fontWeight: '400' },
   errorNote: { color: colors.danger, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm },
   followerNote: { color: colors.textMuted, fontSize: 12, textAlign: 'center', marginBottom: spacing.md },
   shareButton: {

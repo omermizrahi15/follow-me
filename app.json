@@ -27,8 +27,7 @@
         {
           "photosPermission": "Follow Me reads your recent photos to suggest a batch for your next post."
         }
-      ],
-      "expo-audio"
+      ]
     ],
     "extra": {
       "eas": {

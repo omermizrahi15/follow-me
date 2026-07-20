@@ -30,9 +30,6 @@ export class WhatsAppEdgeNotifier implements INotifier {
         // The posting's place — the server weaves it into the caption
         // ("Check out X's latest photos from Lisbon, Portugal 📸").
         ...(first.location != null ? { place: first.location } : {}),
-        // The posting's soundtrack — stored on the posts row so the web
-        // gallery shows the music bar (issue #54).
-        ...(first.song != null ? { song: first.song } : {}),
       }),
     });
     if (!res.ok) {

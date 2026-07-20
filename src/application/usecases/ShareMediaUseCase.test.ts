@@ -103,33 +103,6 @@ describe('ShareMediaUseCase — posting grouping', () => {
 
 });
 
-describe('ShareMediaUseCase — posting song', () => {
-  const song = {
-    title: 'Vienna',
-    artist: 'Billy Joel',
-    previewUrl: 'https://preview/vienna.m4a',
-  };
-
-  it('stamps the chosen song on every item of the posting', async (): Promise<void> => {
-    const { useCase, mediaRepo } = makeSut();
-    await useCase.share({ ownerId: 'user-1', items: multipleItems, song });
-    expect(mediaRepo.all().every(m => m.song?.title === 'Vienna')).toBe(true);
-  });
-
-  it('leaves media without a song when none was chosen', async (): Promise<void> => {
-    const { useCase, mediaRepo } = makeSut();
-    await useCase.share({ ownerId: 'user-1', items: multipleItems });
-    expect(mediaRepo.all().every(m => m.song == null)).toBe(true);
-  });
-
-  it('hands the song to the notifier via the media batch', async (): Promise<void> => {
-    const { useCase, subscriberRepo, notifier } = makeSut();
-    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
-    await useCase.share({ ownerId: 'user-1', items: multipleItems, song });
-    expect(notifier.sent[0]?.media[0]?.song).toEqual(song);
-  });
-});
-
 describe('ShareMediaUseCase — posting location', () => {
   const lisbonItems = [
     { mediaId: 'media-1', localUri: 'file:///local/a.jpg', filename: 'a.jpg', coordinate: { latitude: 38.71, longitude: -9.13 } },

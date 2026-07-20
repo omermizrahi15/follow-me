@@ -27,35 +27,6 @@
     .status { text-align: center; padding: 60px 20px; color: #6B7683; font-size: 15px; }
     footer { text-align: center; padding-bottom: 32px; color: #9AA5AE; font-size: 12px; }
 
-    /* Song bar — the posting's soundtrack (issue #54). Mirrors the app's music bar. */
-    .song {
-      display: none; /* shown by JS when the post has a song */
-      align-items: center; gap: 12px;
-      max-width: 420px; margin: 0 auto 18px;
-      padding: 10px 12px;
-      background: #fff; border: 1px solid #E3E9EF; border-radius: 14px;
-      text-align: left;
-    }
-    .song img { width: 44px; height: 44px; border-radius: 10px; background: #E8EDF2; }
-    .song .art-fallback {
-      width: 44px; height: 44px; border-radius: 10px; background: #EAF3FF;
-      display: flex; align-items: center; justify-content: center; font-size: 18px;
-    }
-    .song .names { flex: 1; min-width: 0; }
-    .song .names a { color: inherit; text-decoration: none; }
-    .song .names a:hover { text-decoration: underline; }
-    .song .track { font-size: 14px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .song .artist { font-size: 12px; color: #6B7683; margin-top: 1px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .song button {
-      width: 36px; height: 36px; flex: none;
-      border: 0; border-radius: 999px;
-      background: #1668E3; color: #fff;
-      font-size: 14px; cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .song button:hover { background: #1258C4; }
-
     /* Lightbox — in-page enlarge instead of navigating to the image URL. */
     .lightbox {
       position: fixed; inset: 0; z-index: 10;
@@ -96,7 +67,6 @@
     <h1 id="title">Loading…</h1>
     <p id="subtitle"></p>
   </header>
-  <div class="song" id="song"></div>
   <div class="grid" id="grid"></div>
   <p class="status" id="status" hidden></p>
   <footer>Shared with Follow Me</footer>
@@ -175,70 +145,6 @@
       if (Math.abs(dx) > 40) showPhoto(lbIndex + (dx < 0 ? 1 : -1));
     }, { passive: true });
 
-    // ---------- song bar (issue #54) ----------
-    // The posting's soundtrack: artwork, title/artist and a 30s preview player.
-    // All content is inserted via textContent/attributes — never innerHTML —
-    // because the song fields come from the database.
-    function renderSong(song) {
-      if (!song || typeof song.title !== 'string' || typeof song.artist !== 'string') return;
-      const bar = document.getElementById('song');
-
-      if (typeof song.artworkUrl === 'string' && song.artworkUrl.startsWith('https://')) {
-        const art = document.createElement('img');
-        art.src = song.artworkUrl;
-        art.alt = '';
-        bar.appendChild(art);
-      } else {
-        const fallback = document.createElement('div');
-        fallback.className = 'art-fallback';
-        fallback.textContent = '\u{1F3B5}';
-        bar.appendChild(fallback);
-      }
-
-      const names = document.createElement('div');
-      names.className = 'names';
-      const track = document.createElement('div');
-      track.className = 'track';
-      if (typeof song.sourceUrl === 'string' && song.sourceUrl.startsWith('https://')) {
-        const link = document.createElement('a');
-        link.href = song.sourceUrl;
-        link.target = '_blank';
-        link.rel = 'noopener';
-        link.textContent = song.title;
-        track.appendChild(link);
-      } else {
-        track.textContent = song.title;
-      }
-      const artist = document.createElement('div');
-      artist.className = 'artist';
-      artist.textContent = song.artist;
-      names.appendChild(track);
-      names.appendChild(artist);
-      bar.appendChild(names);
-
-      if (typeof song.previewUrl === 'string' && song.previewUrl.startsWith('https://')) {
-        const audio = new Audio(song.previewUrl);
-        audio.preload = 'none';
-        const button = document.createElement('button');
-        button.type = 'button';
-        button.textContent = '▶';
-        button.setAttribute('aria-label', 'Play song preview');
-        function setPlaying(playing) {
-          button.textContent = playing ? '⏸' : '▶';
-          button.setAttribute('aria-label', playing ? 'Pause song preview' : 'Play song preview');
-        }
-        button.addEventListener('click', () => {
-          if (audio.paused) { audio.play(); setPlaying(true); }
-          else { audio.pause(); setPlaying(false); }
-        });
-        audio.addEventListener('ended', () => setPlaying(false));
-        audio.addEventListener('error', () => { button.remove(); });
-        bar.appendChild(button);
-      }
-
-      bar.style.display = 'flex';
-    }
-
     // ---------- page load ----------
     function fail(message) {
       document.getElementById('title').textContent = 'Follow Me';
@@ -252,7 +158,7 @@
       if (!id) return fail('This link is invalid.');
 
       const postRes = await fetch(
-        SUPABASE_URL + '/rest/v1/posts?id=eq.' + encodeURIComponent(id) + '&select=publisher_id,media_urls,created_at,song',
+        SUPABASE_URL + '/rest/v1/posts?id=eq.' + encodeURIComponent(id) + '&select=publisher_id,media_urls,created_at',
         { headers: HEADERS },
       );
       const rows = postRes.ok ? await postRes.json() : [];
@@ -274,8 +180,6 @@
       const date = new Date(post.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
       const count = post.media_urls.length;
       document.getElementById('subtitle').textContent = count + ' photo' + (count === 1 ? '' : 's') + ' · ' + date;
-
-      renderSong(post.song);
 
       photoUrls = post.media_urls;
       const grid = document.getElementById('grid');

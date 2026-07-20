@@ -25,8 +25,6 @@ import type { Coordinate } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
 import { suggestPlaceFromGuesses } from '../../domain/services/postingLocation';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
-import type { Song } from '../../domain/entities/Song';
-import { SongPickerSheet } from '../components/SongPickerSheet';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 const CATEGORY_LABEL: Record<PhotoCategory, string> = {
@@ -150,9 +148,6 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
   // Which step of the resolution chain produced the place — surfaced under the
   // field so an empty suggestion is explained, never silent (issue #63).
   const [placeSource, setPlaceSource] = useState<'photos' | 'scan' | 'ai' | 'none' | null>(null);
-  // Posting song — optional, picked via the same sheet as the manual Upload flow.
-  const [song, setSong] = useState<Song | null>(null);
-  const [songPickerOpen, setSongPickerOpen] = useState(false);
   // GPS per asset id (undefined = probed, no GPS), fetched once for the
   // place preview and reused on post.
   const coordsRef = useRef<Map<string, Coordinate | undefined>>(new Map());
@@ -167,7 +162,6 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
       coordsRef.current.clear();
       setPlace('');
       setPlaceSource(null);
-      setSong(null);
     }
     if (phase === 'done' && !slotsInitRef.current && batch.length > 0) {
       slotsInitRef.current = true;
@@ -353,7 +347,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         : place;
       if (__DEV__) console.log(`[share] place: ${JSON.stringify(location)} (edited: ${placeEditedRef.current}, loading: ${placeLoading})`);
       try {
-        await share(items, publisherId, location, song ?? undefined);
+        await share(items, publisherId, location);
         // Posted — this batch is spent; next visit should compute a fresh one.
         void SuggestionCache.clear(publisherId).catch(() => undefined);
         setDone(true);
@@ -361,7 +355,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         /* surfaced via shareError */
       }
     })();
-  }, [kept, share, publisherId, place, placeLoading, song]);
+  }, [kept, share, publisherId, place, placeLoading]);
 
   // "Post now" notification action: auto-post as soon as the batch is ready.
   const confirmedRef = useRef(false);
@@ -576,42 +570,6 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                     : 'No place found — the photos carry no GPS and the AI made no guess. Type one to include it.'}
                 </Text>
               )}
-              {song == null ? (
-                <TouchableOpacity
-                  testID="review-add-song"
-                  style={innerStyles.songRow}
-                  onPress={() => setSongPickerOpen(true)}
-                  accessibilityLabel="Add a song"
-                >
-                  <Ionicons name="musical-notes-outline" size={16} color={colors.textSecondary} />
-                  <Text style={innerStyles.songPlaceholder}>Add a song (optional)</Text>
-                  <Ionicons name="chevron-forward" size={16} color={colors.textMuted} />
-                </TouchableOpacity>
-              ) : (
-                <View style={innerStyles.songRow}>
-                  {song.artworkUrl != null ? (
-                    <Image source={{ uri: song.artworkUrl }} style={innerStyles.songArt} />
-                  ) : (
-                    <Ionicons name="musical-notes" size={16} color={colors.accent} />
-                  )}
-                  <TouchableOpacity
-                    style={innerStyles.songNames}
-                    onPress={() => setSongPickerOpen(true)}
-                    accessibilityLabel="Change song"
-                  >
-                    <Text style={innerStyles.songText} numberOfLines={1}>
-                      {song.title} <Text style={innerStyles.songArtistText}>— {song.artist}</Text>
-                    </Text>
-                  </TouchableOpacity>
-                  <TouchableOpacity
-                    onPress={() => setSong(null)}
-                    hitSlop={8}
-                    accessibilityLabel="Remove song"
-                  >
-                    <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-                  </TouchableOpacity>
-                </View>
-              )}
               <TouchableOpacity
                 style={[innerStyles.confirmButton, sharing && innerStyles.disabled]}
                 onPress={handleConfirm}
@@ -639,17 +597,6 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           )}
         </>
       )}
-
-      <SongPickerSheet
-        visible={songPickerOpen}
-        place={placeLoading ? undefined : place || undefined}
-        photoUris={kept.map(c => c.candidate.uri)}
-        onSelect={s => {
-          setSong(s);
-          setSongPickerOpen(false);
-        }}
-        onClose={() => setSongPickerOpen(false)}
-      />
     </View>
   );
 }
@@ -722,21 +669,6 @@ const innerStyles = StyleSheet.create({
     paddingHorizontal: spacing.xs,
   },
   placeSourceWarn: { color: '#C87A00' },
-  songRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  songPlaceholder: { flex: 1, fontSize: 14, color: colors.textMuted },
-  songArt: { width: 24, height: 24, borderRadius: radius.sm, backgroundColor: colors.surface },
-  songNames: { flex: 1 },
-  songText: { fontSize: 14, color: colors.text, fontWeight: '600' },
-  songArtistText: { color: colors.textSecondary, fontWeight: '400' },
   rescanLink: { ...typography.caption, fontSize: 12, color: colors.accent, marginBottom: spacing.xs, textDecorationLine: 'underline' },
   errorNote: { color: colors.danger, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm },
   confirmButton: {

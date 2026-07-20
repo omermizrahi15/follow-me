@@ -25,33 +25,3 @@ Deno.test('validateSendPost — rejects non-https or non-string media URLs', () 
   if (!bad.ok) assert(bad.error.includes('https'));
   assertEquals(validateSendPost({ publisherId: 'p', to: '+1', mediaUrls: ['https://a', 42] }).ok, false);
 });
-
-Deno.test('validateSendPost — passes through a well-formed song', () => {
-  const song = {
-    title: 'Vienna',
-    artist: 'Billy Joel',
-    previewUrl: 'https://preview/vienna.m4a',
-  };
-  const r = validateSendPost({ publisherId: 'p', to: '+1', mediaUrls: ['https://a'], song });
-  assert(r.ok);
-  if (r.ok) assertEquals(r.value.song, song);
-});
-
-Deno.test('validateSendPost — a malformed song becomes null, never a rejection', () => {
-  for (const song of [undefined, null, 'Vienna', { title: 'Vienna' }, { title: '', artist: 'X' }]) {
-    const r = validateSendPost({ publisherId: 'p', to: '+1', mediaUrls: ['https://a'], song });
-    assert(r.ok);
-    if (r.ok) assertEquals(r.value.song, null);
-  }
-});
-
-Deno.test('validateSendPost — drops non-https song URLs but keeps the song', () => {
-  const r = validateSendPost({
-    publisherId: 'p',
-    to: '+1',
-    mediaUrls: ['https://a'],
-    song: { title: 'Vienna', artist: 'Billy Joel', previewUrl: 'http://insecure/x.m4a' },
-  });
-  assert(r.ok);
-  if (r.ok) assertEquals(r.value.song, { title: 'Vienna', artist: 'Billy Joel' });
-});

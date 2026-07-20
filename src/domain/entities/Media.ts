@@ -1,5 +1,3 @@
-import type { Song } from './Song';
-
 export interface MediaProps {
   id: string;
   ownerId: string;
@@ -8,8 +6,6 @@ export interface MediaProps {
   location?: string;
   /** Groups the items shared together in one send — the feed's "posting". */
   postingId?: string;
-  /** The posting's soundtrack — like location, stamped on every item of the batch. */
-  song?: Song;
 }
 
 export class Media {
@@ -27,5 +23,4 @@ export class Media {
   get createdAt(): Date { return this.props.createdAt; }
   get location(): string | undefined { return this.props.location; }
   get postingId(): string | undefined { return this.props.postingId; }
-  get song(): Song | undefined { return this.props.song; }
 }

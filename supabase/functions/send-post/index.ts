@@ -48,7 +48,7 @@ function json(body: unknown, status = 200): Response {
 Deno.serve(async req => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  let body: { publisherId?: string; to?: string; mediaUrls?: string[]; place?: string; song?: unknown };
+  let body: { publisherId?: string; to?: string; mediaUrls?: string[]; place?: string };
   try {
     body = await req.json();
   } catch {
@@ -57,16 +57,15 @@ Deno.serve(async req => {
 
   const validation = validateSendPost(body);
   if (!validation.ok) return json({ error: validation.error }, 400);
-  const { publisherId, to, mediaUrls, place, song } = validation.value;
+  const { publisherId, to, mediaUrls, place } = validation.value;
 
   const { name, phone } = await publisherIdentity(supabase, publisherId);
-  const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls, song);
+  const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls);
   const caption = composeAutoPostBody(
     name,
     phone,
     galleryUrl != null ? { url: galleryUrl, photoCount: mediaUrls.length } : null,
     place,
-    song,
   );
 
   // Preferred path: the whole batch as ONE message — a Cloudinary-composed

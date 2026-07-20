@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "metro",
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["expo", "start", "--lan"],
+      "port": 8081
+    }
+  ]
+}

@@ -3,7 +3,6 @@ import { shareMedia } from '../../composition/container';
 import type { MediaDto } from '../../application/dtos';
 import type { ShareProgress } from '../../application/usecases/ShareMediaUseCase';
 import type { Coordinate } from '../../domain/interfaces';
-import type { Song } from '../../domain/entities/Song';
 
 interface MediaItem {
   mediaId: string;
@@ -20,7 +19,7 @@ interface ShareMediaState {
   progress: ShareProgress | null;
 }
 
-export function useShareMedia(): ShareMediaState & { share: (items: MediaItem[], ownerId: string, location?: string | null, song?: Song) => Promise<void> } {
+export function useShareMedia(): ShareMediaState & { share: (items: MediaItem[], ownerId: string, location?: string | null) => Promise<void> } {
   const [state, setState] = useState<ShareMediaState>({
     loading: false,
     error: null,
@@ -28,11 +27,11 @@ export function useShareMedia(): ShareMediaState & { share: (items: MediaItem[],
     progress: null,
   });
 
-  async function share(items: MediaItem[], ownerId: string, location?: string | null, song?: Song): Promise<void> {
+  async function share(items: MediaItem[], ownerId: string, location?: string | null): Promise<void> {
     setState({ loading: true, error: null, result: null, progress: null });
     try {
       const dtos = await shareMedia.share(
-        { ownerId, items, ...(location !== undefined ? { location } : {}), ...(song != null ? { song } : {}) },
+        { ownerId, items, ...(location !== undefined ? { location } : {}) },
         progress => {
           setState(s => ({ ...s, progress }));
         },

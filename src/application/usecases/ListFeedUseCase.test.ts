@@ -62,25 +62,6 @@ describe('ListFeedUseCase — grouping by postingId', () => {
     expect(feed[0]?.location).toBeNull();
   });
 
-  it('carries the posting song when an item has one', async (): Promise<void> => {
-    const { useCase, mediaRepo } = makeSut();
-    const song = { title: 'Vienna', artist: 'Billy Joel', previewUrl: 'https://preview/vienna.m4a' };
-    await mediaRepo.save(makeMedia('m1', { postingId: 'post-a', song }));
-
-    const feed = await useCase.list('user-1');
-
-    expect(feed[0]?.song).toEqual(song);
-  });
-
-  it('song is null when no item carries one', async (): Promise<void> => {
-    const { useCase, mediaRepo } = makeSut();
-    await mediaRepo.save(makeMedia('m1', { postingId: 'post-a' }));
-
-    const feed = await useCase.list('user-1');
-
-    expect(feed[0]?.song).toBeNull();
-  });
-
   it('only returns the requested publisher media', async (): Promise<void> => {
     const { useCase, mediaRepo } = makeSut();
     await mediaRepo.save(makeMedia('mine', { postingId: 'post-a' }));

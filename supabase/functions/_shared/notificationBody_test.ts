@@ -17,8 +17,3 @@ Deno.test('includes the gallery link and photo count', () => {
 Deno.test('includes a wa.me reply link with the + stripped', () => {
   assertStringIncludes(composeAutoPostBody('Uri', '+15551234567'), 'https://wa.me/15551234567');
 });
-
-Deno.test('includes the song line when the post has one (issue #54)', () => {
-  const body = composeAutoPostBody('Uri', undefined, null, null, { title: 'Vienna', artist: 'Billy Joel' });
-  assertStringIncludes(body, '🎵 Vienna — Billy Joel');
-});

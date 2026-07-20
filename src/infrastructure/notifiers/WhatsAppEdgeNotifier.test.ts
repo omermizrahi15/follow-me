@@ -44,16 +44,6 @@ describe('WhatsAppEdgeNotifier', () => {
     });
   });
 
-  it('includes the posting song so the web gallery can show it', async (): Promise<void> => {
-    const song = { title: 'Vienna', artist: 'Billy Joel', previewUrl: 'https://preview/vienna.m4a' };
-    const media = Media.create({ id: 'media-1', ownerId: 'user-1', url: 'https://cdn.test/a.jpg', createdAt: new Date(), song });
-    const notifier = new WhatsAppEdgeNotifier(FN_URL, KEY);
-    await notifier.notify(makeSubscriber(), [media]);
-
-    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect((JSON.parse(init.body as string) as Record<string, unknown>).song).toEqual(song);
-  });
-
   it('authenticates with the anon key', async (): Promise<void> => {
     const notifier = new WhatsAppEdgeNotifier(FN_URL, KEY);
     await notifier.notify(makeSubscriber(), [makeMedia()]);

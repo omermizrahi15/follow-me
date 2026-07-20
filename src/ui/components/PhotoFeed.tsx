@@ -3,7 +3,6 @@ import { View, Text, Image, TouchableOpacity, FlatList, Dimensions, StyleSheet }
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
-import type { Song } from '../../domain/entities/Song';
 import { colors, radius, spacing } from '../theme/theme';
 
 /** A single photo within a posting. Mirrors the domain `Media`. */
@@ -21,8 +20,6 @@ export interface FeedPosting {
   place?: string;
   /** Cover image shown full-bleed for the post (falls back to first media). */
   coverUri?: string;
-  /** The posting's soundtrack — the detail screen shows a music bar (issue #54). */
-  song?: Song;
   media: FeedMedia[];
 }
 

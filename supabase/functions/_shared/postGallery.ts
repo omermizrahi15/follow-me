@@ -4,8 +4,6 @@
 // Storage HTML as text/plain (anti-phishing), so it can't host pages itself
 // (same constraint that made /join a redirect).
 
-import type { PostSong } from './song.ts';
-
 /** Override with the GALLERY_BASE_URL secret (e.g. after moving to a custom domain). */
 const GALLERY_BASE_URL = Deno.env.get('GALLERY_BASE_URL')
   ?? 'https://omermizrahi15.github.io/follow-me/gallery.html';
@@ -33,13 +31,12 @@ export async function savePostGallery(
   supabase: SupabaseClient,
   publisherId: string,
   mediaUrls: string[],
-  song?: PostSong | null,
 ): Promise<string | null> {
   try {
     const id = await postId(publisherId, mediaUrls);
     const { error } = await supabase
       .from('posts')
-      .upsert({ id, publisher_id: publisherId, media_urls: mediaUrls, song: song ?? null });
+      .upsert({ id, publisher_id: publisherId, media_urls: mediaUrls });
     if (error != null) throw new Error(error.message);
     return `${GALLERY_BASE_URL}?id=${id}`;
   } catch (err) {
