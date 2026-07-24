@@ -1,6 +1,7 @@
 import React, { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { NavigationContainer, createNavigationContainerRef } from '@react-navigation/native';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
 import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
@@ -113,9 +114,14 @@ function RootNavigator(): React.JSX.Element {
 
 export function AppNavigator(): React.JSX.Element {
   return (
-    <AuthProvider>
-      <RootNavigator />
-    </AuthProvider>
+    // Screens can render outside the NavigationContainer (splash, onboarding),
+    // so the safe-area provider must sit above everything — the container only
+    // provides insets to screens inside it.
+    <SafeAreaProvider>
+      <AuthProvider>
+        <RootNavigator />
+      </AuthProvider>
+    </SafeAreaProvider>
   );
 }
 
