@@ -30,8 +30,6 @@ interface RawClassification {
   caption: string;
   /** May be omitted by older deployments of the classify function. */
   scene?: string;
-  /** May be omitted by older deployments of the classify function. */
-  place?: string;
 }
 
 /**
@@ -168,7 +166,6 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           quality: raw.quality,
           caption: raw.caption,
           scene: raw.scene ?? '',
-          place: raw.place ?? '',
         };
       } catch (err) {
         // Network-level failure (upload dropped mid-flight) — retry once.

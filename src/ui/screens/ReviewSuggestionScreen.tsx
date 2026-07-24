@@ -23,7 +23,6 @@ import { resolvePlaceForCoordinates } from '../../composition/container';
 import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
-import { suggestPlaceFromGuesses } from '../../domain/services/postingLocation';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -167,12 +166,10 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
 
   // Resolve the batch's place whenever the selection changes, so the user
   // sees (and can edit) the place before posting. Their manual edit always
-  // wins over re-resolution. Resolution order — a suggestion must appear even
-  // when the selected photos carry no GPS:
+  // wins over re-resolution. Resolution order:
   //   1. GPS of the selected photos → reverse geocode.
   //   2. GPS of any other photo from the same scan (batch + pool) — same
   //      lookback window, almost always the same trip.
-  //   3. The AI's content-based place guess(es) across the batch.
   useEffect(() => {
     if (phase !== 'done' || slots.length === 0) return;
     // Object property (not a local) so eslint doesn't flow-narrow it — the
@@ -222,18 +219,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           coordinates = gpsOf(restIds);
         }
 
-        let resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
-        if (isStale()) return;
-
-        // No GPS anywhere (or the geocoder failed) — fall back to what the AI
-        // saw in the photos, selected ones first.
-        if (resolved == null) {
-          const byId = new Map([...batch, ...pool].map(c => [c.candidate.id, c]));
-          const selectedGuesses = slots.map(id => byId.get(id)?.place);
-          resolved =
-            suggestPlaceFromGuesses(selectedGuesses) ??
-            suggestPlaceFromGuesses([...batch, ...pool].map(c => c.place));
-        }
+        const resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
         if (!isStale()) setPlace(resolved ?? '');
       } finally {
         if (!run.cancelled) setPlaceLoading(false);
