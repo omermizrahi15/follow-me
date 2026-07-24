@@ -10,8 +10,6 @@ export interface CachedPhoto {
   caption: string;
   quality: number;
   scene: string;
-  /** AI's best-guess place name — absent in caches/pushes from older versions. */
-  place?: string;
   createdAt: number; // epoch ms
 }
 
@@ -38,7 +36,6 @@ export function cachedPhotoToClassification(p: CachedPhoto): PhotoClassification
     quality: p.quality,
     caption: p.caption,
     scene: p.scene,
-    place: p.place ?? '',
   };
 }
 
@@ -51,7 +48,6 @@ export function classificationToCachedPhoto(c: PhotoClassification): CachedPhoto
     caption: c.caption,
     quality: c.quality,
     scene: c.scene,
-    place: c.place ?? '',
     createdAt: c.candidate.createdAt.getTime(),
   };
 }

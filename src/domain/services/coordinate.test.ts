@@ -5,6 +5,16 @@ describe('validCoordinate', () => {
     expect(validCoordinate(32.08, 34.78)).toEqual({ latitude: 32.08, longitude: 34.78 });
   });
 
+  it('coerces string coordinates (iOS expo-media-library returns lat/lon as strings)', () => {
+    expect(validCoordinate('24.5797', '73.6839')).toEqual({ latitude: 24.5797, longitude: 73.6839 });
+    expect(validCoordinate('-33.8688', '151.2093')).toEqual({ latitude: -33.8688, longitude: 151.2093 });
+  });
+
+  it('rejects non-numeric strings', () => {
+    expect(validCoordinate('abc', '73.6839')).toBeNull();
+    expect(validCoordinate('24.5797', '')).toBeNull();
+  });
+
   it('rejects NaN (iOS MediaLibrary location with no real GPS fix)', () => {
     expect(validCoordinate(NaN, NaN)).toBeNull();
     expect(validCoordinate(32.08, NaN)).toBeNull();

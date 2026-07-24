@@ -23,7 +23,6 @@ import { resolvePlaceForCoordinates } from '../../composition/container';
 import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
-import { suggestPlaceFromGuesses } from '../../domain/services/postingLocation';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -145,9 +144,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
   const [place, setPlace] = useState('');
   const [placeLoading, setPlaceLoading] = useState(false);
   const placeEditedRef = useRef(false);
-  // Which step of the resolution chain produced the place — surfaced under the
+  // Which GPS source produced the place — surfaced under the
   // field so an empty suggestion is explained, never silent (issue #63).
-  const [placeSource, setPlaceSource] = useState<'photos' | 'scan' | 'ai' | 'none' | null>(null);
+  const [placeSource, setPlaceSource] = useState<'photos' | 'scan' | 'none' | null>(null);
   // GPS per asset id (undefined = probed, no GPS), fetched once for the
   // place preview and reused on post.
   const coordsRef = useRef<Map<string, Coordinate | undefined>>(new Map());
@@ -171,12 +170,10 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
 
   // Resolve the batch's place whenever the selection changes, so the user
   // sees (and can edit) the place before posting. Their manual edit always
-  // wins over re-resolution. Resolution order — a suggestion must appear even
-  // when the selected photos carry no GPS:
+  // wins over re-resolution. Resolution order:
   //   1. GPS of the selected photos → reverse geocode.
   //   2. GPS of any other photo from the same scan (batch + pool) — same
   //      lookback window, almost always the same trip.
-  //   3. The AI's content-based place guess(es) across the batch.
   useEffect(() => {
     if (phase !== 'done' || slots.length === 0) return;
     // Object property (not a local) so eslint doesn't flow-narrow it — the
@@ -214,7 +211,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         await probeGps(slots);
         if (isStale()) return;
         let coordinates = gpsOf(slots);
-        let source: 'photos' | 'scan' | 'ai' = 'photos';
+        let source: 'photos' | 'scan' = 'photos';
         if (__DEV__) console.log(`[place] GPS on ${coordinates.length}/${slots.length} selected photos`);
 
         // The selection has no GPS — borrow it from the rest of the scan.
@@ -229,19 +226,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           source = 'scan';
         }
 
-        let resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
+        const resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
         if (isStale()) return;
 
-        // No GPS anywhere (or the geocoder failed) — fall back to what the AI
-        // saw in the photos, selected ones first.
-        if (resolved == null) {
-          const byId = new Map([...batch, ...pool].map(c => [c.candidate.id, c]));
-          const selectedGuesses = slots.map(id => byId.get(id)?.place);
-          resolved =
-            suggestPlaceFromGuesses(selectedGuesses) ??
-            suggestPlaceFromGuesses([...batch, ...pool].map(c => c.place));
-          source = 'ai';
-        }
         if (!isStale()) {
           if (__DEV__) console.log(`[place] resolved via ${resolved != null ? source : 'nothing'}: ${JSON.stringify(resolved)}`);
           setPlace(resolved ?? '');
@@ -565,9 +552,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                     ? "Place from the selected photos' GPS"
                     : placeSource === 'scan'
                     ? 'Place from other photos taken around the same time'
-                    : placeSource === 'ai'
-                    ? 'Place guessed by AI from the photo content'
-                    : 'No place found — the photos carry no GPS and the AI made no guess. Type one to include it.'}
+                    : 'No place found — the photos carry no GPS. Type one to include it.'}
                 </Text>
               )}
               <TouchableOpacity
