@@ -9,6 +9,15 @@ import type {
 const identityResolve: ResolveLocalUri = candidate => Promise.resolve(candidate.uri);
 
 /**
+ * Uploads run in small batches, never all at once: each upload decodes the
+ * full-resolution photo into a native bitmap (tens of MB) to downscale it, so
+ * unbounded concurrency over a first sync's whole lookback window spikes RAM
+ * by gigabytes and the iOS watchdog kills the app at launch (staging crash,
+ * WatchdogTermination in Sentry).
+ */
+const UPLOAD_BATCH_SIZE = 3;
+
+/**
  * Filename for the uploaded copy. Library uris can be odd (ph:// handles,
  * query params, no slash at all) — strip params, take the last path segment,
  * and fall back to the asset id when nothing usable remains.
@@ -40,15 +49,21 @@ export class SyncCandidatePhotosUseCase {
     const fresh = candidates.filter(c => !existing.has(c.id));
     if (fresh.length === 0) return [];
 
-    const rows = await Promise.all(
-      fresh.map(async (c): Promise<CandidatePhoto> => {
-        const localUri = await this.resolveLocalUri(c);
-        const url = await this.storage.upload(localUri, deriveFilename(c.uri, c.id));
-        return { publisherId, assetId: c.id, url, createdAt: c.createdAt };
-      }),
-    );
-
-    await this.candidateRepo.saveMany(rows);
+    // Each batch is saved before the next starts, so an interrupted sync (app
+    // backgrounded or killed) resumes where it left off instead of retrying —
+    // and re-decoding — every photo on the next launch.
+    const rows: CandidatePhoto[] = [];
+    for (let i = 0; i < fresh.length; i += UPLOAD_BATCH_SIZE) {
+      const batch = await Promise.all(
+        fresh.slice(i, i + UPLOAD_BATCH_SIZE).map(async (c): Promise<CandidatePhoto> => {
+          const localUri = await this.resolveLocalUri(c);
+          const url = await this.storage.upload(localUri, deriveFilename(c.uri, c.id));
+          return { publisherId, assetId: c.id, url, createdAt: c.createdAt };
+        }),
+      );
+      await this.candidateRepo.saveMany(batch);
+      rows.push(...batch);
+    }
     return rows;
   }
 }
