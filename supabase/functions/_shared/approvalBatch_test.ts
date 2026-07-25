@@ -2,7 +2,7 @@ import { assertEquals, assertRejects } from '@std/assert';
 import { galleryUrls, PUSH_GALLERY_LIMIT, saveApprovalBatch, type ApprovalBatchPhoto } from './approvalBatch.ts';
 
 function photo(id: string, url: string): ApprovalBatchPhoto {
-  return { id, url, category: 'other', caption: '', quality: 1, scene: '', place: '', createdAt: 0 };
+  return { id, url, category: 'other', caption: '', quality: 1, scene: '', createdAt: 0 };
 }
 
 Deno.test('galleryUrls — maps to urls and caps at the gallery limit', () => {

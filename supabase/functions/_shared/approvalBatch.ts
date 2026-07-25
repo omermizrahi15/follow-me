@@ -13,7 +13,6 @@ export interface ApprovalBatchPhoto {
   caption: string;
   quality: number;
   scene: string;
-  place: string;
   createdAt: number;
 }
 

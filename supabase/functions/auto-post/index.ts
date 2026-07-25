@@ -24,7 +24,7 @@ import { savePostGallery } from '../_shared/postGallery.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 import { publisherIdentity } from '../_shared/publisher.ts';
 import { galleryUrls, saveApprovalBatch } from '../_shared/approvalBatch.ts';
-import { approvalPushContent, dominantPlace, parseNotifyTime, reminderPushContent, type ReminderReason } from './logic.ts';
+import { approvalPushContent, parseNotifyTime, reminderPushContent, type ReminderReason } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -124,13 +124,13 @@ async function pushApprovalBatch(
   // a missing row would open an empty review screen.
   await saveApprovalBatch(supabase, batchId, publisherId, batch, pool);
 
-  // Build a readable summary from captions (e.g. "Sunset · Street food · Mountain view"),
-  // titled with the batch's dominant location when the photos carried one.
-  const { title, body } = approvalPushContent(
-    batch.map(p => p.caption),
-    batch.length,
-    dominantPlace(batch.map(p => p.place)),
-  );
+  // Build a readable summary from captions (e.g. "Sunset · Street food · Mountain view").
+  // approvalPushContent takes an optional place to title the push with the shot
+  // location ("3 photos from Tel Aviv …"), but the autonomous path has no
+  // server-side place signal today: main dropped the AI place-guess in favour of
+  // client-side GPS, and candidate_photos carries no location. Wire it via
+  // dominantPlace() once GPS is captured at candidate-sync time (issue #23).
+  const { title, body } = approvalPushContent(batch.map(p => p.caption), batch.length);
 
   await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
