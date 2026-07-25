@@ -27,6 +27,7 @@ import { PublisherConfig, FREQUENCY_DAYS } from '../../../domain/entities/Publis
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
 import { isWeekdayCadence } from '../../../domain/services/autoPostSchedule';
 import { confirmPhotoSync, pausePhotoSync, resumePhotoSync } from '../../data/photoSyncConsent';
+import { showDevTools } from '../../data/devTools';
 import { SELECTABLE_CATEGORIES } from '../../../domain/entities/PhotoClassification';
 import type { PhotoCategory } from '../../../domain/entities/PhotoClassification';
 import { SuggestionCache } from '../../../infrastructure/cache/SuggestionCache';
@@ -590,7 +591,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         <Text style={styles.previewText}>{previewing ? 'Saving…' : 'Preview suggestion now'}</Text>
       </TouchableOpacity>
 
-      {__DEV__ && (
+      {showDevTools && (
         <View style={styles.devRow}>
           <TouchableOpacity
             style={[styles.devButton, styles.devButtonFull, testScheduling && styles.saveButtonDisabled]}
