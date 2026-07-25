@@ -26,7 +26,7 @@ import {
 import { PublisherConfig, FREQUENCY_DAYS } from '../../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
 import { isWeekdayCadence } from '../../../domain/services/autoPostSchedule';
-import { confirmPhotoSync } from '../../data/photoSyncConsent';
+import { confirmPhotoSync, pausePhotoSync, resumePhotoSync } from '../../data/photoSyncConsent';
 import { SELECTABLE_CATEGORIES } from '../../../domain/entities/PhotoClassification';
 import type { PhotoCategory } from '../../../domain/entities/PhotoClassification';
 import { SuggestionCache } from '../../../infrastructure/cache/SuggestionCache';
@@ -240,6 +240,9 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         const config = buildCurrentConfig(token);
         await saveConfig.execute(config);
         if (await confirmPhotoSync()) {
+          // Saving is the explicit re-opt-in after a cloud-photo wipe — lift the
+          // pause so this sync (and future foreground syncs) run again.
+          await resumePhotoSync();
           await syncCandidatePhotos.execute(publisherId, config.lookbackDays).catch(() => undefined);
         }
         if (token !== '') {
@@ -374,6 +377,10 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
             void (async (): Promise<void> => {
               try {
                 const { deletedRows } = await deleteUploadedPhotos();
+                // Suspend background auto-sync so the next foreground doesn't
+                // silently re-upload what we just deleted — it stays gone until
+                // the user opts back in by saving (matches the dialog copy).
+                await pausePhotoSync();
                 Alert.alert('Deleted', `${deletedRows} uploaded photo${deletedRows === 1 ? '' : 's'} removed.`);
               } catch (e) {
                 Alert.alert('Delete failed', e instanceof Error ? e.message : 'Something went wrong');
