@@ -31,6 +31,14 @@ module.exports = ({ config }) => {
     },
     plugins: [
       ...(config.plugins ?? []),
+      // Rich approval push (issue #71): adds two iOS app-extension targets from
+      // ./targets during prebuild — a NotificationServiceExtension that attaches
+      // the lead photo as the collapsed thumbnail, and a NotificationContent
+      // Extension that renders the whole batch as a gallery when the push is
+      // expanded. Their bundle ids are relative ('.notificationservice') so they
+      // inherit the per-variant app bundle id above. Requires a native build to
+      // take effect (no-op in Expo Go).
+      '@bacons/apple-targets',
       // Crash reporting (issue #10): wires the native Sentry SDK and hooks the
       // build so source maps + debug symbols upload during `eas build`. Org and
       // project come from SENTRY_ORG / SENTRY_PROJECT (EAS env vars) so nothing

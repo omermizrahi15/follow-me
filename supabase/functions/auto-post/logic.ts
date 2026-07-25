@@ -10,12 +10,19 @@ export function parseNotifyTime(notifyTime: string): { hour: number; minute: num
 
 /**
  * Title/body for the "batch ready to review" rich push: a title with a
- * correctly-pluralised count, and a body that previews up to 3 captions
- * ("Sunset · Street food · Mountain view") or a generic fallback.
+ * correctly-pluralised count and — when the batch carries a location — the
+ * place it was shot ("3 photos from Tel Aviv ready to post 📸"), and a body
+ * that previews up to 3 captions ("Sunset · Street food · Mountain view") or a
+ * generic fallback.
  */
-export function approvalPushContent(captions: string[], batchLength: number): { title: string; body: string } {
+export function approvalPushContent(
+  captions: string[],
+  batchLength: number,
+  place?: string | null,
+): { title: string; body: string } {
   const preview = captions.slice(0, 3).filter(Boolean).join(' · ');
-  const title = `${batchLength} photo${batchLength !== 1 ? 's' : ''} ready to post 📸`;
+  const where = place != null && place.trim() !== '' ? ` from ${place.trim()}` : '';
+  const title = `${batchLength} photo${batchLength !== 1 ? 's' : ''}${where} ready to post 📸`;
   const body = preview.length > 0 ? preview : 'Your AI-selected photos are ready to review.';
   return { title, body };
 }

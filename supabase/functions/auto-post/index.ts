@@ -23,6 +23,9 @@ import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 import { publisherIdentity } from '../_shared/publisher.ts';
+import { galleryUrls, saveApprovalBatch } from '../_shared/approvalBatch.ts';
+import { resolveBatchPlace } from '../_shared/geocode.ts';
+import type { Coordinate } from '../_shared/postingLocation.ts';
 import { approvalPushContent, parseNotifyTime, reminderPushContent, type ReminderReason } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -56,6 +59,21 @@ interface CandidateRow {
   asset_id: string;
   url: string;
   created_at: string;
+  latitude: number | null;
+  longitude: number | null;
+}
+
+/** Coordinates of the given asset ids (GPS-tagged photos only), for place naming. */
+function coordsForAssets(rows: CandidateRow[], assetIds: Iterable<string>): Coordinate[] {
+  const byId = new Map(rows.map(r => [r.asset_id, r]));
+  const coords: Coordinate[] = [];
+  for (const id of assetIds) {
+    const row = byId.get(id);
+    if (row?.latitude != null && row.longitude != null) {
+      coords.push({ latitude: row.latitude, longitude: row.longitude });
+    }
+  }
+  return coords;
 }
 
 interface RawClassification {
@@ -103,19 +121,31 @@ interface BatchPhoto {
   createdAt: number;
 }
 
-/** Send a rich Expo push notification with the pre-computed batch embedded in the payload. */
+/**
+ * Persist the batch and send the rich approval push. The push stays under the
+ * APNs 4KB limit by carrying only `batchId` + a compact `gallery` (URLs the
+ * content extension renders) + the lead `imageUrl` (thumbnail) — the app fetches
+ * the full batch/pool from `approval_batches` by id (issue #71). Skipped when
+ * the publisher has no push token.
+ */
 async function pushApprovalBatch(
   token: string,
   publisherId: string,
   batch: BatchPhoto[],
   pool: BatchPhoto[],
+  place: string | null,
 ): Promise<void> {
   if (!token) return;
 
   const batchId = crypto.randomUUID();
+  // Persist first: the app reads the batch from here, so a push that referenced
+  // a missing row would open an empty review screen.
+  await saveApprovalBatch(supabase, batchId, publisherId, batch, pool);
 
-  // Build a readable summary from captions (e.g. "Sunset · Street food · Mountain view").
-  const { title, body } = approvalPushContent(batch.map(p => p.caption), batch.length);
+  // Build a readable summary from captions (e.g. "Sunset · Street food · Mountain view"),
+  // titled with the batch's reverse-geocoded location when the photos carried GPS
+  // ("3 photos from Tel Aviv ready to post 📸" — issue #23).
+  const { title, body } = approvalPushContent(batch.map(p => p.caption), batch.length, place);
 
   await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
@@ -133,8 +163,9 @@ async function pushApprovalBatch(
         screen: 'ReviewSuggestion',
         publisherId,
         batchId,
-        batch,
-        pool,
+        // Compact gallery for the NotificationContentExtension's expanded grid;
+        // full batch/pool detail is fetched by the app from approval_batches.
+        gallery: galleryUrls(batch),
         imageUrl: batch[0]?.url ?? null,
       },
     }),
@@ -163,7 +194,7 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
   const cutoff = new Date(now.getTime() - config.lookback_days * MS_PER_DAY).toISOString();
   const { data: candidates } = await supabase
     .from('candidate_photos')
-    .select('asset_id, url, created_at')
+    .select('asset_id, url, created_at, latitude, longitude')
     .eq('publisher_id', config.publisher_id)
     .gte('created_at', cutoff);
   const rows = (candidates ?? []) as CandidateRow[];
@@ -251,7 +282,11 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
       createdAt: c.createdAt,
     }));
 
-  await pushApprovalBatch(token, config.publisher_id, batchPayload, poolPayload);
+  // Name the batch's place from the selected photos' GPS (issue #23) — null when
+  // none were geotagged or the lookup fails; the push just omits the location then.
+  const place = await resolveBatchPlace(coordsForAssets(rows, batchSelectedIds));
+
+  await pushApprovalBatch(token, config.publisher_id, batchPayload, poolPayload, place);
   await stamp();
   return `pushed ${selectedBatch.length} photos (${poolPayload.length} in pool)`;
 }
@@ -274,7 +309,7 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
   const cutoff = new Date(now.getTime() - config.lookback_days * MS_PER_DAY).toISOString();
   const { data: candidates } = await supabase
     .from('candidate_photos')
-    .select('asset_id, url, created_at')
+    .select('asset_id, url, created_at, latitude, longitude')
     .eq('publisher_id', config.publisher_id)
     .gte('created_at', cutoff);
   const rows = (candidates ?? []) as CandidateRow[];
@@ -335,11 +370,15 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
 
   const { name, phone } = await publisherIdentity(supabase, config.publisher_id);
   const urls = batch.map(b => b.url);
+  // Name the batch's place from the selected photos' GPS (issue #23) — null when
+  // none were geotagged; the message/template then omits the location clause.
+  const place = await resolveBatchPlace(coordsForAssets(rows, batch.map(b => b.assetId)));
   const galleryUrl = await savePostGallery(supabase, config.publisher_id, urls);
   const caption = composeAutoPostBody(
     name,
     phone,
     galleryUrl != null ? { url: galleryUrl, photoCount: urls.length } : null,
+    place,
   );
 
   const { data: subs } = await supabase
@@ -366,7 +405,7 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
   const template = collage != null
     ? buildPostTemplate(
         { postSid: TWILIO.templatePostSid, postLocationSid: TWILIO.templatePostLocationSid },
-        { publisherName: name, publisherPhone: phone, place: null, photoCount: urls.length, galleryUrl, mediaUrl: collage },
+        { publisherName: name, publisherPhone: phone, place, photoCount: urls.length, galleryUrl, mediaUrl: collage },
       )
     : null;
   for (const sub of (subs ?? []) as { contact_handle: string }[]) {

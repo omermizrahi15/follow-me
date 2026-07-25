@@ -4,9 +4,12 @@ import type {
   IStorageService,
   ICandidatePhotoRepository,
   ResolveLocalUri,
+  ResolveAssetLocation,
 } from '../../domain/interfaces';
 
 const identityResolve: ResolveLocalUri = candidate => Promise.resolve(candidate.uri);
+/** Default: no GPS lookup (unit tests / environments without a media library). */
+const noLocation: ResolveAssetLocation = () => Promise.resolve(null);
 
 /**
  * Uploads run in small batches, never all at once: each upload decodes the
@@ -41,6 +44,7 @@ export class SyncCandidatePhotosUseCase {
     private readonly storage: IStorageService,
     private readonly candidateRepo: ICandidatePhotoRepository,
     private readonly resolveLocalUri: ResolveLocalUri = identityResolve,
+    private readonly resolveLocation: ResolveAssetLocation = noLocation,
   ) {}
 
   async execute(publisherId: string, lookbackDays: number): Promise<CandidatePhoto[]> {
@@ -58,7 +62,11 @@ export class SyncCandidatePhotosUseCase {
         fresh.slice(i, i + UPLOAD_BATCH_SIZE).map(async (c): Promise<CandidatePhoto> => {
           const localUri = await this.resolveLocalUri(c);
           const url = await this.storage.upload(localUri, deriveFilename(c.uri, c.id));
-          return { publisherId, assetId: c.id, url, createdAt: c.createdAt };
+          const location = c.location ?? (await this.resolveLocation(c));
+          const row: CandidatePhoto = { publisherId, assetId: c.id, url, createdAt: c.createdAt };
+          // Only set when present — exactOptionalPropertyTypes forbids `location: undefined`.
+          if (location != null) row.location = location;
+          return row;
         }),
       );
       await this.candidateRepo.saveMany(batch);

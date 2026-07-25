@@ -26,6 +26,7 @@
     "ios": "expo run:ios"
   },
   "devDependencies": {
+    "@bacons/apple-targets": "^0.2.0",
     "@playwright/test": "^1.61.1",
     "@testing-library/jest-native": "^5.4.3",
     "@types/jest": "^29.0.0",

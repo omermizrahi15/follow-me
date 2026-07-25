@@ -154,6 +154,10 @@ export interface ICandidatePhotoRepository {
 /** Resolves a candidate to a uri the storage service can read (e.g. ph:// → file://). */
 export type ResolveLocalUri = (candidate: PhotoCandidate) => Promise<string>;
 
+/** Resolves a candidate's GPS coordinate from its asset metadata, or null when
+ *  the photo has no location fix (issue #23). */
+export type ResolveAssetLocation = (candidate: PhotoCandidate) => Promise<Coordinate | null>;
+
 /** When the next post reminder should fire (local device time). */
 export interface ReminderSchedule {
   /** 0 = Sunday … 6 = Saturday. */

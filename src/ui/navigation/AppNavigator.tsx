@@ -4,7 +4,7 @@ import { NavigationContainer, createNavigationContainerRef } from '@react-naviga
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
-import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
+import { cacheBatchFromNotification, type ReviewNotificationData } from '../notifications/cacheApprovalBatch';
 import { POST_NOW_ACTION } from '../../infrastructure/notifiers/NotificationCategories';
 import { HomeScreen } from '../screens/HomeScreen';
 import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
@@ -32,27 +32,15 @@ export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 const REVIEW_ROUTE: keyof RootStackParamList = 'ReviewSuggestion';
 
 /** Navigate to the review screen if a notification response targets it. */
-function routeFromNotification(response: Notifications.NotificationResponse | null): void {
-  const data = response?.notification.request.content.data as {
-    screen?: string;
-    publisherId?: string;
-    batch?: unknown[];
-    pool?: unknown[];
-    batchId?: string;
-  } | undefined;
+async function routeFromNotification(response: Notifications.NotificationResponse | null): Promise<void> {
+  const data = response?.notification.request.content.data as ReviewNotificationData | undefined;
+  if (data == null) return;
 
-  // Cold-start: the push listener in App.js didn't run, so cache the batch here.
-  if (data?.publisherId != null && Array.isArray(data.batch)) {
-    void SuggestionCache.save({
-      publisherId: data.publisherId,
-      batch: data.batch as never,
-      pool: Array.isArray(data.pool) ? (data.pool as never) : [],
-      batchId: data.batchId ?? String(Date.now()),
-      cachedAt: Date.now(),
-    });
-  }
+  // Resolve the batch into the cache BEFORE navigating so the review screen's
+  // cache-first load picks it up instead of kicking off a device scan.
+  await cacheBatchFromNotification(data);
 
-  if (data?.screen === REVIEW_ROUTE && navigationRef.isReady()) {
+  if (data.screen === REVIEW_ROUTE && navigationRef.isReady()) {
     const autoConfirm = response?.actionIdentifier === POST_NOW_ACTION;
     navigationRef.navigate('ReviewSuggestion', autoConfirm ? { autoConfirm: true } : undefined);
   }
@@ -65,7 +53,7 @@ function useNotificationRouting(enabled: boolean): void {
     // Cold start: app launched by tapping the notification.
     void Notifications.getLastNotificationResponseAsync().then(routeFromNotification);
     // Warm: tapped while the app was running/backgrounded.
-    const sub = Notifications.addNotificationResponseReceivedListener(routeFromNotification);
+    const sub = Notifications.addNotificationResponseReceivedListener(r => void routeFromNotification(r));
     return () => sub.remove();
   }, [enabled]);
 }

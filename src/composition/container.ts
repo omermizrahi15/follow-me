@@ -11,7 +11,7 @@ import { SyncCandidatePhotosUseCase } from '../application/usecases/SyncCandidat
 import { SaveProfileUseCase } from '../application/usecases/SaveProfileUseCase';
 import { LoadProfileUseCase } from '../application/usecases/LoadProfileUseCase';
 import { GeminiPhotoClassifier } from '../infrastructure/classifiers/GeminiPhotoClassifier';
-import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri } from '../infrastructure/media/ExpoMediaLibrary';
+import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri, expoResolveAssetLocation } from '../infrastructure/media/ExpoMediaLibrary';
 import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotificationScheduler';
 import { registerExpoPushToken } from '../infrastructure/notifiers/ExpoPushToken';
 import type { Coordinate, ISentPhotoTracker } from '../domain/interfaces';
@@ -26,6 +26,7 @@ import { SupabaseSubscriberRepository } from '../infrastructure/repositories/Sup
 import { SupabasePublisherConfigRepository } from '../infrastructure/repositories/SupabasePublisherConfigRepository';
 import { SupabaseCandidatePhotoRepository } from '../infrastructure/repositories/SupabaseCandidatePhotoRepository';
 import { SupabasePublisherProfileRepository } from '../infrastructure/repositories/SupabasePublisherProfileRepository';
+import { SupabaseApprovalBatchRepository, type ApprovalBatch } from '../infrastructure/repositories/SupabaseApprovalBatchRepository';
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { monitored } from '../infrastructure/monitoring/sentry';
@@ -50,6 +51,7 @@ const subscriberRepo = new SupabaseSubscriberRepository(supabaseUrl, supabaseKey
 const configRepo = new SupabasePublisherConfigRepository(supabaseUrl, supabaseKey);
 const candidateRepo = new SupabaseCandidatePhotoRepository(supabaseUrl, supabaseKey);
 const profileRepo = new SupabasePublisherProfileRepository(supabaseUrl, supabaseKey);
+const approvalBatchRepo = new SupabaseApprovalBatchRepository(supabaseUrl, supabaseKey);
 // Shared photo uploader (Cloudinary) — used for posts and profile avatars.
 // The optional folder isolates staging uploads from production assets.
 const storageService = new CloudinaryStorageService(
@@ -116,6 +118,7 @@ export const syncCandidatePhotos = monitored('sync_candidate_photos', new SyncCa
   storageService,
   candidateRepo,
   expoResolveLocalUri,
+  expoResolveAssetLocation,
 ));
 export const saveProfile = monitored('save_profile', new SaveProfileUseCase(profileRepo));
 export const loadProfile = monitored('load_profile', new LoadProfileUseCase(profileRepo));
@@ -137,6 +140,16 @@ export const scheduleTestNotification = (seconds: number, localAttachmentUris: s
 /** DEV ONLY — recent cloud-synced photo URLs (Cloudinary) for notification tests. */
 export const recentCandidateUrls = (publisherId: string, limit: number): Promise<string[]> =>
   candidateRepo.recentUrls(publisherId, limit);
+
+/**
+ * Fetch a server-persisted approval batch by id (issue #71). The rich approval
+ * push carries only a `batchId`; the app resolves the full batch/pool here to
+ * populate the review screen without a device rescan.
+ */
+export const fetchApprovalBatch = monitored(
+  'fetch_approval_batch',
+  (batchId: string): Promise<ApprovalBatch | null> => approvalBatchRepo.fetch(batchId),
+);
 
 /**
  * "Delete my uploaded photos" — server-side wipe of the signed-in user's

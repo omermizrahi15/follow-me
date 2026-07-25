@@ -29,6 +29,18 @@ Deno.test('approvalPushContent — generic body when there are no captions', () 
   assertEquals(approvalPushContent(['', ''], 2).body, 'Your AI-selected photos are ready to review.');
 });
 
+Deno.test('approvalPushContent — adds the location to the title when given', () => {
+  assertEquals(approvalPushContent([], 3, 'Tel Aviv').title, '3 photos from Tel Aviv ready to post 📸');
+  assertEquals(approvalPushContent([], 1, ' Paris ').title, '1 photo from Paris ready to post 📸');
+});
+
+Deno.test('approvalPushContent — omits location for empty/blank/absent place', () => {
+  assertEquals(approvalPushContent([], 3).title, '3 photos ready to post 📸');
+  assertEquals(approvalPushContent([], 3, '').title, '3 photos ready to post 📸');
+  assertEquals(approvalPushContent([], 3, '   ').title, '3 photos ready to post 📸');
+  assertEquals(approvalPushContent([], 3, null).title, '3 photos ready to post 📸');
+});
+
 Deno.test('reminderPushContent — distinct copy per fallback reason', () => {
   const noCandidates = reminderPushContent('no-candidates');
   const emptyBatch = reminderPushContent('empty-batch');

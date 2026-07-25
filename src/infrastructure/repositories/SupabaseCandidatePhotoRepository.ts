@@ -8,6 +8,8 @@ type CandidateRow = {
   url: string;
   created_at: string;
   synced_at: string;
+  latitude: number | null;
+  longitude: number | null;
 };
 
 interface Database {
@@ -42,6 +44,8 @@ export class SupabaseCandidatePhotoRepository implements ICandidatePhotoReposito
         asset_id: p.assetId,
         url: p.url,
         created_at: p.createdAt.toISOString(),
+        latitude: p.location?.latitude ?? null,
+        longitude: p.location?.longitude ?? null,
       })),
       // Explicit conflict target (= the table's primary key) so re-syncing the
       // same asset updates the row regardless of client-library defaults.
