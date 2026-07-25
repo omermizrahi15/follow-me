@@ -1,0 +1,45 @@
+name: Sentry watchdog → GitHub issue
+
+# Polls Sentry for critical "watchdog"-family crashes (Watchdog Termination,
+# App Hang, Out-of-Memory) and opens a labeled bug issue for each new one.
+# Dedup is by a hidden `sentry-issue-id:<id>` marker in the issue body, so the
+# cron and manual runs never double-file. See .github/scripts/sentry-watchdog-to-issue.mjs.
+on:
+  schedule:
+    - cron: '*/15 * * * *' # every 15 minutes
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Log what would be filed without creating issues
+        type: boolean
+        default: false
+      stats_period:
+        description: Sentry lookback window (e.g. 24h, 14d, 90d)
+        type: string
+        default: 14d
+
+concurrency:
+  group: sentry-watchdog-to-issue
+  cancel-in-progress: false
+
+permissions:
+  issues: write
+  contents: read
+
+jobs:
+  file-issues:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: File GitHub issues for new watchdog crashes
+        run: node .github/scripts/sentry-watchdog-to-issue.mjs
+        env:
+          SENTRY_ORG: ${{ vars.SENTRY_ORG }}
+          SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          STATS_PERIOD: ${{ inputs.stats_period || '14d' }}
