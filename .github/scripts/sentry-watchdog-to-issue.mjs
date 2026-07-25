@@ -146,6 +146,36 @@ function issueBody(issue) {
   ].join('\n');
 }
 
+// Diagnostic dump (dry-run only): pulls the latest event for a matched issue and
+// prints exception + top stack frames + key tags, so a maintainer can triage the
+// crash straight from the workflow log without opening Sentry.
+async function dumpDetails(issue) {
+  try {
+    const event = await sentry(`/issues/${issue.id}/events/latest/`);
+    const exc = (event.entries || []).find((e) => e.type === 'exception');
+    const values = exc?.data?.values || [];
+    const tags = Object.fromEntries((event.tags || []).map((t) => [t.key, t.value]));
+    console.log(`\n──── ${issue.shortId}: ${issue.title} ────`);
+    console.log(`link:    ${issue.permalink}`);
+    console.log(`culprit: ${issue.culprit || 'n/a'}`);
+    console.log(
+      `tags:    mechanism=${tags.mechanism || '?'} os=${tags['os'] || tags['os.name'] || '?'} ` +
+        `device=${tags['device'] || tags['device.family'] || '?'} release=${tags.release || '?'}`,
+    );
+    for (const v of values) {
+      console.log(`\n  ${v.type}: ${v.value || ''}  [mechanism: ${v.mechanism?.type || 'n/a'}]`);
+      const frames = (v.stacktrace?.frames || []).slice(-8).reverse();
+      for (const f of frames) {
+        const loc = [f.filename || f.module, f.lineNo].filter(Boolean).join(':');
+        console.log(`    at ${f.function || '?'} (${loc})${f.inApp ? '  [in-app]' : ''}`);
+      }
+    }
+    console.log('────────────────────────────────────────\n');
+  } catch (err) {
+    console.log(`  (could not fetch event details: ${err})`);
+  }
+}
+
 async function main() {
   console.log(
     `Scanning Sentry ${SENTRY_ORG}/${SENTRY_PROJECT} · query="${SENTRY_QUERY}" · ` +
@@ -178,6 +208,7 @@ async function main() {
     const title = `🚨 [Sentry] ${issue.title}`.slice(0, 250);
     if (dryRun) {
       console.log(`would create: ${title}  (${issue.permalink})`);
+      await dumpDetails(issue);
       created += 1;
       continue;
     }
