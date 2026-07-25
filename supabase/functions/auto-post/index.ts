@@ -23,7 +23,8 @@ import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
 import { composeAutoPostBody } from '../_shared/notificationBody.ts';
 import { publisherIdentity } from '../_shared/publisher.ts';
-import { approvalPushContent, parseNotifyTime, reminderPushContent, type ReminderReason } from './logic.ts';
+import { galleryUrls, saveApprovalBatch } from '../_shared/approvalBatch.ts';
+import { approvalPushContent, dominantPlace, parseNotifyTime, reminderPushContent, type ReminderReason } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -107,7 +108,13 @@ interface BatchPhoto {
   createdAt: number;
 }
 
-/** Send a rich Expo push notification with the pre-computed batch embedded in the payload. */
+/**
+ * Persist the batch and send the rich approval push. The push stays under the
+ * APNs 4KB limit by carrying only `batchId` + a compact `gallery` (URLs the
+ * content extension renders) + the lead `imageUrl` (thumbnail) — the app fetches
+ * the full batch/pool from `approval_batches` by id (issue #71). Skipped when
+ * the publisher has no push token.
+ */
 async function pushApprovalBatch(
   token: string,
   publisherId: string,
@@ -117,9 +124,17 @@ async function pushApprovalBatch(
   if (!token) return;
 
   const batchId = crypto.randomUUID();
+  // Persist first: the app reads the batch from here, so a push that referenced
+  // a missing row would open an empty review screen.
+  await saveApprovalBatch(supabase, batchId, publisherId, batch, pool);
 
-  // Build a readable summary from captions (e.g. "Sunset · Street food · Mountain view").
-  const { title, body } = approvalPushContent(batch.map(p => p.caption), batch.length);
+  // Build a readable summary from captions (e.g. "Sunset · Street food · Mountain view"),
+  // titled with the batch's dominant location when the photos carried one.
+  const { title, body } = approvalPushContent(
+    batch.map(p => p.caption),
+    batch.length,
+    dominantPlace(batch.map(p => p.place)),
+  );
 
   await fetch('https://exp.host/--/api/v2/push/send', {
     method: 'POST',
@@ -137,8 +152,9 @@ async function pushApprovalBatch(
         screen: 'ReviewSuggestion',
         publisherId,
         batchId,
-        batch,
-        pool,
+        // Compact gallery for the NotificationContentExtension's expanded grid;
+        // full batch/pool detail is fetched by the app from approval_batches.
+        gallery: galleryUrls(batch),
         imageUrl: batch[0]?.url ?? null,
       },
     }),
