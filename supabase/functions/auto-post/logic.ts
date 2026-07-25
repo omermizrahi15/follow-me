@@ -9,29 +9,6 @@ export function parseNotifyTime(notifyTime: string): { hour: number; minute: num
 }
 
 /**
- * Picks the place to show in the push from the batch's per-photo place guesses:
- * the most frequent non-empty value (ties broken by first appearance). Returns
- * '' when no photo carried a location — callers treat that as "no place".
- */
-export function dominantPlace(places: readonly string[]): string {
-  const counts = new Map<string, number>();
-  for (const raw of places) {
-    const place = raw?.trim() ?? '';
-    if (place === '') continue;
-    counts.set(place, (counts.get(place) ?? 0) + 1);
-  }
-  let best = '';
-  let bestCount = 0;
-  for (const [place, count] of counts) {
-    if (count > bestCount) {
-      best = place;
-      bestCount = count;
-    }
-  }
-  return best;
-}
-
-/**
  * Title/body for the "batch ready to review" rich push: a title with a
  * correctly-pluralised count and — when the batch carries a location — the
  * place it was shot ("3 photos from Tel Aviv ready to post 📸"), and a body

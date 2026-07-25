@@ -3,7 +3,8 @@ import * as FileSystem from 'expo-file-system/legacy';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { IMediaLibrary } from '../../domain/interfaces';
 import type { ResolvePayload } from '../classifiers/GeminiPhotoClassifier';
-import type { ResolveLocalUri } from '../../domain/interfaces';
+import type { ResolveLocalUri, ResolveAssetLocation } from '../../domain/interfaces';
+import { validCoordinate } from '../../domain/services/coordinate';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Assets fetched per pagination page. */
@@ -88,4 +89,18 @@ export const expoResolveLocalUri: ResolveLocalUri = async candidate => {
   if (candidate.uri.startsWith('file://')) return candidate.uri;
   const info = await MediaLibrary.getAssetInfoAsync(candidate.id);
   return info.localUri ?? candidate.uri;
+};
+
+/**
+ * Reads a candidate's GPS coordinate from its asset metadata (issue #23), or
+ * null when the photo has no fix. `getAssetInfoAsync` exposes `location` on iOS
+ * as *strings*, so validCoordinate coerces + rejects garbage (see coordinate.ts).
+ * Called only for fresh (not-yet-synced) photos during the cloud sync, so the
+ * extra per-asset lookup stays bounded.
+ */
+export const expoResolveAssetLocation: ResolveAssetLocation = async candidate => {
+  const info = await MediaLibrary.getAssetInfoAsync(candidate.id);
+  const loc = info.location;
+  if (loc == null) return null;
+  return validCoordinate(loc.latitude, loc.longitude);
 };

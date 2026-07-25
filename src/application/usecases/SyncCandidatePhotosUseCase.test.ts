@@ -121,4 +121,33 @@ describe('SyncCandidatePhotosUseCase', () => {
 
     expect(storage.uploads[0]?.localUri).toBe('file:///resolved/a.jpg');
   });
+
+  it('threads the resolved GPS coordinate onto each candidate (issue #23)', async () => {
+    const library = new FakeMediaLibrary([candidate('a'), candidate('b')]);
+    const storage = new FakeStorageService();
+    const repo = new InMemoryCandidatePhotoRepository();
+    // 'a' is geotagged, 'b' has no fix.
+    const useCase = new SyncCandidatePhotosUseCase(library, storage, repo, undefined, c =>
+      Promise.resolve(c.id === 'a' ? { latitude: 32.08, longitude: 34.78 } : null),
+    );
+
+    const rows = await useCase.execute('pub-1', 7);
+
+    expect(rows.find(r => r.assetId === 'a')?.location).toEqual({ latitude: 32.08, longitude: 34.78 });
+    expect(rows.find(r => r.assetId === 'b')?.location).toBeUndefined();
+  });
+
+  it('prefers a location already on the candidate over the resolver', async () => {
+    const preset = { latitude: 48.85, longitude: 2.35 };
+    const library = new FakeMediaLibrary([{ id: 'a', uri: 'file:///a.jpg', createdAt: new Date(), location: preset }]);
+    const storage = new FakeStorageService();
+    const repo = new InMemoryCandidatePhotoRepository();
+    const resolveLocation = jest.fn().mockResolvedValue({ latitude: 0, longitude: 0 });
+    const useCase = new SyncCandidatePhotosUseCase(library, storage, repo, undefined, resolveLocation);
+
+    const rows = await useCase.execute('pub-1', 7);
+
+    expect(rows[0]?.location).toEqual(preset);
+    expect(resolveLocation).not.toHaveBeenCalled();
+  });
 });

@@ -1,3 +1,5 @@
+import type { Coordinate } from '../interfaces';
+
 /**
  * A recent library photo that has been uploaded to the cloud so the server can
  * post it autonomously (the server can't reach the device's library). Persisted
@@ -11,4 +13,7 @@ export interface CandidatePhoto {
   url: string;
   /** When the photo was taken. */
   createdAt: Date;
+  /** Where the photo was taken (from GPS metadata), when available — lets the
+   *  server name the posting's place without the device (issue #23). */
+  location?: Coordinate;
 }

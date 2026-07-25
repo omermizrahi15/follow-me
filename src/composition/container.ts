@@ -11,7 +11,7 @@ import { SyncCandidatePhotosUseCase } from '../application/usecases/SyncCandidat
 import { SaveProfileUseCase } from '../application/usecases/SaveProfileUseCase';
 import { LoadProfileUseCase } from '../application/usecases/LoadProfileUseCase';
 import { GeminiPhotoClassifier } from '../infrastructure/classifiers/GeminiPhotoClassifier';
-import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri } from '../infrastructure/media/ExpoMediaLibrary';
+import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri, expoResolveAssetLocation } from '../infrastructure/media/ExpoMediaLibrary';
 import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotificationScheduler';
 import { registerExpoPushToken } from '../infrastructure/notifiers/ExpoPushToken';
 import type { Coordinate, ISentPhotoTracker } from '../domain/interfaces';
@@ -118,6 +118,7 @@ export const syncCandidatePhotos = monitored('sync_candidate_photos', new SyncCa
   storageService,
   candidateRepo,
   expoResolveLocalUri,
+  expoResolveAssetLocation,
 ));
 export const saveProfile = monitored('save_profile', new SaveProfileUseCase(profileRepo));
 export const loadProfile = monitored('load_profile', new LoadProfileUseCase(profileRepo));
