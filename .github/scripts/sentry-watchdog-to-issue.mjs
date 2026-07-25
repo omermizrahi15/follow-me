@@ -9,7 +9,11 @@
 // Config comes entirely from env (all already present in the repo):
 //   SENTRY_ORG          repo variable  (follow-me-m3)
 //   SENTRY_PROJECT      repo variable  (react-native)
-//   SENTRY_AUTH_TOKEN   repo secret    (Sentry API token, `event:read`)
+//   SENTRY_ISSUES_TOKEN repo secret    (Sentry token with `event:read` +
+//                       `project:read`; falls back to SENTRY_AUTH_TOKEN). The
+//                       existing SENTRY_AUTH_TOKEN is a release/source-map-upload
+//                       token and does NOT have event:read — so reading issues
+//                       needs a dedicated read token stored here.
 //   GITHUB_TOKEN        workflow token (needs issues: write)
 //   GITHUB_REPOSITORY   owner/repo, provided by Actions
 // Optional overrides:
@@ -25,6 +29,7 @@ const GH_BASE = 'https://api.github.com';
 const {
   SENTRY_ORG,
   SENTRY_PROJECT,
+  SENTRY_ISSUES_TOKEN,
   SENTRY_AUTH_TOKEN,
   GITHUB_TOKEN,
   GITHUB_REPOSITORY,
@@ -49,9 +54,10 @@ function requireEnv(name, value) {
     process.exit(1);
   }
 }
+const sentryToken = SENTRY_ISSUES_TOKEN || SENTRY_AUTH_TOKEN;
 requireEnv('SENTRY_ORG', SENTRY_ORG);
 requireEnv('SENTRY_PROJECT', SENTRY_PROJECT);
-requireEnv('SENTRY_AUTH_TOKEN', SENTRY_AUTH_TOKEN);
+requireEnv('SENTRY_ISSUES_TOKEN (or SENTRY_AUTH_TOKEN)', sentryToken);
 requireEnv('GITHUB_TOKEN', GITHUB_TOKEN);
 requireEnv('GITHUB_REPOSITORY', GITHUB_REPOSITORY);
 
@@ -61,7 +67,7 @@ async function sentry(path, params = {}) {
   const url = new URL(`${SENTRY_BASE}${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   const res = await fetch(url, {
-    headers: { Authorization: `Bearer ${SENTRY_AUTH_TOKEN}` },
+    headers: { Authorization: `Bearer ${sentryToken}` },
   });
   if (!res.ok) {
     throw new Error(`Sentry ${path} -> ${res.status} ${await res.text()}`);

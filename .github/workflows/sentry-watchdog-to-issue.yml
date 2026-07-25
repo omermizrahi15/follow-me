@@ -5,10 +5,6 @@ name: Sentry watchdog → GitHub issue
 # Dedup is by a hidden `sentry-issue-id:<id>` marker in the issue body, so the
 # cron and manual runs never double-file. See .github/scripts/sentry-watchdog-to-issue.mjs.
 on:
-  # TEMP(validation): remove before merge — lets the workflow run on this branch
-  # in forced dry-run so we can verify the Sentry query end-to-end pre-merge.
-  push:
-    branches: [u-/critical-error-github-automation-a2eb92]
   schedule:
     - cron: '*/15 * * * *' # every 15 minutes
   workflow_dispatch:
@@ -43,7 +39,11 @@ jobs:
         env:
           SENTRY_ORG: ${{ vars.SENTRY_ORG }}
           SENTRY_PROJECT: ${{ vars.SENTRY_PROJECT }}
+          # Dedicated read token (event:read + project:read). Falls back to the
+          # release/upload token, which lacks event:read and will 403 — so add
+          # SENTRY_ISSUES_TOKEN as a repo secret for this to work.
+          SENTRY_ISSUES_TOKEN: ${{ secrets.SENTRY_ISSUES_TOKEN }}
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          DRY_RUN: ${{ (github.event_name == 'push' && 'true') || inputs.dry_run || 'false' }}
-          STATS_PERIOD: ${{ (github.event_name == 'push' && '90d') || inputs.stats_period || '14d' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+          STATS_PERIOD: ${{ inputs.stats_period || '14d' }}
