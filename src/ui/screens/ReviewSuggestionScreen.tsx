@@ -23,7 +23,6 @@ import { resolvePlaceForCoordinates } from '../../composition/container';
 import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
-import { suggestPlaceFromGuesses } from '../../domain/services/postingLocation';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -145,6 +144,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
   const [place, setPlace] = useState('');
   const [placeLoading, setPlaceLoading] = useState(false);
   const placeEditedRef = useRef(false);
+  // Which GPS source produced the place — surfaced under the
+  // field so an empty suggestion is explained, never silent (issue #63).
+  const [placeSource, setPlaceSource] = useState<'photos' | 'scan' | 'none' | null>(null);
   // GPS per asset id (undefined = probed, no GPS), fetched once for the
   // place preview and reused on post.
   const coordsRef = useRef<Map<string, Coordinate | undefined>>(new Map());
@@ -158,6 +160,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
       placeEditedRef.current = false;
       coordsRef.current.clear();
       setPlace('');
+      setPlaceSource(null);
     }
     if (phase === 'done' && !slotsInitRef.current && batch.length > 0) {
       slotsInitRef.current = true;
@@ -167,12 +170,10 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
 
   // Resolve the batch's place whenever the selection changes, so the user
   // sees (and can edit) the place before posting. Their manual edit always
-  // wins over re-resolution. Resolution order — a suggestion must appear even
-  // when the selected photos carry no GPS:
+  // wins over re-resolution. Resolution order:
   //   1. GPS of the selected photos → reverse geocode.
   //   2. GPS of any other photo from the same scan (batch + pool) — same
   //      lookback window, almost always the same trip.
-  //   3. The AI's content-based place guess(es) across the batch.
   useEffect(() => {
     if (phase !== 'done' || slots.length === 0) return;
     // Object property (not a local) so eslint doesn't flow-narrow it — the
@@ -210,6 +211,8 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         await probeGps(slots);
         if (isStale()) return;
         let coordinates = gpsOf(slots);
+        let source: 'photos' | 'scan' = 'photos';
+        if (__DEV__) console.log(`[place] GPS on ${coordinates.length}/${slots.length} selected photos`);
 
         // The selection has no GPS — borrow it from the rest of the scan.
         if (coordinates.length === 0) {
@@ -220,21 +223,17 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           await probeGps(restIds);
           if (isStale()) return;
           coordinates = gpsOf(restIds);
+          source = 'scan';
         }
 
-        let resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
+        const resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
         if (isStale()) return;
 
-        // No GPS anywhere (or the geocoder failed) — fall back to what the AI
-        // saw in the photos, selected ones first.
-        if (resolved == null) {
-          const byId = new Map([...batch, ...pool].map(c => [c.candidate.id, c]));
-          const selectedGuesses = slots.map(id => byId.get(id)?.place);
-          resolved =
-            suggestPlaceFromGuesses(selectedGuesses) ??
-            suggestPlaceFromGuesses([...batch, ...pool].map(c => c.place));
+        if (!isStale()) {
+          if (__DEV__) console.log(`[place] resolved via ${resolved != null ? source : 'nothing'}: ${JSON.stringify(resolved)}`);
+          setPlace(resolved ?? '');
+          setPlaceSource(resolved != null ? source : 'none');
         }
-        if (!isStale()) setPlace(resolved ?? '');
       } finally {
         if (!run.cancelled) setPlaceLoading(false);
       }
@@ -516,6 +515,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                   value={place}
                   onChangeText={text => {
                     placeEditedRef.current = true;
+                    setPlaceSource(null);
                     setPlace(text);
                   }}
                   placeholder={placeLoading ? 'Finding the place…' : 'Add a place (optional)'}
@@ -531,6 +531,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                   <TouchableOpacity
                     onPress={() => {
                       placeEditedRef.current = true;
+                      setPlaceSource(null);
                       setPlace('');
                     }}
                     hitSlop={8}
@@ -540,6 +541,20 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                   </TouchableOpacity>
                 ) : null}
               </View>
+              {placeSource != null && (
+                <Text
+                  style={[
+                    innerStyles.placeSourceNote,
+                    placeSource === 'none' && innerStyles.placeSourceWarn,
+                  ]}
+                >
+                  {placeSource === 'photos'
+                    ? "Place from the selected photos' GPS"
+                    : placeSource === 'scan'
+                    ? 'Place from other photos taken around the same time'
+                    : 'No place found — the photos carry no GPS. Type one to include it.'}
+                </Text>
+              )}
               <TouchableOpacity
                 style={[innerStyles.confirmButton, sharing && innerStyles.disabled]}
                 onPress={handleConfirm}
@@ -630,6 +645,15 @@ const innerStyles = StyleSheet.create({
     fontSize: 14,
     color: colors.text,
   },
+  placeSourceNote: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: -2,
+    marginBottom: spacing.sm,
+    paddingHorizontal: spacing.xs,
+  },
+  placeSourceWarn: { color: '#C87A00' },
   rescanLink: { ...typography.caption, fontSize: 12, color: colors.accent, marginBottom: spacing.xs, textDecorationLine: 'underline' },
   errorNote: { color: colors.danger, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm },
   confirmButton: {
