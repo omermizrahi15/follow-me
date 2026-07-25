@@ -144,9 +144,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
   const [place, setPlace] = useState('');
   const [placeLoading, setPlaceLoading] = useState(false);
   const placeEditedRef = useRef(false);
-  // Which step of the resolution chain produced the place — surfaced under the
+  // Which GPS source produced the place — surfaced under the
   // field so an empty suggestion is explained, never silent (issue #63).
-  const [placeSource, setPlaceSource] = useState<'photos' | 'scan' | 'ai' | 'none' | null>(null);
+  const [placeSource, setPlaceSource] = useState<'photos' | 'scan' | 'none' | null>(null);
   // GPS per asset id (undefined = probed, no GPS), fetched once for the
   // place preview and reused on post.
   const coordsRef = useRef<Map<string, Coordinate | undefined>>(new Map());
@@ -211,7 +211,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         await probeGps(slots);
         if (isStale()) return;
         let coordinates = gpsOf(slots);
-        let source: 'photos' | 'scan' | 'ai' = 'photos';
+        let source: 'photos' | 'scan' = 'photos';
         if (__DEV__) console.log(`[place] GPS on ${coordinates.length}/${slots.length} selected photos`);
 
         // The selection has no GPS — borrow it from the rest of the scan.
@@ -227,7 +227,13 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         }
 
         const resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
-        if (!isStale()) setPlace(resolved ?? '');
+        if (isStale()) return;
+
+        if (!isStale()) {
+          if (__DEV__) console.log(`[place] resolved via ${resolved != null ? source : 'nothing'}: ${JSON.stringify(resolved)}`);
+          setPlace(resolved ?? '');
+          setPlaceSource(resolved != null ? source : 'none');
+        }
       } finally {
         if (!run.cancelled) setPlaceLoading(false);
       }
@@ -546,9 +552,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
                     ? "Place from the selected photos' GPS"
                     : placeSource === 'scan'
                     ? 'Place from other photos taken around the same time'
-                    : placeSource === 'ai'
-                    ? 'Place guessed by AI from the photo content'
-                    : 'No place found — the photos carry no GPS and the AI made no guess. Type one to include it.'}
+                    : 'No place found — the photos carry no GPS. Type one to include it.'}
                 </Text>
               )}
               <TouchableOpacity

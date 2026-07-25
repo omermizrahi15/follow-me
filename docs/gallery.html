@@ -27,39 +27,66 @@
     .status { text-align: center; padding: 60px 20px; color: #6B7683; font-size: 15px; }
     footer { text-align: center; padding-bottom: 32px; color: #9AA5AE; font-size: 12px; }
 
-    /* Lightbox — in-page enlarge instead of navigating to the image URL. */
-    .lightbox {
+    /* Story viewer (issue #67) — full-screen, one photo at a time. Mirrors the
+       app's PostingDetailScreen: progress segments, tap right/left to advance
+       or go back, place/date on a top scrim. */
+    .story {
       position: fixed; inset: 0; z-index: 10;
-      background: rgba(8, 12, 16, 0.94);
+      background: #000;
       display: flex; align-items: center; justify-content: center;
       touch-action: pan-y;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
     }
-    .lightbox[hidden] { display: none; }
-    .lightbox img {
+    .story[hidden] { display: none; }
+    .story img {
       max-width: 100vw; max-height: 100dvh;
       object-fit: contain;
       user-select: none; -webkit-user-drag: none;
+      pointer-events: none;
     }
-    .lb-btn {
-      position: fixed; z-index: 11;
-      background: rgba(255,255,255,0.12); color: #fff;
+    .story-scrim {
+      position: fixed; z-index: 11; top: 0; left: 0; right: 0;
+      height: 120px;
+      background: linear-gradient(rgba(0,0,0,0.65), rgba(0,0,0,0));
+      pointer-events: none;
+    }
+    .story-top {
+      position: fixed; z-index: 12; top: 0; left: 0; right: 0;
+      padding: 12px 12px 0;
+      pointer-events: none;
+    }
+    .story-segments { display: flex; gap: 4px; }
+    .story-segments span {
+      flex: 1; height: 3px; border-radius: 999px;
+      background: rgba(255,255,255,0.35);
+    }
+    .story-segments span.done { background: #fff; }
+    .story-header {
+      display: flex; align-items: center; gap: 12px;
+      margin-top: 12px;
+    }
+    .story-titles { flex: 1; min-width: 0; text-align: left; }
+    .story-place {
+      color: #fff; font-size: 18px; font-weight: 700; letter-spacing: -0.3px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .story-meta {
+      color: rgba(255,255,255,0.75); font-size: 11px; font-weight: 600;
+      letter-spacing: 1.1px; text-transform: uppercase; margin-top: 2px;
+    }
+    .story-close {
+      pointer-events: auto;
+      flex: none;
+      background: rgba(0,0,0,0.35); color: #fff;
       border: 0; border-radius: 999px;
-      width: 44px; height: 44px;
-      font-size: 22px; line-height: 1;
+      width: 36px; height: 36px;
+      font-size: 18px; line-height: 1;
       cursor: pointer;
       display: flex; align-items: center; justify-content: center;
       -webkit-tap-highlight-color: transparent;
     }
-    .lb-btn:hover { background: rgba(255,255,255,0.22); }
-    .lb-close { top: 14px; right: 14px; }
-    .lb-prev { left: 10px; top: 50%; transform: translateY(-50%); }
-    .lb-next { right: 10px; top: 50%; transform: translateY(-50%); }
-    .lb-counter {
-      position: fixed; z-index: 11; top: 24px; left: 0; right: 0;
-      text-align: center; color: rgba(255,255,255,0.85); font-size: 14px;
-      pointer-events: none;
-    }
-    @media (max-width: 600px) { .lb-prev, .lb-next { display: none; } } /* swipe instead */
+    .story-close:hover { background: rgba(255,255,255,0.22); }
   </style>
 </head>
 <body>
@@ -71,12 +98,19 @@
   <p class="status" id="status" hidden></p>
   <footer>Shared with Follow Me</footer>
 
-  <div class="lightbox" id="lightbox" hidden>
-    <span class="lb-counter" id="lbCounter"></span>
-    <button class="lb-btn lb-close" id="lbClose" aria-label="Close">✕</button>
-    <button class="lb-btn lb-prev" id="lbPrev" aria-label="Previous photo">‹</button>
-    <img id="lbImage" alt="photo">
-    <button class="lb-btn lb-next" id="lbNext" aria-label="Next photo">›</button>
+  <div class="story" id="story" hidden>
+    <img id="storyImage" alt="photo">
+    <div class="story-scrim"></div>
+    <div class="story-top">
+      <div class="story-segments" id="storySegments"></div>
+      <div class="story-header">
+        <div class="story-titles">
+          <div class="story-place" id="storyPlace"></div>
+          <div class="story-meta" id="storyMeta"></div>
+        </div>
+        <button class="story-close" id="storyClose" aria-label="Close">✕</button>
+      </div>
+    </div>
   </div>
 
   <script>
@@ -92,58 +126,88 @@
     const thumbUrl = url => sizedUrl(url, 600);
     const fullUrl = url => sizedUrl(url, 2048);
 
-    // ---------- lightbox ----------
+    // ---------- story viewer (issue #67) ----------
+    // Same interaction model as the app's PostingDetailScreen: segmented
+    // progress, tap right/left to advance/go back, swipe, tap past the last
+    // photo to close.
     let photoUrls = [];
-    let lbIndex = 0;
-    const lightbox = document.getElementById('lightbox');
-    const lbImage = document.getElementById('lbImage');
-    const lbCounter = document.getElementById('lbCounter');
+    let storyIndex = 0;
+    let storyDate = '';
+    const story = document.getElementById('story');
+    const storyImage = document.getElementById('storyImage');
+    const storySegments = document.getElementById('storySegments');
+    const storyMeta = document.getElementById('storyMeta');
+
+    /** Fraction of the viewport width that counts as the "go back" tap zone. */
+    const BACK_ZONE = 0.3;
+
+    function buildSegments() {
+      storySegments.replaceChildren();
+      photoUrls.forEach(() => storySegments.appendChild(document.createElement('span')));
+    }
 
     function showPhoto(index) {
-      lbIndex = (index + photoUrls.length) % photoUrls.length;
-      lbImage.src = fullUrl(photoUrls[lbIndex]);
-      lbCounter.textContent = (lbIndex + 1) + ' / ' + photoUrls.length;
+      storyIndex = index;
+      storyImage.src = fullUrl(photoUrls[storyIndex]);
+      [...storySegments.children].forEach((s, i) => s.classList.toggle('done', i <= storyIndex));
+      storyMeta.textContent = storyDate + ' · ' + (storyIndex + 1) + '/' + photoUrls.length;
       // Warm the neighbours so next/prev feels instant.
-      for (const n of [lbIndex + 1, lbIndex - 1]) {
-        const i = (n + photoUrls.length) % photoUrls.length;
-        new Image().src = fullUrl(photoUrls[i]);
+      for (const n of [storyIndex + 1, storyIndex - 1]) {
+        if (n >= 0 && n < photoUrls.length) new Image().src = fullUrl(photoUrls[n]);
       }
     }
 
-    function openLightbox(index) {
+    function openStory(index) {
+      buildSegments();
       showPhoto(index);
-      lightbox.hidden = false;
+      story.hidden = false;
       document.body.style.overflow = 'hidden';
     }
 
-    function closeLightbox() {
-      lightbox.hidden = true;
-      lbImage.src = '';
+    function closeStory() {
+      story.hidden = true;
+      storyImage.src = '';
       document.body.style.overflow = '';
     }
 
-    document.getElementById('lbClose').addEventListener('click', closeLightbox);
-    document.getElementById('lbPrev').addEventListener('click', e => { e.stopPropagation(); showPhoto(lbIndex - 1); });
-    document.getElementById('lbNext').addEventListener('click', e => { e.stopPropagation(); showPhoto(lbIndex + 1); });
-    // Tap outside the photo closes.
-    lightbox.addEventListener('click', e => { if (e.target === lightbox) closeLightbox(); });
+    /** Advance by delta; stepping past the last photo closes the story. */
+    function step(delta) {
+      const next = storyIndex + delta;
+      if (next >= photoUrls.length) return closeStory();
+      if (next < 0) return;
+      showPhoto(next);
+    }
 
-    document.addEventListener('keydown', e => {
-      if (lightbox.hidden) return;
-      if (e.key === 'Escape') closeLightbox();
-      if (e.key === 'ArrowLeft') showPhoto(lbIndex - 1);
-      if (e.key === 'ArrowRight') showPhoto(lbIndex + 1);
+    document.getElementById('storyClose').addEventListener('click', e => {
+      e.stopPropagation();
+      closeStory();
     });
 
-    // Swipe left/right on touch devices.
+    // Tap zones — left 30% goes back, the rest advances (mirrors the app).
+    story.addEventListener('click', e => {
+      step(e.clientX < window.innerWidth * BACK_ZONE ? -1 : 1);
+    });
+
+    document.addEventListener('keydown', e => {
+      if (story.hidden) return;
+      if (e.key === 'Escape') closeStory();
+      if (e.key === 'ArrowLeft') step(-1);
+      if (e.key === 'ArrowRight') step(1);
+    });
+
+    // Swipe left/right on touch devices. A real swipe suppresses the tap-zone
+    // click (preventDefault on touchend), so one gesture never steps twice.
     let touchStartX = null;
-    lightbox.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
-    lightbox.addEventListener('touchend', e => {
+    story.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
+    story.addEventListener('touchend', e => {
       if (touchStartX == null) return;
       const dx = e.changedTouches[0].clientX - touchStartX;
       touchStartX = null;
-      if (Math.abs(dx) > 40) showPhoto(lbIndex + (dx < 0 ? 1 : -1));
-    }, { passive: true });
+      if (Math.abs(dx) > 40) {
+        e.preventDefault();
+        step(dx < 0 ? 1 : -1);
+      }
+    });
 
     // ---------- page load ----------
     function fail(message) {
@@ -180,6 +244,9 @@
       const date = new Date(post.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
       const count = post.media_urls.length;
       document.getElementById('subtitle').textContent = count + ' photo' + (count === 1 ? '' : 's') + ' · ' + date;
+      // The story header mirrors the app's: who/when over the photo.
+      document.getElementById('storyPlace').textContent = name;
+      storyDate = date;
 
       photoUrls = post.media_urls;
       const grid = document.getElementById('grid');
@@ -192,7 +259,7 @@
         img.loading = 'lazy';
         img.alt = 'photo';
         cell.appendChild(img);
-        cell.addEventListener('click', () => openLightbox(index));
+        cell.addEventListener('click', () => openStory(index));
         grid.appendChild(cell);
       });
     }
