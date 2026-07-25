@@ -18,7 +18,7 @@ on:
         type: boolean
         default: false
       stats_period:
-        description: Sentry lookback window (e.g. 24h, 14d, 90d)
+        description: Sentry lookback window (only 24h or 14d are valid)
         type: string
         default: 14d
 
@@ -50,4 +50,4 @@ jobs:
           SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           DRY_RUN: ${{ (github.event_name == 'push' && 'true') || inputs.dry_run || 'false' }}
-          STATS_PERIOD: ${{ (github.event_name == 'push' && '90d') || inputs.stats_period || '14d' }}
+          STATS_PERIOD: ${{ inputs.stats_period || '14d' }}
