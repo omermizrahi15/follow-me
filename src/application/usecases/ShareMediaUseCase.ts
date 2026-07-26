@@ -78,6 +78,9 @@ export class ShareMediaUseCase {
         createdAt: new Date(),
         postingId,
         ...(location != null ? { location } : {}),
+        // Keep the per-item fix, not just the reverse-geocoded label — the
+        // Me-page globe plots the posting at this coordinate (issue #78).
+        ...(item.coordinate != null ? { coordinate: item.coordinate } : {}),
       }),
     );
 

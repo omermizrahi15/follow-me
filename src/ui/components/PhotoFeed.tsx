@@ -3,6 +3,7 @@ import { View, Text, Image, TouchableOpacity, FlatList, Dimensions, StyleSheet }
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
+import type { Coordinate } from '../../domain/interfaces';
 import { colors, radius, spacing } from '../theme/theme';
 
 /** A single photo within a posting. Mirrors the domain `Media`. */
@@ -16,8 +17,12 @@ export interface FeedPosting {
   id: string;
   /** Pre-formatted date label, e.g. "June 18, 2026". */
   date: string;
+  /** ISO timestamp — the globe orders the route chronologically on it. */
+  createdAt: string;
   /** Place label, e.g. "Lisbon, Portugal" — absent until location lands (issue #23). */
   place?: string;
+  /** Where it was taken; absent when no photo in the batch had a GPS fix. */
+  coordinate?: Coordinate;
   /** Cover image shown full-bleed for the post (falls back to first media). */
   coverUri?: string;
   media: FeedMedia[];
