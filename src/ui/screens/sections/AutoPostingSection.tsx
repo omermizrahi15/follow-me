@@ -282,6 +282,9 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
 
       const want = config.photosPerPost > 0 ? config.photosPerPost : 5;
       const localUris: string[] = [];
+      // Remote (https) source URLs — passed as `gallery` so the notification
+      // content extension renders the same expandable grid as the real push.
+      const galleryUrls: string[] = [];
       log.push(`want: ${want} photos`);
 
       // 1. Try to download cached batch photos (from previous preview / server push).
@@ -293,6 +296,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       } else {
         const remote = cached.batch.filter(p => p.url.startsWith('http'));
         log.push(`cache: ${cached.batch.length} photos (${remote.length} remote, ${cached.batch.length - remote.length} local skipped)`);
+        galleryUrls.push(...remote.slice(0, want).map(p => p.url));
         const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
         const downloads = await Promise.allSettled(
           remote.slice(0, want).map(async (photo, i) => {
@@ -334,6 +338,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
             urls = await recentCandidateUrls(publisherId, want - localUris.length);
             log.push(`candidate urls now: ${urls.length}`);
           }
+          galleryUrls.push(...urls);
           const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
           const downloads = await Promise.allSettled(
             urls.map(async (url, i) => {
@@ -351,10 +356,10 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         }
       }
 
-      log.push(`total attached: ${localUris.length}`);
+      log.push(`total attached: ${localUris.length}, gallery urls: ${galleryUrls.length}`);
       if (localUris[0]) log.push(`first URI: ${localUris[0].slice(0, 60)}`);
 
-      await scheduleTestNotification(seconds, localUris);
+      await scheduleTestNotification(seconds, localUris, galleryUrls);
       setTestScheduledAt(seconds >= 60 ? new Date(Date.now() + seconds * 1000) : null);
       console.log(`[DEV] ⚡ ${seconds}s notification\n${log.join('\n')}`);
     } catch (e) {

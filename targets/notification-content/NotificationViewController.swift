@@ -3,9 +3,9 @@ import UserNotifications
 import UserNotificationsUI
 import ImageIO
 
-/// Custom UI for the expanded "batch ready to review" push: a grid of every
-/// photo in the batch, so the publisher can see the whole post without opening
-/// the app. Bound to the `post-review` category via Info.plist.
+/// Custom UI for the expanded "batch ready to review" push: a grid of the
+/// batch's photos, so the publisher can see the post without opening the app.
+/// Bound to the `post-review` category via Info.plist.
 ///
 /// Payload contract (see supabase/functions/auto-post/index.ts → pushApprovalBatch).
 /// Expo nests the push `data` object under `userInfo["body"]` as a JSON string,
@@ -14,16 +14,26 @@ import ImageIO
 ///   batch   : [{ url: String, ... }]          — legacy full objects (fallback)
 ///
 /// Notes:
-///   - Content extensions run under a tight memory budget, so photos are
-///     downsampled to thumbnails (ImageIO) rather than decoded at full size,
-///     and the grid is capped — mirroring the OOM caution from the sync path.
+///   - Content extensions run under a tight (~24MB) memory budget, so photos are
+///     downsampled to small thumbnails via ImageIO (never decoded full-size),
+///     downloads are throttled, and the grid is capped.
+///   - preferredContentSize MUST be sized from a real width. At didReceive the
+///     view isn't laid out (bounds are zero), so an initial estimate is taken
+///     from the screen width and then corrected in viewDidLayoutSubviews — a
+///     zero height here makes iOS expand then immediately collapse the banner.
 class NotificationViewController: UIViewController, UNNotificationContentExtension {
   private let columns = 3
   private let spacing: CGFloat = 3
-  private let maxPhotos = 9
+  private let maxPhotos = 6
+  private let thumbnailPixels: CGFloat = 400
 
   private let grid = UIStackView()
   private var cells: [UIImageView] = []
+  private var rowsCount = 0
+
+  // Bound concurrent downloads so several full-size JPEG buffers don't coexist
+  // and blow the extension's memory budget.
+  private let downloadGate = DispatchSemaphore(value: 3)
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -44,14 +54,23 @@ class NotificationViewController: UIViewController, UNNotificationContentExtensi
 
   func didReceive(_ notification: UNNotification) {
     let data = ExpoPushData.extract(from: notification.request.content.userInfo)
-    let urls = galleryURLs(from: data).prefix(maxPhotos)
+    let urls = Array(galleryURLs(from: data).prefix(maxPhotos))
+    guard !urls.isEmpty else { return }
 
     buildGrid(count: urls.count)
-    sizePreferredContent(count: urls.count)
+    // Initial estimate from the screen width; corrected in viewDidLayoutSubviews
+    // once the banner's real width is known.
+    setPreferredHeight(forWidth: UIScreen.main.bounds.width)
 
     for (index, url) in urls.enumerated() {
       loadThumbnail(from: url, into: index)
     }
+  }
+
+  override func viewDidLayoutSubviews() {
+    super.viewDidLayoutSubviews()
+    guard rowsCount > 0, view.bounds.width > 1 else { return }
+    setPreferredHeight(forWidth: view.bounds.width)
   }
 
   /// Prefers the compact `gallery` URL list; falls back to `batch[].url` for
@@ -71,11 +90,11 @@ class NotificationViewController: UIViewController, UNNotificationContentExtensi
   private func buildGrid(count: Int) {
     grid.arrangedSubviews.forEach { $0.removeFromSuperview() }
     cells.removeAll()
-    guard count > 0 else { return }
+    guard count > 0 else { rowsCount = 0; return }
 
-    let rows = Int(ceil(Double(count) / Double(columns)))
+    rowsCount = Int(ceil(Double(count) / Double(columns)))
     var made = 0
-    for _ in 0..<rows {
+    for _ in 0..<rowsCount {
       let row = UIStackView()
       row.axis = .horizontal
       row.spacing = spacing
@@ -89,7 +108,7 @@ class NotificationViewController: UIViewController, UNNotificationContentExtensi
           cells.append(imageView)
           made += 1
         } else {
-          imageView.isHidden = true // pad the final row to keep equal sizing
+          imageView.alpha = 0 // pad the final row, keeping equal cell sizing
         }
         row.addArrangedSubview(imageView)
       }
@@ -97,29 +116,33 @@ class NotificationViewController: UIViewController, UNNotificationContentExtensi
     }
   }
 
-  private func sizePreferredContent(count: Int) {
-    guard count > 0 else {
-      preferredContentSize = CGSize(width: view.bounds.width, height: 0)
-      return
-    }
-    let rows = CGFloat(Int(ceil(Double(count) / Double(columns))))
-    let width = view.bounds.width
+  private func setPreferredHeight(forWidth width: CGFloat) {
+    guard rowsCount > 0, width > 1 else { return }
     let cellWidth = (width - spacing * CGFloat(columns - 1)) / CGFloat(columns)
-    let height = cellWidth * rows + spacing * (rows - 1)
-    preferredContentSize = CGSize(width: width, height: height)
+    let height = cellWidth * CGFloat(rowsCount) + spacing * CGFloat(rowsCount - 1)
+    let rounded = height.rounded()
+    if abs(preferredContentSize.height - rounded) > 0.5 {
+      preferredContentSize = CGSize(width: width, height: rounded)
+    }
   }
 
   // MARK: - Image loading
 
   private func loadThumbnail(from url: URL, into index: Int) {
-    URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
-      guard let self = self, let data = data,
-            let image = Self.downsample(data, maxPixel: 600) else { return }
-      DispatchQueue.main.async {
-        guard index < self.cells.count else { return }
-        self.cells[index].image = image
+    DispatchQueue.global(qos: .userInitiated).async { [weak self] in
+      guard let self = self else { return }
+      self.downloadGate.wait()
+      let task = URLSession.shared.dataTask(with: url) { [weak self] data, _, _ in
+        defer { self?.downloadGate.signal() }
+        guard let self = self, let data = data,
+              let image = Self.downsample(data, maxPixel: self.thumbnailPixels) else { return }
+        DispatchQueue.main.async {
+          guard index < self.cells.count else { return }
+          self.cells[index].image = image
+        }
       }
-    }.resume()
+      task.resume()
+    }
   }
 
   /// Decodes `data` straight to a thumbnail no larger than `maxPixel` on its
