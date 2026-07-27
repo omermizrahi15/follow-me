@@ -151,7 +151,14 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
   // what is left above it. Set after construction: padding passed to the
   // constructor is ignored, which silently centres the globe behind the sheet.
   map.setPadding({ top: 0, left: 0, right: 0, bottom: BOTTOM_PADDING });
-  map.on('error', function (e) { post({ type: 'error', message: String((e && e.error && e.error.message) || 'map error') }); });
+  map.on('error', function (e) {
+    var err = e && e.error;
+    // A tile request that was cancelled mid-flight reports as status 0. That
+    // happens constantly and harmlessly while panning — MapLibre aborts tiles
+    // it no longer needs — and reporting it buries the errors that matter.
+    if (err && err.status === 0) return;
+    post({ type: 'error', message: String((err && err.message) || 'map error') });
+  });
 
   /**
    * Plane icon, drawn at runtime rather than shipped as an asset. The glyph
@@ -284,22 +291,33 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
   /**
    * Sizes the halo to the planet and pins it to the planet's centre.
    *
-   * In globe projection the sphere's on-screen diameter is the Mercator world
-   * width wrapped round a ball: worldSize / PI, where worldSize is
-   * 512 * 2^zoom. Verified against the rendered canvas rather than trusted.
+   * The radius is MEASURED, not derived from zoom. Deriving it from zoom is
+   * wrong on a globe: the zoom value is the Mercator-equivalent scale at the
+   * centre latitude, so panning north or south changes it while the planet's
+   * on-screen size does not — the ring would swell and shrink around a planet
+   * that never moved, leaving a black gap.
    *
-   * Fades out once the planet is bigger than the viewport — past that there is
-   * no visible limb to glow, and a huge off-screen ring is just wasted paint.
+   * Instead: any point exactly 90 degrees of arc from the centre lies on the
+   * silhouette, whatever the projection is doing. For a centre at (lng, lat),
+   * (lng + 90, 0) is always exactly 90 degrees away — the spherical law of
+   * cosines collapses to cos(d) = 0 for any latitude. So the distance on
+   * screen from the centre to that point IS the planet's radius.
    */
   var glow = document.getElementById('glow');
   function positionGlow() {
-    var diameter = (512 * Math.pow(2, map.getZoom())) / Math.PI;
-    var centre = map.project(map.getCenter());
-    glow.style.width = diameter + 'px';
-    glow.style.height = diameter + 'px';
+    var c = map.getCenter();
+    var centre = map.project(c);
+    var limb = map.project([c.lng + 90, 0]);
+    var radius = Math.hypot(limb.x - centre.x, limb.y - centre.y);
+    if (!isFinite(radius) || radius <= 0) return;
+
+    glow.style.width = radius * 2 + 'px';
+    glow.style.height = radius * 2 + 'px';
     glow.style.left = centre.x + 'px';
     glow.style.top = centre.y + 'px';
-    var fits = diameter < Math.max(window.innerWidth, window.innerHeight) * 1.6;
+    // Once the planet is far larger than the screen there is no visible limb
+    // to glow, and a huge off-screen ring is just wasted paint.
+    var fits = radius * 2 < Math.max(window.innerWidth, window.innerHeight) * 1.8;
     glow.style.opacity = fits ? '1' : '0';
   }
 
