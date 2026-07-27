@@ -8,6 +8,8 @@ import {
   TouchableOpacity,
   StatusBar,
   StyleSheet,
+  Animated,
+  PanResponder,
   useWindowDimensions,
   type ViewToken,
 } from 'react-native';
@@ -22,6 +24,9 @@ import { colors, radius, spacing } from '../theme/theme';
 
 /** Fraction of the page width that counts as the "go back" tap zone. */
 const BACK_ZONE = 0.3;
+/** Drag further than this (or flick faster) and the story closes on release. */
+const DISMISS_DISTANCE = 120;
+const DISMISS_VELOCITY = 0.7;
 
 /**
  * One posting, opened from the feed — a full-screen story-style viewer
@@ -67,6 +72,42 @@ export function PostingDetailScreen(): React.JSX.Element {
     [count, navigation],
   );
 
+  // Swipe down to close, the way a story or a photo viewer does — the photo
+  // follows the finger and the close only commits past a distance or a flick,
+  // so a lazy vertical drift while paging sideways springs back instead.
+  const dragY = useRef(new Animated.Value(0)).current;
+  const dismissResponder = useRef(
+    PanResponder.create({
+      // Claim the gesture only when it is clearly a downward drag. The photo
+      // list pages horizontally, so a diagonal must stay with the list.
+      onMoveShouldSetPanResponder: (_, g) =>
+        g.dy > 8 && Math.abs(g.dy) > Math.abs(g.dx) * 1.6,
+      onPanResponderMove: (_, g) => {
+        if (g.dy > 0) dragY.setValue(g.dy);
+      },
+      onPanResponderRelease: (_, g) => {
+        if (g.dy > DISMISS_DISTANCE || g.vy > DISMISS_VELOCITY) {
+          // Carry the motion off-screen rather than cutting to the feed.
+          Animated.timing(dragY, {
+            toValue: height,
+            duration: 180,
+            useNativeDriver: true,
+          }).start(() => navigation.goBack());
+          return;
+        }
+        Animated.spring(dragY, {
+          toValue: 0,
+          useNativeDriver: true,
+          bounciness: 4,
+          speed: 14,
+        }).start();
+      },
+      onPanResponderTerminate: () => {
+        Animated.spring(dragY, { toValue: 0, useNativeDriver: true, speed: 14 }).start();
+      },
+    }),
+  ).current;
+
   const renderItem = useCallback(
     ({ item }: { item: FeedMedia }) => {
       const uri = item.uri != null ? displaySizedUri(item.uri, 1080) : undefined;
@@ -92,7 +133,10 @@ export function PostingDetailScreen(): React.JSX.Element {
   );
 
   return (
-    <View style={styles.container}>
+    <Animated.View
+      style={[styles.container, { transform: [{ translateY: dragY }] }]}
+      {...dismissResponder.panHandlers}
+    >
       <StatusBar barStyle="light-content" />
       <FlatList
         ref={listRef}
@@ -142,7 +186,7 @@ export function PostingDetailScreen(): React.JSX.Element {
           </TouchableOpacity>
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 

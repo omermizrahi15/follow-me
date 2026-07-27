@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
@@ -172,6 +173,10 @@ export function HomeScreen(): React.JSX.Element {
           accessibilityLabel="Settings"
           onPress={() => navigation.navigate('Settings')}
         >
+          {/* Frosted glass rather than a flat scrim: over satellite imagery a
+              translucent black square reads as a smudge, while a blur keeps the
+              icon legible over both bright coastline and dark ocean. */}
+          <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
           <Ionicons name="settings-sharp" size={20} color={headerTint} />
         </TouchableOpacity>
       </View>
@@ -281,7 +286,6 @@ export function HomeScreen(): React.JSX.Element {
                     </TouchableOpacity>
                   </View>
 
-                  {postings.length > 0 && <Text style={styles.feedHeading}>Posts</Text>}
                 </>
               }
             />
@@ -316,12 +320,6 @@ const styles = StyleSheet.create({
   },
   emptyTitle: { color: colors.text, fontSize: 17, fontWeight: '700' },
   emptyHint: { color: colors.textSecondary, fontSize: 13, textAlign: 'center' },
-  feedHeading: {
-    color: colors.text,
-    fontSize: 15,
-    fontWeight: '700',
-    marginBottom: spacing.sm,
-  },
   topScrim: { position: 'absolute', top: 0, left: 0, right: 0 },
   appHeader: {
     position: 'absolute',
@@ -337,8 +335,13 @@ const styles = StyleSheet.create({
   gearButton: {
     width: 40,
     height: 40,
-    borderRadius: radius.md,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: radius.pill,
+    // The blur fills this; overflow clips it to the circle, and the hairline
+    // gives the glass an edge so it doesn't dissolve into pale terrain.
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.45)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -348,8 +351,8 @@ const styles = StyleSheet.create({
     right: 0,
     bottom: 0,
     backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
     overflow: 'hidden',
     ...shadow.raised,
   },
@@ -379,7 +382,14 @@ const styles = StyleSheet.create({
   statCol: { flex: 1 },
   statNumber: { ...typography.heading, fontSize: 19, color: colors.text },
   statLabel: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    // Separates the actions from the post cards below, which are a
+    // different kind of thing — without it they read as one block.
+    marginBottom: spacing.xxl,
+  },
   addButton: {
     flex: 1,
     flexDirection: 'row',

@@ -63,7 +63,47 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <link href="${MAPLIBRE_CSS}" rel="stylesheet" integrity="${MAPLIBRE_CSS_SRI}" crossorigin="anonymous" />
 <style>
-  html, body, #map { margin: 0; padding: 0; height: 100%; width: 100%; background: #0b1a2b; }
+  html { margin: 0; padding: 0; height: 100%; width: 100%; background: #05070f; }
+  /*
+   * Starfield. The map canvas is transparent outside the sphere, so this sits
+   * behind it and shows as deep space around the globe. Built from repeating
+   * radial gradients rather than an image: no asset to load, no bytes over the
+   * bridge, and it scales to any screen. Three layers at different sizes and
+   * offsets keep it from reading as a regular grid.
+   */
+  body {
+    margin: 0; padding: 0; height: 100%; width: 100%;
+    background-color: #05070f;
+    background-image:
+      radial-gradient(1.4px 1.4px at 22px 34px, rgba(255,255,255,0.85), transparent 100%),
+      radial-gradient(1.1px 1.1px at 148px 92px, rgba(255,255,255,0.65), transparent 100%),
+      radial-gradient(1.6px 1.6px at 76px 178px, rgba(210,232,255,0.75), transparent 100%),
+      radial-gradient(1px 1px at 196px 148px, rgba(255,255,255,0.5), transparent 100%),
+      radial-gradient(1.2px 1.2px at 118px 26px, rgba(255,255,255,0.6), transparent 100%);
+    background-size: 220px 220px, 260px 260px, 300px 300px, 180px 180px, 340px 340px;
+    background-repeat: repeat;
+  }
+  /* Transparent, so the starfield on body and the halo behind it both show
+     through everywhere the planet isn't drawn. */
+  #map { margin: 0; padding: 0; height: 100%; width: 100%; background: transparent; }
+  /*
+   * The atmosphere ring. A plain circle sitting BEHIND the map canvas, which is
+   * transparent outside the sphere — so only the part that extends past the
+   * planet's edge is visible, which is exactly the glow. Even all the way
+   * round, unlike MapLibre's own sun-lit atmosphere.
+   */
+  #glow {
+    position: absolute; left: 0; top: 0; border-radius: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    opacity: 0;
+    transition: opacity 200ms linear;
+    box-shadow:
+      0 0 0 1px rgba(120, 195, 255, 0.5),
+      0 0 18px 4px rgba(80, 170, 255, 0.75),
+      0 0 55px 16px rgba(45, 130, 245, 0.45),
+      0 0 120px 40px rgba(30, 100, 220, 0.25);
+  }
   /* The globe sits on deep space, like the profile screen it replaces. */
   .maplibregl-ctrl-attrib { font-size: 9px; opacity: 0.6; }
   .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { bottom: ${Math.round(bottomPadding)}px; }
@@ -79,6 +119,7 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
 </style>
 </head>
 <body>
+<div id="glow"></div>
 <div id="map"></div>
 <script src="${MAPLIBRE_JS}" integrity="${MAPLIBRE_JS_SRI}" crossorigin="anonymous"></script>
 <script>
@@ -137,6 +178,12 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
 
   map.on('load', function () {
     map.setProjection({ type: 'globe' });
+
+    // No setSky atmosphere here on purpose. MapLibre's atmosphere is lit from
+    // the sun position, so it brightens ONE limb of the planet and leaves the
+    // rest dark — not the even ring we want. The halo is drawn instead as a
+    // circle behind the (transparent-outside-the-sphere) canvas, tracked to the
+    // globe in positionGlow() below.
 
     var icon = planeIcon();
     if (!map.hasImage('plane')) {
@@ -211,14 +258,50 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
       // Markers default to 20% opacity when they are on the FAR side of the
       // globe, which reads as ghost photos floating in space. Hide them
       // outright: a stop you cannot see is a stop that is not there.
-      new maplibregl.Marker({ element: el, opacityWhenCovered: '0' })
+      //
+      // subpixelPositioning stops the wobble during a zoom: by default a marker
+      // is snapped to whole pixels every frame, so while the map scales
+      // continuously each one jumps a pixel back and forth against the imagery
+      // underneath. Positioning on fractions lets them track the map exactly.
+      new maplibregl.Marker({
+        element: el,
+        opacityWhenCovered: '0',
+        subpixelPositioning: true,
+      })
         .setLngLat(stop.position)
         .addTo(map);
     });
 
+    positionGlow();
+    map.on('move', positionGlow);
+    map.on('zoom', positionGlow);
+    map.on('resize', positionGlow);
+
     startDrift();
     post({ type: 'ready' });
   });
+
+  /**
+   * Sizes the halo to the planet and pins it to the planet's centre.
+   *
+   * In globe projection the sphere's on-screen diameter is the Mercator world
+   * width wrapped round a ball: worldSize / PI, where worldSize is
+   * 512 * 2^zoom. Verified against the rendered canvas rather than trusted.
+   *
+   * Fades out once the planet is bigger than the viewport — past that there is
+   * no visible limb to glow, and a huge off-screen ring is just wasted paint.
+   */
+  var glow = document.getElementById('glow');
+  function positionGlow() {
+    var diameter = (512 * Math.pow(2, map.getZoom())) / Math.PI;
+    var centre = map.project(map.getCenter());
+    glow.style.width = diameter + 'px';
+    glow.style.height = diameter + 'px';
+    glow.style.left = centre.x + 'px';
+    glow.style.top = centre.y + 'px';
+    var fits = diameter < Math.max(window.innerWidth, window.innerHeight) * 1.6;
+    glow.style.opacity = fits ? '1' : '0';
+  }
 
   /**
    * The slow idle drift the globe has when you open the page — one revolution
