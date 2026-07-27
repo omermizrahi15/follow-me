@@ -77,10 +77,13 @@ export class ExpoNotificationScheduler implements INotificationScheduler {
 
     // NOTE: the TS type (NotificationContentAttachmentIos) declares `url`/`type`,
     // but the native iOS module reads `uri`/`typeHint` (Records.swift), so the
-    // typed keys are silently dropped. Send the keys native actually reads.
+    // typed keys are silently dropped. Send the keys native actually reads —
+    // `typeHint` (a UTI) is required, or iOS can't validate the file and drops
+    // the attachment (no thumbnail). Our test files are downloaded as .jpg.
     const attachments = localAttachmentUris.map((uri, i) => ({
       identifier: `photo-${i}`,
       uri,
+      typeHint: 'public.jpeg',
       hideThumbnail: false,
     })) as unknown as Notifications.NotificationContentAttachmentIos[];
 
