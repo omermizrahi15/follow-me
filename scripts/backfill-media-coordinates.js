@@ -11,42 +11,38 @@
  * no coordinate, in two passes:
  *   1. exact — the row's own candidate_photos entry (same asset id), which is
  *      the real GPS fix and is preferred whenever it survived retention;
- *   2. geocoded — forward-geocode the label to a city centre via MapTiler.
+ *   2. geocoded — forward-geocode the label to a place centre via Nominatim.
  *      City-level accuracy, which is all a route map needs for old posts.
  *
- * Labels are looked up once and cached, so N posts in one city cost one
- * request — a backfill is a handful of calls, not a dent in the quota.
+ * Geocoding is keyless on purpose. MapTiler — whose key we already hold, for
+ * map tiles — can do this too, but it bills per request and would buy nothing:
+ * no existing code goes away, since live reverse geocoding stays on
+ * BigDataCloud regardless. Nominatim is also better behaved for a backfill: it
+ * returns NO match for a label it cannot place, whereas MapTiler always
+ * answers ("Not A Real Place" came back as an Australian street address). A
+ * label that does not resolve simply stays off the map.
  *
- * Only the one-off FORWARD lookup uses MapTiler. Live reverse geocoding stays
- * on BigDataCloud (src/infrastructure/geocoding, supabase/functions/_shared):
- * it is keyless and unmetered, whereas MapTiler bills per request and every
- * map tile the globe loads already draws on that same quota.
+ * Labels are looked up once and cached, so N posts in one city cost one
+ * request. Nominatim's usage policy caps us at 1 req/s — respected below.
  *
  * Usage (defaults to a dry run; nothing is written without --apply):
- *   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... EXPO_PUBLIC_MAPTILER_KEY=... \
- *     node scripts/backfill-media-coordinates.js
- *   …same, plus --apply, to actually write.
+ *   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backfill-media-coordinates.js
+ *   SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... node scripts/backfill-media-coordinates.js --apply
  */
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
-const MAPTILER_KEY = process.env.EXPO_PUBLIC_MAPTILER_KEY ?? process.env.MAPTILER_KEY;
 const APPLY = process.argv.includes('--apply');
 
 if (!SUPABASE_URL || !SERVICE_KEY) {
   console.error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required');
   process.exit(1);
 }
-if (!MAPTILER_KEY) {
-  console.error('EXPO_PUBLIC_MAPTILER_KEY is required to geocode place labels');
-  process.exit(1);
-}
 
-const MAPTILER_GEOCODE = 'https://api.maptiler.com/geocoding';
-/** Courtesy pacing — the backfill is not in a hurry and the quota is shared. */
-const RATE_LIMIT_MS = 200;
-/** Below this, the "match" is the geocoder guessing. See geocode() for why. */
-const MIN_RELEVANCE = 0.9;
+const NOMINATIM = 'https://nominatim.openstreetmap.org/search';
+// Nominatim requires an identifying User-Agent and at most one request/second.
+const USER_AGENT = 'follow-me-backfill/1.0 (https://github.com/omermizrahi15/follow-me)';
+const RATE_LIMIT_MS = 1100;
 
 /** Same rejection rules as domain/services/coordinate.ts — keep them in step. */
 function validCoordinate(latitude, longitude) {
@@ -78,29 +74,18 @@ const geocodeCache = new Map();
 
 async function geocode(label) {
   if (geocodeCache.has(label)) return geocodeCache.get(label);
-  // `types=municipality` keeps the answer at city granularity. Without it
-  // MapTiler happily resolves to a street address, which is both wrong for a
-  // route map and more precise than a years-old post should imply.
-  const url =
-    `${MAPTILER_GEOCODE}/${encodeURIComponent(label)}.json` +
-    `?key=${encodeURIComponent(MAPTILER_KEY)}&limit=1&types=municipality&language=en`;
+  const url = `${NOMINATIM}?q=${encodeURIComponent(label)}&format=json&limit=1`;
   let coordinate = null;
   try {
-    const res = await fetch(url);
+    const res = await fetch(url, { headers: { 'User-Agent': USER_AGENT } });
     if (res.ok) {
-      const body = await res.json();
-      const hit = body?.features?.[0];
-      // MapTiler always answers, however weak the match: "Not A Real Place"
-      // comes back as "Real, Philippines" with relevance 0.37, and a post
-      // pinned to the wrong continent is worse than a post left off the map.
-      // Real city labels score 1.0; junk scores at or below 0.5.
-      if (hit != null && (hit.relevance ?? 0) >= MIN_RELEVANCE) {
-        // `center` is [longitude, latitude] — GeoJSON order, not lat/lon.
-        const center = hit.center;
-        if (Array.isArray(center)) coordinate = validCoordinate(center[1], center[0]);
-      } else if (hit != null) {
-        console.warn(`  geocode "${label}" → rejected weak match "${hit.place_name}" (relevance ${hit.relevance})`);
-      }
+      const hits = await res.json();
+      const hit = Array.isArray(hits) ? hits[0] : null;
+      // No result means "I cannot place this", not "here is my best guess" —
+      // so an unrecognised label needs no relevance threshold, it just stays
+      // off the map. Note lat/lon come back as STRINGS; validCoordinate
+      // coerces, the same reason it exists for iOS media-library locations.
+      if (hit != null) coordinate = validCoordinate(hit.lat, hit.lon);
     } else {
       console.warn(`  geocode "${label}" → HTTP ${res.status}`);
     }
