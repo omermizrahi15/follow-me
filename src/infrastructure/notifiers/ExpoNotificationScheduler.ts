@@ -60,26 +60,37 @@ export class ExpoNotificationScheduler implements INotificationScheduler {
 
   /**
    * DEV ONLY — fires the reminder notification after `seconds` seconds.
-   * Pass `localAttachmentUris` (file:// paths) to show photos in the notification.
-   * Multiple URIs produce a scrollable filmstrip in the expanded view.
+   * Pass `localAttachmentUris` (file:// paths) for the collapsed thumbnail, and
+   * `galleryUrls` (https) so the NotificationContentExtension can render the same
+   * expandable gallery the real server push shows. `place` titles it with a
+   * location, mirroring the autonomous push (issue #23).
    */
-  async scheduleTestIn(seconds: number, localAttachmentUris: string[] = []): Promise<void> {
+  async scheduleTestIn(
+    seconds: number,
+    localAttachmentUris: string[] = [],
+    galleryUrls: string[] = [],
+    place?: string | null,
+  ): Promise<void> {
     const granted = await this.ensurePermission();
     if (!granted) throw new Error('Notification permission not granted');
     await this.cancelReminder();
 
     // NOTE: the TS type (NotificationContentAttachmentIos) declares `url`/`type`,
     // but the native iOS module reads `uri`/`typeHint` (Records.swift), so the
-    // typed keys are silently dropped. Send the keys native actually reads.
+    // typed keys are silently dropped. Send the keys native actually reads —
+    // `typeHint` (a UTI) is required, or iOS can't validate the file and drops
+    // the attachment (no thumbnail). Our test files are downloaded as .jpg.
     const attachments = localAttachmentUris.map((uri, i) => ({
       identifier: `photo-${i}`,
       uri,
+      typeHint: 'public.jpeg',
       hideThumbnail: false,
     })) as unknown as Notifications.NotificationContentAttachmentIos[];
 
     const photoCount = attachments.length;
+    const where = place != null && place.trim() !== '' ? ` from ${place.trim()}` : '';
     const title = photoCount > 0
-      ? `${photoCount} photo${photoCount === 1 ? '' : 's'} ready to post 📸`
+      ? `${photoCount} photo${photoCount === 1 ? '' : 's'}${where} ready to post 📸`
       : '[DEV] Ready for your next post?';
     const body = "We've pre-selected your best recent shots — tap to review.";
 
@@ -91,7 +102,10 @@ export class ExpoNotificationScheduler implements INotificationScheduler {
         categoryIdentifier: POST_REVIEW_CATEGORY,
         interruptionLevel: 'timeSensitive',
         attachments,
-        data: { screen: REMINDER_TARGET_SCREEN },
+        // `gallery` feeds the content extension's grid; `imageUrl` mirrors the
+        // server push (the service extension's thumbnail source) — same keys the
+        // real auto-post payload carries.
+        data: { screen: REMINDER_TARGET_SCREEN, gallery: galleryUrls, imageUrl: galleryUrls[0] ?? null },
       },
       trigger: {
         type: SchedulableTriggerInputTypes.TIME_INTERVAL,

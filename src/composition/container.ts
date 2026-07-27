@@ -134,8 +134,12 @@ export const registerPushToken = monitored('register_push_token', (): Promise<st
 export const deviceTimezone = (): string => Intl.DateTimeFormat().resolvedOptions().timeZone;
 
 /** DEV ONLY — schedule the approval-flow reminder to fire in `seconds` seconds. */
-export const scheduleTestNotification = (seconds: number, localAttachmentUris: string[] = []): Promise<void> =>
-  notificationScheduler.scheduleTestIn(seconds, localAttachmentUris);
+export const scheduleTestNotification = (
+  seconds: number,
+  localAttachmentUris: string[] = [],
+  galleryUrls: string[] = [],
+  place?: string | null,
+): Promise<void> => notificationScheduler.scheduleTestIn(seconds, localAttachmentUris, galleryUrls, place);
 
 /** DEV ONLY — recent cloud-synced photo URLs (Cloudinary) for notification tests. */
 export const recentCandidateUrls = (publisherId: string, limit: number): Promise<string[]> =>

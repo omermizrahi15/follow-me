@@ -64,6 +64,19 @@ type OrderedCategory = { cat: PhotoCategory; enabled: boolean };
 /** Row height in the category list — must match catRow style. */
 const ITEM_H = 48;
 
+// DEV-only fallback for the ⚡ test buttons: when the publisher has no synced or
+// cached photos (fresh install, empty cloud, simulator), these public sample
+// images + place let the test notification still exercise the full rich push —
+// collapsed thumbnail, expandable gallery, and a location in the title.
+const SAMPLE_GALLERY = [
+  'https://picsum.photos/seed/followme1/800/800',
+  'https://picsum.photos/seed/followme2/800/800',
+  'https://picsum.photos/seed/followme3/800/800',
+  'https://picsum.photos/seed/followme4/800/800',
+  'https://picsum.photos/seed/followme5/800/800',
+];
+const SAMPLE_PLACE = 'Tel Aviv, Israel';
+
 function buildOrderedList(enabledInOrder: PhotoCategory[]): OrderedCategory[] {
   const enabledSet = new Set(enabledInOrder);
   return [
@@ -88,6 +101,10 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
   const [testScheduling, setTestScheduling] = useState(false);
   const [testScheduledAt, setTestScheduledAt] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  // Whether the publisher has any photos in the cloud — gates the "Remove my
+  // photos from the cloud" affordance so it only shows when there's something to
+  // remove (otherwise it lingered permanently, even with an empty cloud).
+  const [hasCloudPhotos, setHasCloudPhotos] = useState(false);
 
   // Drag state
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -201,6 +218,18 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
     });
   }
 
+  // Refresh whether the cloud holds any of this publisher's photos (one row is
+  // enough to know). Best-effort: on a network/lookup failure, hide the removal
+  // affordance rather than show it with nothing behind it.
+  const refreshHasCloudPhotos = React.useCallback(async (): Promise<void> => {
+    try {
+      const urls = await recentCandidateUrls(publisherId, 1);
+      setHasCloudPhotos(urls.length > 0);
+    } catch {
+      setHasCloudPhotos(false);
+    }
+  }, [publisherId]);
+
   useEffect(() => {
     void loadConfig.execute(publisherId).then(config => {
       setFrequency(config.frequency);
@@ -212,7 +241,8 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       setPushToken(config.expoPushToken);
       setIsLoading(false);
     });
-  }, [publisherId]);
+    void refreshHasCloudPhotos();
+  }, [publisherId, refreshHasCloudPhotos]);
 
   function buildCurrentConfig(token: string): PublisherConfig {
     const enabledCategories = orderedCats.filter(c => c.enabled).map(c => c.cat);
@@ -245,6 +275,8 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           // pause so this sync (and future foreground syncs) run again.
           await resumePhotoSync();
           await syncCandidatePhotos.execute(publisherId, config.lookbackDays).catch(() => undefined);
+          // Re-uploading may have re-populated the cloud — refresh the removal affordance.
+          void refreshHasCloudPhotos();
         }
         if (token !== '') {
           // Server owns the reminder — cancel the local one to avoid double-notifying.
@@ -282,6 +314,9 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
 
       const want = config.photosPerPost > 0 ? config.photosPerPost : 5;
       const localUris: string[] = [];
+      // Remote (https) source URLs — passed as `gallery` so the notification
+      // content extension renders the same expandable grid as the real push.
+      const galleryUrls: string[] = [];
       log.push(`want: ${want} photos`);
 
       // 1. Try to download cached batch photos (from previous preview / server push).
@@ -293,6 +328,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       } else {
         const remote = cached.batch.filter(p => p.url.startsWith('http'));
         log.push(`cache: ${cached.batch.length} photos (${remote.length} remote, ${cached.batch.length - remote.length} local skipped)`);
+        galleryUrls.push(...remote.slice(0, want).map(p => p.url));
         const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
         const downloads = await Promise.allSettled(
           remote.slice(0, want).map(async (photo, i) => {
@@ -334,6 +370,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
             urls = await recentCandidateUrls(publisherId, want - localUris.length);
             log.push(`candidate urls now: ${urls.length}`);
           }
+          galleryUrls.push(...urls);
           const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
           const downloads = await Promise.allSettled(
             urls.map(async (url, i) => {
@@ -351,10 +388,28 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         }
       }
 
-      log.push(`total attached: ${localUris.length}`);
+      // No real photos available (empty cloud / fresh install / simulator) — fall
+      // back to built-in samples so the test still shows the full rich push.
+      let place: string | null = null;
+      if (galleryUrls.length === 0) {
+        log.push('no photos available — using sample gallery + place');
+        galleryUrls.push(...SAMPLE_GALLERY);
+        place = SAMPLE_PLACE;
+        const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
+        const dl = await Promise.allSettled(
+          SAMPLE_GALLERY.slice(0, 3).map(async (url, i) => {
+            const r = await FileSystem.downloadAsync(url, `${dir}sample-notif-${i}.jpg`);
+            return r.status === 200 ? r.uri : null;
+          }),
+        );
+        for (const r of dl) if (r.status === 'fulfilled' && r.value != null) localUris.push(r.value);
+        log.push(`sample thumbnails downloaded: ${localUris.length}`);
+      }
+
+      log.push(`total attached: ${localUris.length}, gallery urls: ${galleryUrls.length}`);
       if (localUris[0]) log.push(`first URI: ${localUris[0].slice(0, 60)}`);
 
-      await scheduleTestNotification(seconds, localUris);
+      await scheduleTestNotification(seconds, localUris, galleryUrls, place);
       setTestScheduledAt(seconds >= 60 ? new Date(Date.now() + seconds * 1000) : null);
       console.log(`[DEV] ⚡ ${seconds}s notification\n${log.join('\n')}`);
     } catch (e) {
@@ -382,6 +437,8 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
                 // silently re-upload what we just deleted — it stays gone until
                 // the user opts back in by saving (matches the dialog copy).
                 await pausePhotoSync();
+                // Cloud is now empty — hide the removal affordance until a re-sync.
+                setHasCloudPhotos(false);
                 Alert.alert('Deleted', `${deletedRows} uploaded photo${deletedRows === 1 ? '' : 's'} removed.`);
               } catch (e) {
                 Alert.alert('Delete failed', e instanceof Error ? e.message : 'Something went wrong');
@@ -559,17 +616,20 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         />
       </View>
 
-      {/* Privacy: user-initiated wipe of the cloud photo pool. */}
-      <View style={styles.deleteUploadedBlock}>
-        <TouchableOpacity testID="auto-remove-cloud-photos" onPress={handleDeleteUploaded} hitSlop={8}>
-          <Text style={styles.deleteUploadedLink}>Remove my photos from the cloud</Text>
-        </TouchableOpacity>
-        <Text style={styles.deleteUploadedHint}>
-          Auto-posting keeps private copies of your recent photos in the cloud so it can post while
-          the app is closed. This deletes those copies — photos on your phone and posts already sent
-          are not affected.
-        </Text>
-      </View>
+      {/* Privacy: user-initiated wipe of the cloud photo pool. Only shown when
+          there's actually something in the cloud to remove. */}
+      {hasCloudPhotos && (
+        <View style={styles.deleteUploadedBlock}>
+          <TouchableOpacity testID="auto-remove-cloud-photos" onPress={handleDeleteUploaded} hitSlop={8}>
+            <Text style={styles.deleteUploadedLink}>Remove my photos from the cloud</Text>
+          </TouchableOpacity>
+          <Text style={styles.deleteUploadedHint}>
+            Auto-posting keeps private copies of your recent photos in the cloud so it can post while
+            the app is closed. This deletes those copies — photos on your phone and posts already sent
+            are not affected.
+          </Text>
+        </View>
+      )}
 
       <TouchableOpacity
         testID="auto-save"
