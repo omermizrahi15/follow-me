@@ -32,7 +32,7 @@ export function SettingsScreen(): React.JSX.Element {
             </View>
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>Edit profile</Text>
-              <Text style={styles.rowValue}>Name, photo and bio</Text>
+              <Text style={styles.rowValue}>Name and photo</Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </TouchableOpacity>

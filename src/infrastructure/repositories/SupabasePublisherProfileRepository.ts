@@ -6,9 +6,9 @@ interface Database {
   public: {
     Tables: {
       publisher_profile: {
-        Row: { publisher_id: string; display_name: string; bio: string | null; avatar_url: string | null };
-        Insert: { publisher_id: string; display_name: string; bio: string | null; avatar_url: string | null };
-        Update: { publisher_id?: string; display_name?: string; bio?: string | null; avatar_url?: string | null };
+        Row: { publisher_id: string; display_name: string; avatar_url: string | null };
+        Insert: { publisher_id: string; display_name: string; avatar_url: string | null };
+        Update: { publisher_id?: string; display_name?: string; avatar_url?: string | null };
         Relationships: [];
       };
     };
@@ -25,7 +25,6 @@ function rowToProfile(row: ProfileRow): PublisherProfile {
   return PublisherProfile.create({
     publisherId: row.publisher_id,
     displayName: row.display_name,
-    bio: row.bio,
     avatarUrl: row.avatar_url,
   });
 }
@@ -41,7 +40,6 @@ export class SupabasePublisherProfileRepository implements IPublisherProfileRepo
     const { error } = await this.client.from('publisher_profile').upsert({
       publisher_id: profile.publisherId,
       display_name: profile.displayName,
-      bio: profile.bio,
       avatar_url: profile.avatarUrl,
     });
     if (error != null) throw new Error(error.message);

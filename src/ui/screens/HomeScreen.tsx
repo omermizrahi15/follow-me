@@ -56,15 +56,12 @@ export function HomeScreen(): React.JSX.Element {
   const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
   const { postings, loading: feedLoading, reload: reloadFeed } = useFeed(publisherId);
   const [section, setSection] = useState<HomeSection>('me');
-  const [bioExpanded, setBioExpanded] = useState(false);
   const [showingSuggestions, setShowingSuggestions] = useState(false);
   const [suggestionKey, setSuggestionKey] = useState(0);
 
-  // Real profile when set up; gracefully fall back when name/photo/bio are missing.
+  // Real profile when set up; gracefully fall back when name/photo are missing.
   const displayName = profile?.displayName ?? 'Your name';
-  const bio = profile?.bio ?? null;
   const avatarUrl = profile?.avatarUrl ?? null;
-  const bioIsLong = (bio?.length ?? 0) > 70;
 
   const heightAnim = useRef(new Animated.Value(MEDIUM_H)).current;
   const heightRef = useRef(MEDIUM_H);
@@ -228,65 +225,41 @@ export function HomeScreen(): React.JSX.Element {
                 )
               }
               ListHeaderComponent={
-                <>
-                  <View style={styles.profile}>
-                    <View style={styles.avatar}>
-                      {avatarUrl != null ? (
-                        <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-                      ) : (
-                        <Ionicons name="camera" size={26} color={colors.accent} />
-                      )}
-                    </View>
-                    <View style={styles.profileText}>
-                      <Text testID="home-profile-name" style={styles.name} numberOfLines={1}>{displayName}</Text>
-                      {bio != null && (
-                        <Text style={styles.bio} numberOfLines={bioExpanded ? undefined : 2}>
-                          {bio}
+                <View style={styles.profile}>
+                  <View style={styles.avatar}>
+                    {avatarUrl != null ? (
+                      <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                    ) : (
+                      <Ionicons name="camera" size={26} color={colors.accent} />
+                    )}
+                  </View>
+                  {/* Name on top, then the followers count and both actions on
+                      a single line beside the photo. */}
+                  <View style={styles.profileText}>
+                    <Text testID="home-profile-name" style={styles.name} numberOfLines={1}>{displayName}</Text>
+                    <View style={styles.metaRow}>
+                      <View style={styles.statCol}>
+                        <Text style={styles.statNumber}>{followersLoading ? '—' : subscribers.length}</Text>
+                        <Text style={styles.statLabel}>
+                          {subscribers.length === 1 ? 'Follower' : 'Followers'}
                         </Text>
-                      )}
-                      {bio != null && bioIsLong && (
-                        <TouchableOpacity
-                          style={styles.seeMore}
-                          onPress={() => setBioExpanded(v => !v)}
-                          hitSlop={6}
-                        >
-                          <Text style={styles.seeMoreText}>{bioExpanded ? 'See less' : 'See more'}</Text>
-                          <Ionicons
-                            name={bioExpanded ? 'chevron-up' : 'chevron-down'}
-                            size={14}
-                            color={colors.accent}
-                          />
-                        </TouchableOpacity>
-                      )}
+                      </View>
+                      <TouchableOpacity
+                        testID="home-add-post"
+                        style={styles.addButton}
+                        activeOpacity={0.85}
+                        onPress={() => navigation.navigate('Upload')}
+                      >
+                        <Ionicons name="add" size={16} color="#fff" />
+                        <Text style={styles.addButtonText} numberOfLines={1}>Add post</Text>
+                      </TouchableOpacity>
+                      <TouchableOpacity testID="home-invite" style={styles.inviteButton} activeOpacity={0.85} onPress={shareInvite}>
+                        <Ionicons name="person-add-outline" size={15} color={colors.ink} />
+                        <Text style={styles.inviteButtonText} numberOfLines={1}>Invite</Text>
+                      </TouchableOpacity>
                     </View>
                   </View>
-
-                  <View style={styles.stats}>
-                    <View style={styles.statCol}>
-                      <Text style={styles.statNumber}>{followersLoading ? '—' : subscribers.length}</Text>
-                      <Text style={styles.statLabel}>
-                        {subscribers.length === 1 ? 'Follower' : 'Followers'}
-                      </Text>
-                    </View>
-                  </View>
-
-                  <View style={styles.actions}>
-                    <TouchableOpacity
-                      testID="home-add-post"
-                      style={styles.addButton}
-                      activeOpacity={0.85}
-                      onPress={() => navigation.navigate('Upload')}
-                    >
-                      <Ionicons name="add" size={16} color="#fff" />
-                      <Text style={styles.addButtonText}>Add post</Text>
-                    </TouchableOpacity>
-                    <TouchableOpacity testID="home-invite" style={styles.inviteButton} activeOpacity={0.85} onPress={shareInvite}>
-                      <Ionicons name="person-add-outline" size={15} color={colors.ink} />
-                      <Text style={styles.inviteButtonText}>Invite</Text>
-                    </TouchableOpacity>
-                  </View>
-
-                </>
+                </View>
               }
             />
           )}
@@ -360,10 +333,17 @@ const styles = StyleSheet.create({
   handle: { width: 40, height: 5, borderRadius: radius.pill, backgroundColor: colors.border },
   sheetBody: { flex: 1 },
   meContent: { paddingHorizontal: spacing.xl },
-  profile: { flexDirection: 'row', alignItems: 'flex-start', gap: spacing.lg },
+  profile: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    // Separates the profile block from the post cards below, which are a
+    // different kind of thing — without it they read as one block.
+    marginBottom: spacing.xxl,
+  },
   avatar: {
-    width: 72,
-    height: 72,
+    width: 64,
+    height: 64,
     borderRadius: radius.pill,
     backgroundColor: colors.accentSoft,
     borderWidth: 2,
@@ -375,21 +355,12 @@ const styles = StyleSheet.create({
   avatarImage: { width: '100%', height: '100%' },
   profileText: { flex: 1 },
   name: { ...typography.heading, fontSize: 17, color: colors.text, marginBottom: 1 },
-  bio: { ...typography.caption, fontSize: 12, color: colors.textSecondary, lineHeight: 16 },
-  seeMore: { flexDirection: 'row', alignItems: 'center', gap: 2, marginTop: 3 },
-  seeMoreText: { ...typography.caption, fontSize: 12, fontWeight: '600', color: colors.accent },
-  stats: { flexDirection: 'row', alignItems: 'center', marginTop: spacing.lg, marginBottom: spacing.lg },
-  statCol: { flex: 1 },
-  statNumber: { ...typography.heading, fontSize: 19, color: colors.text },
-  statLabel: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-  actions: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.md,
-    // Separates the actions from the post cards below, which are a
-    // different kind of thing — without it they read as one block.
-    marginBottom: spacing.xxl,
-  },
+  // Followers count + both actions share one line, so the buttons stay compact
+  // and shrink rather than push the count off the row on narrow phones.
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+  statCol: { flexShrink: 0 },
+  statNumber: { ...typography.heading, fontSize: 17, color: colors.text },
+  statLabel: { ...typography.caption, fontSize: 11, color: colors.textSecondary, marginTop: -1 },
   addButton: {
     flex: 1,
     flexDirection: 'row',
@@ -398,6 +369,7 @@ const styles = StyleSheet.create({
     gap: spacing.xs,
     backgroundColor: colors.ink,
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
     borderRadius: radius.md,
   },
   addButtonText: { color: '#fff', fontWeight: '600', fontSize: 12 },
@@ -411,6 +383,7 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.border,
     paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.sm,
     borderRadius: radius.md,
   },
   inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 12 },

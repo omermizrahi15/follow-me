@@ -57,7 +57,7 @@ export function useInviteLink(): InviteLink {
       const message = buildInviteMessage(joinLink);
       // With a profile photo, share it alongside the message — WhatsApp sends
       // the photo with the invite text as its caption, so followers see who
-      // is inviting them. Just the photo; the bio stays out of the invite.
+      // is inviting them. Just the name and photo.
       const avatarUri = profile?.avatarUrl != null ? await downloadAvatar(profile.avatarUrl) : null;
       try {
         await Share.share(avatarUri != null ? { message, url: avatarUri } : { message });

@@ -43,7 +43,7 @@ A booted iOS simulator with the app installed is required (`xcrun simctl boot "i
 | `onboarding` | `smoke` | Fresh install → intro step → Get started → sign-in screen |
 | `sign-in` | `auth` | Phone + test OTP → lands on the Me page |
 | `navigation` | `auth` | Settings, Edit profile open, Upload modal, section nav |
-| `edit-profile` | `auth` | Edit name + bio → Save → new name shows on the Me page |
+| `edit-profile` | `auth` | Edit name → Save → new name shows on the Me page |
 | `add-post` | `auth` | Me → Add post → New-post modal + picker entry point → close |
 | `auto-posting` | `auth` | Configure frequency / reminder day+time / photos-per-post → Save |
 | `remove-cloud-photos` | `auth`, `quarantine` | "Remove my photos from the cloud" → confirm → warning clears (regression for [#58](https://github.com/omermizrahi15/follow-me/issues/58); quarantined until the fix lands) |
