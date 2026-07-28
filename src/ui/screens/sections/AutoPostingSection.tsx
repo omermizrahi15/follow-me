@@ -21,11 +21,13 @@ import {
   deviceTimezone,
   scheduleTestNotification,
   recentCandidateUrls,
+  candidateUrlsByAssetIds,
   deleteUploadedPhotos,
 } from '../../../composition/container';
 import { PublisherConfig, FREQUENCY_DAYS } from '../../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
 import { isWeekdayCadence } from '../../../domain/services/autoPostSchedule';
+import { assetIdsNeedingLookup, resolveChosenGalleryUrls } from '../../../domain/services/notificationGallery';
 import { confirmPhotoSync, pausePhotoSync, resumePhotoSync } from '../../data/photoSyncConsent';
 import { showDevTools } from '../../data/devTools';
 import { SELECTABLE_CATEGORIES } from '../../../domain/entities/PhotoClassification';
@@ -317,24 +319,42 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       // Remote (https) source URLs — passed as `gallery` so the notification
       // content extension renders the same expandable grid as the real push.
       const galleryUrls: string[] = [];
+      // Whether the notification shows the real selection — surfaced to the tester,
+      // because a test push quietly built from unrelated photos is worse than none.
+      let usedChosenBatch = false;
+      let missingFromBatch = 0;
       log.push(`want: ${want} photos`);
 
-      // 1. Try to download cached batch photos (from previous preview / server push).
-      // Only remote (https) URLs can be downloaded — old cache entries may hold
-      // local ph:// asset URIs that neither FileSystem nor notifications can read.
+      // 1. Show the photos the review screen actually chose. A device-scanned batch
+      // stores ph:// asset uris, which neither FileSystem nor the notification
+      // extensions can read — but the same photo's uploaded copy is in
+      // candidate_photos under the same asset id, so resolve it rather than
+      // discarding the choice and backfilling with unrelated photos (issue #85).
       const cached = await SuggestionCache.load(publisherId).catch(() => null);
       if (cached == null) {
         log.push('cache: empty');
       } else {
-        const remote = cached.batch.filter(p => p.url.startsWith('http'));
-        log.push(`cache: ${cached.batch.length} photos (${remote.length} remote, ${cached.batch.length - remote.length} local skipped)`);
-        galleryUrls.push(...remote.slice(0, want).map(p => p.url));
+        const needLookup = assetIdsNeedingLookup(cached.batch);
+        const cloudUrls = needLookup.length > 0
+          ? await candidateUrlsByAssetIds(publisherId, needLookup).catch((e: unknown) => {
+              log.push(`cloud lookup failed: ${e instanceof Error ? e.message : String(e)}`);
+              return new Map<string, string>();
+            })
+          : new Map<string, string>();
+        const resolved = resolveChosenGalleryUrls(cached.batch, cloudUrls, want);
+        log.push(
+          `cache: ${cached.batch.length} chosen, ${needLookup.length} needed lookup, ` +
+            `${resolved.urls.length} resolved, ${resolved.missing.length} not yet uploaded`,
+        );
+        usedChosenBatch = resolved.urls.length > 0;
+        missingFromBatch = resolved.missing.length;
+        galleryUrls.push(...resolved.urls);
         const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
         const downloads = await Promise.allSettled(
-          remote.slice(0, want).map(async (photo, i) => {
+          resolved.urls.map(async (url, i) => {
             const dest = `${dir}dev-notif-${i}.jpg`;
             try {
-              const dl = await FileSystem.downloadAsync(photo.url, dest);
+              const dl = await FileSystem.downloadAsync(url, dest);
               return dl.status === 200 ? dl.uri : null;
             } catch (e) {
               log.push(`dl[${i}] error: ${e instanceof Error ? e.message : String(e)}`);
@@ -350,12 +370,15 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         log.push(`cache downloaded: ${cacheHits}`);
       }
 
-      // 2. Fill remaining slots from cloud-synced candidate photos (Cloudinary).
-      // Local ph:// URIs from MediaLibrary can't be used — they need PHImageManager
-      // (native code only) — so remote copies are the only reliable source here.
-      if (localUris.length < want) {
+      // 2. Only when the chosen batch yielded nothing at all, fall back to recent
+      // cloud-synced candidates. This is NOT the chosen batch — it's unfiltered
+      // "most recently synced" — so it is surfaced to the tester below rather than
+      // silently passed off as the real selection. Gate on `galleryUrls`, not on
+      // download success: a failed thumbnail download still means we had the right
+      // photos, and mixing the two sources produced duplicate/foreign photos before.
+      if (galleryUrls.length === 0) {
         try {
-          let urls = await recentCandidateUrls(publisherId, want - localUris.length);
+          let urls = await recentCandidateUrls(publisherId, want);
           log.push(`candidate urls: ${urls.length}`);
           if (urls.length === 0) {
             // Nothing synced yet — run the sync now and surface any error
@@ -367,7 +390,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
             } catch (syncErr) {
               log.push(`sync FAILED: ${syncErr instanceof Error ? syncErr.message : String(syncErr)}`);
             }
-            urls = await recentCandidateUrls(publisherId, want - localUris.length);
+            urls = await recentCandidateUrls(publisherId, want);
             log.push(`candidate urls now: ${urls.length}`);
           }
           galleryUrls.push(...urls);
@@ -412,6 +435,23 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       await scheduleTestNotification(seconds, localUris, galleryUrls, place);
       setTestScheduledAt(seconds >= 60 ? new Date(Date.now() + seconds * 1000) : null);
       console.log(`[DEV] ⚡ ${seconds}s notification\n${log.join('\n')}`);
+
+      // Tell the tester what they're about to see. Without this, a push built from
+      // stand-in photos is indistinguishable from a correct one, which is how #85
+      // survived: the fallback only ever announced itself to the console.
+      if (!usedChosenBatch) {
+        Alert.alert(
+          'Test uses stand-in photos',
+          `No reviewed batch was available, so this notification shows ${
+            place != null ? 'built-in samples' : 'your most recently synced photos'
+          } — not an AI-picked selection. Open the review screen first to test the real batch.`,
+        );
+      } else if (missingFromBatch > 0) {
+        Alert.alert(
+          'Some chosen photos are missing',
+          `${missingFromBatch} of the reviewed photos haven't been uploaded to the cloud yet, so they can't appear in a notification. Showing the ${galleryUrls.length} that have.`,
+        );
+      }
     } catch (e) {
       log.push(`FATAL: ${e instanceof Error ? e.message : String(e)}`);
       console.warn(`[DEV] ⚡ error\n${log.join('\n')}`);
