@@ -21,6 +21,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { toFeedPosting, type FeedMedia, type FeedPosting } from '../data/feed';
 import { usePublisherId } from '../context/AuthContext';
+import { confirmMoveToTrash } from '../hooks/useTrash';
 import { listFeed } from '../../composition/container';
 import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
 import { colors, radius, spacing } from '../theme/theme';
@@ -40,6 +41,7 @@ const DISMISS_VELOCITY = 0.7;
 function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<RootNavigationProp>();
+  const publisherId = usePublisherId();
   const { width, height } = useWindowDimensions();
   const count = posting.media.length;
   const [index, setIndex] = useState(0);
@@ -177,14 +179,27 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
               {posting.date.toUpperCase()} · {index + 1}/{count}
             </Text>
           </View>
-          <TouchableOpacity
-            style={styles.closeButton}
-            accessibilityLabel="Close"
-            onPress={() => navigation.goBack()}
-            hitSlop={8}
-          >
-            <Ionicons name="close" size={20} color="#FFFFFF" />
-          </TouchableOpacity>
+          <View style={styles.actions}>
+            {/* Deleting from here rather than from the feed card: this is where
+                the publisher can actually see what they are removing. */}
+            <TouchableOpacity
+              testID="posting-delete"
+              style={styles.closeButton}
+              accessibilityLabel="Delete post"
+              onPress={() => confirmMoveToTrash(publisherId, posting, () => navigation.goBack())}
+              hitSlop={8}
+            >
+              <Ionicons name="trash-outline" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.closeButton}
+              accessibilityLabel="Close"
+              onPress={() => navigation.goBack()}
+              hitSlop={8}
+            >
+              <Ionicons name="close" size={20} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Animated.View>
@@ -287,6 +302,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   titles: { flex: 1 },
+  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   place: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', letterSpacing: -0.3 },
   meta: {
     color: 'rgba(255,255,255,0.75)',

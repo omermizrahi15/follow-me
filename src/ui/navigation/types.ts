@@ -10,6 +10,8 @@ export type RootStackParamList = {
   Settings: undefined;
   /** Edit the full publisher profile (name, photo), from Settings. */
   EditProfile: undefined;
+  /** Deleted posts, restorable one by one — from Settings. */
+  Trash: undefined;
   Upload: undefined;
   ReviewSuggestion: undefined;
   /**

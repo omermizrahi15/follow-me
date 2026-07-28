@@ -16,6 +16,7 @@ interface Database {
           location: string | null;
           latitude: number | null;
           longitude: number | null;
+          deleted_at: string | null;
         };
         Insert: {
           id: string;
@@ -26,6 +27,7 @@ interface Database {
           location?: string | null;
           latitude?: number | null;
           longitude?: number | null;
+          deleted_at?: string | null;
         };
         Update: {
           id?: string;
@@ -36,6 +38,7 @@ interface Database {
           location?: string | null;
           latitude?: number | null;
           longitude?: number | null;
+          deleted_at?: string | null;
         };
         Relationships: [];
       };
@@ -65,6 +68,7 @@ function rowToMedia(row: MediaRow): Media {
     ...(row.posting_id != null ? { postingId: row.posting_id } : {}),
     ...(row.location != null ? { location: row.location } : {}),
     ...(coordinate != null ? { coordinate } : {}),
+    ...(row.deleted_at != null ? { deletedAt: new Date(row.deleted_at) } : {}),
   });
 }
 
@@ -85,6 +89,7 @@ export class SupabaseMediaRepository implements IMediaRepository {
       location: media.location ?? null,
       latitude: media.coordinate?.latitude ?? null,
       longitude: media.coordinate?.longitude ?? null,
+      deleted_at: media.deletedAt?.toISOString() ?? null,
     });
     if (error != null) throw new Error(error.message);
   }
@@ -97,6 +102,16 @@ export class SupabaseMediaRepository implements IMediaRepository {
       .order('created_at', { ascending: false });
     if (error != null) throw new Error(error.message);
     return data.map(rowToMedia);
+  }
+
+  async setPostingDeleted(ownerId: string, postingId: string, deletedAt: Date | null): Promise<void> {
+    const { error } = await this.client
+      .from('media')
+      .update({ deleted_at: deletedAt?.toISOString() ?? null })
+      // Owner-scoped: a posting id alone must not be enough to touch a row.
+      .eq('owner_id', ownerId)
+      .eq('posting_id', postingId);
+    if (error != null) throw new Error(error.message);
   }
 
   async findById(id: string): Promise<Media | null> {

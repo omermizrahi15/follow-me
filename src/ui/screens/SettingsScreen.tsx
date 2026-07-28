@@ -9,7 +9,8 @@ import { colors, radius, spacing, typography } from '../theme/theme';
 
 /**
  * App settings, opened from the Me-page gear. Currently: profile editing,
- * account info + sign out. Fuller content (about, privacy, terms) in issue #35.
+ * account info, the deleted-posts trash + sign out. Fuller content (about,
+ * privacy, terms) in issue #35.
  */
 export function SettingsScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
@@ -46,6 +47,25 @@ export function SettingsScreen(): React.JSX.Element {
               <Text style={styles.rowValue}>{publisherPhone ?? 'Not available'}</Text>
             </View>
           </View>
+        </View>
+
+        <Text style={styles.sectionLabel}>Posts</Text>
+        <View style={styles.card}>
+          <TouchableOpacity
+            testID="settings-trash"
+            style={styles.row}
+            onPress={() => navigation.navigate('Trash')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.iconWrap}>
+              <Ionicons name="trash-outline" size={20} color={colors.accent} />
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Deleted posts</Text>
+              <Text style={styles.rowValue}>Restore a post you removed</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
         </View>
 
         <Text style={styles.sectionLabel}>About</Text>

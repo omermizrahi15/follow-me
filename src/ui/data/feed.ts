@@ -28,6 +28,8 @@ export interface FeedPosting {
   coordinate?: Coordinate;
   /** Cover image shown for the post (falls back to the first media). */
   coverUri?: string;
+  /** ISO timestamp of when it was moved to the trash; absent while it is live. */
+  deletedAt?: string;
   media: FeedMedia[];
 }
 
@@ -49,5 +51,6 @@ export function toFeedPosting(dto: FeedPostingDto): FeedPosting {
     media: dto.media.map(m => ({ id: m.id, uri: m.url })),
     ...(dto.location != null ? { place: dto.location } : {}),
     ...(dto.coordinate != null ? { coordinate: dto.coordinate } : {}),
+    ...(dto.deletedAt != null ? { deletedAt: dto.deletedAt } : {}),
   };
 }
