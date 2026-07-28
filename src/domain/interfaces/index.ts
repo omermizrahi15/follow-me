@@ -168,6 +168,12 @@ export interface ICandidatePhotoRepository {
   existingAssetIds(publisherId: string): Promise<Set<string>>;
   /** Most recently created candidate photo URLs (newest first). */
   recentUrls(publisherId: string, limit: number): Promise<string[]>;
+  /**
+   * Uploaded URL for each of `assetIds`, keyed by asset id. Ids without a cloud
+   * copy are absent from the map. Lets a caller holding a device-scanned batch
+   * (iOS `ph://` uris) recover the remote copies of *those same* photos.
+   */
+  urlsByAssetIds(publisherId: string, assetIds: string[]): Promise<Map<string, string>>;
 }
 
 /** Resolves a candidate to a uri the storage service can read (e.g. ph:// → file://). */

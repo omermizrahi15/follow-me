@@ -153,6 +153,16 @@ export const recentCandidateUrls = (publisherId: string, limit: number): Promise
   candidateRepo.recentUrls(publisherId, limit);
 
 /**
+ * Cloud copies of specific chosen photos, keyed by asset id (issue #85). Lets the
+ * test notification show the batch the review screen picked even when that batch
+ * came from a device scan and holds unusable `ph://` uris.
+ */
+export const candidateUrlsByAssetIds = (
+  publisherId: string,
+  assetIds: string[],
+): Promise<Map<string, string>> => candidateRepo.urlsByAssetIds(publisherId, assetIds);
+
+/**
  * Fetch a server-persisted approval batch by id (issue #71). The rich approval
  * push carries only a `batchId`; the app resolves the full batch/pool here to
  * populate the review screen without a device rescan.
