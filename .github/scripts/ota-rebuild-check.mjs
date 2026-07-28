@@ -16,7 +16,12 @@
 //                     from the checkout, which is the pre-merge "will this need
 //                     a rebuild?" question)
 //   AUTO_BUILD        '1' to start `eas build` when nothing can receive it
-//   MODE              'cd' (exit 1 when unreachable) | 'preflight' (never fails)
+//   MODE              'cd' (can exit 1) | 'preflight' (advisory, never fails)
+//   BUILD_WAIT_MINUTES  how long to wait for a started rebuild (default 25)
+//
+// Exit code is about you, not about state: red only when no build could be
+// started or the one that ran failed. An update whose binary is building, or
+// built and waiting to be installed, is green — the summary carries the QR.
 
 import { execSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
@@ -33,13 +38,35 @@ if (!CHANNEL || !PROFILE) {
 }
 
 // `eas --json` keeps stdout pure JSON and sends progress to stderr, so the
-// output can be parsed directly. maxBuffer is raised because a fingerprint
-// carries the full contents of every source it hashed.
+// output can be parsed directly. It is also the CLI's non-interactive switch, so
+// --non-interactive is redundant here — and `build:view` rejects that flag
+// outright, which would break the wait below. maxBuffer is raised because a
+// fingerprint carries the full contents of every source it hashed.
 const eas = (args) =>
-  JSON.parse(execSync(`eas ${args} --json --non-interactive`, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+  JSON.parse(execSync(`eas ${args} --json`, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
 
 // Builds that could still become compatible — no point starting a second one.
 const PENDING = new Set(['NEW', 'IN_QUEUE', 'IN_PROGRESS']);
+// ...and the states EAS is finished with, whatever the outcome.
+const TERMINAL = new Set(['FINISHED', 'ERRORED', 'CANCELED']);
+
+// Hold the job open until the rebuild lands, so its outcome — not its existence
+// — decides the colour of the run. An iOS build here runs ~6 minutes including
+// queue; the cap is generous, and outrunning it is reported, not failed.
+// Note this keeps the concurrency slot held for the duration: a merge arriving
+// while one waits will queue behind it, which is the intended ordering.
+const WAIT_MINUTES = Number(process.env.BUILD_WAIT_MINUTES ?? 25);
+const POLL_SECONDS = 30;
+const waitForBuild = async (id) => {
+  const deadline = Date.now() + WAIT_MINUTES * 60_000;
+  let build = eas(`build:view ${id}`);
+  while (!TERMINAL.has(build.status) && Date.now() < deadline) {
+    console.log(`waiting on build ${id.slice(0, 8)} — ${build.status}`);
+    await new Promise((resolve) => setTimeout(resolve, POLL_SECONDS * 1000));
+    build = eas(`build:view ${id}`);
+  }
+  return build;
+};
 
 // --build-profile is what makes this hash match EAS: it loads the profile's env
 // (eas.json + the server-side env vars), so APP_VARIANT and SENTRY_ORG are set
@@ -131,6 +158,7 @@ const scanLink = (url) => {
 // --- 4. render ---
 const out = [];
 const push = (...lines) => out.push(...lines);
+let failed = false; // set only where the job genuinely needs a human
 
 if (reachable.length) {
   push(`## ✅ OTA reachable — no rebuild needed`, '');
@@ -165,30 +193,49 @@ if (reachable.length) {
     push('');
   }
 
-  // --- 5. start the rebuild ---
-  if (pending.length) {
-    const b = pending[0];
+  // --- 5. start the rebuild, then see it through ---
+  // Red is reserved for "only you can fix this". A build that is merely still
+  // running is not that, so the job waits for the rebuild it just started rather
+  // than failing on a state it is in the middle of resolving. Green therefore
+  // means a binary carrying this update exists and only the install is left.
+  let inFlight = pending[0] ?? null;
+  if (inFlight) {
     push(`### 🏗 A matching build is already running`, '');
-    push(`[Build \`${b.id.slice(0, 8)}\`](${buildUrl(b)}) (${b.status}) is on this runtimeVersion — no new build started. Install it when it finishes and the OTA lands.`, '');
-    push(`### [📱 Scan to install on your phone →](${scanLink(buildUrl(b))})`, '');
+    push(`[Build \`${inFlight.id.slice(0, 8)}\`](${buildUrl(inFlight)}) is already on this runtimeVersion (${inFlight.status}) — no second one started.`, '');
   } else if (AUTO_BUILD && MODE === 'cd') {
     push(`### 🏗 Rebuild started automatically`, '');
     try {
       const started = eas(`build --platform ios --profile ${PROFILE} --message "auto: runtimeVersion ${runtimeVersion.slice(0, 12)} has no installed build"`);
-      const b = Array.isArray(started) ? started[0] : started;
-      const url = buildUrl(b);
-      push(`[Build \`${b.id.slice(0, 8)}\`](${url}) is queued on profile \`${PROFILE}\`.`, '');
-      push(`**You still have to install it** — internal distribution can't push a binary to your phone.`, '');
-      push(`### [📱 Scan to install on your phone →](${scanLink(url)})`, '');
-      push(`Opens a QR for this build. Point your camera at it, then tap **Install** once the build goes green.`, '');
+      inFlight = Array.isArray(started) ? started[0] : started;
+      push(`[Build \`${inFlight.id.slice(0, 8)}\`](${buildUrl(inFlight)}) is queued on profile \`${PROFILE}\`.`, '');
     } catch (err) {
+      failed = true; // nothing is coming unless you start it
       push(`Could not start the build automatically — run it yourself:`, '');
       push('```bash', `eas build --profile ${PROFILE} --platform ios`, '```', '');
       push(`<details><summary>error</summary>\n\n\`\`\`\n${err.message}\n\`\`\`\n\n</details>`, '');
     }
   } else {
+    failed = true; // production, or preflight: only you can start this one
     push(`### Rebuild and reinstall`, '');
     push('```bash', `eas build --profile ${PROFILE} --platform ios`, '```', '');
+  }
+
+  if (inFlight && MODE === 'cd') {
+    const final = await waitForBuild(inFlight.id);
+    const url = buildUrl(final) ?? buildUrl(inFlight);
+    if (final.status === 'FINISHED') {
+      push('', `### ✅ Binary ready — scan to install`, '');
+      push(`The rebuild finished, so a build carrying this update now exists and this job is green. The last step is the one CI can't do: internal distribution cannot push a binary to your phone.`, '');
+      push(`### [📱 Scan to install on your phone →](${scanLink(url)})`, '');
+    } else if (TERMINAL.has(final.status)) {
+      failed = true;
+      push('', `### ❌ The rebuild ${final.status.toLowerCase()}`, '');
+      push(`[Build \`${final.id.slice(0, 8)}\`](${url}) produced no binary, so nothing can receive this update. This one is on you.`, '');
+    } else {
+      push('', `### ⏳ Still building after ${WAIT_MINUTES} min`, '');
+      push(`[Build \`${final.id.slice(0, 8)}\`](${url}) is ${final.status} — it outran the wait, which is not a failure. Check on it, then install:`, '');
+      push(`### [📱 Scan to install on your phone →](${scanLink(url)})`, '');
+    }
   }
 }
 
@@ -197,10 +244,11 @@ console.log(report);
 if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, report + '\n');
 
 if (!reachable.length && process.env.GITHUB_ACTIONS) {
-  const msg = `runtimeVersion ${runtimeVersion} has no installed ${CHANNEL} build — this OTA reaches no device until you rebuild and reinstall.`;
-  console.log(MODE === 'cd' ? `::error title=Native rebuild required::${msg}` : `::warning title=Native rebuild will be required::${msg}`);
+  const msg = `runtimeVersion ${runtimeVersion} has no installed ${CHANNEL} build — this OTA reaches no device until the rebuild is installed.`;
+  console.log(failed ? `::error title=Native rebuild required::${msg}` : `::warning title=Install the rebuild::${msg}`);
 }
 
-// Red on main is the signal: the merge is not actually on your phone yet. In
-// preflight (PR) mode this is advisory only and never blocks the merge.
-process.exit(!reachable.length && MODE === 'cd' ? 1 : 0);
+// Red means the run needs you: no build could be started, or the one that was
+// failed. Needing to tap Install is not a failure — that run is green, with the
+// QR in its summary. Preflight (PR) mode is advisory and never blocks a merge.
+process.exit(failed && MODE === 'cd' ? 1 : 0);

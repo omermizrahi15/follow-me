@@ -6,9 +6,13 @@ name: CD · app (EAS OTA)
 #
 # Native/dependency changes can't ride an OTA. The last step asks EAS whether any
 # installed build actually shares this update's fingerprint runtimeVersion — if
-# none does, the update reached nobody, so the job goes RED (GitHub emails you)
-# and, on staging, a fresh `eas build` is started automatically. Installing the
-# resulting .ipa is still manual.
+# none does, the update reached nobody, so on staging a fresh `eas build` starts
+# automatically and the job waits for it, then links a QR to install it. The run
+# only goes RED when no build could be started or the one that ran failed;
+# "built, waiting for you to tap Install" is green.
+#
+# Runs are serialised by the concurrency group below, so merges deploy strictly
+# in order and never overlap — including while one is waiting on a rebuild.
 on:
   push:
     branches: [main]
