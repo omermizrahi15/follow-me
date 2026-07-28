@@ -80,6 +80,14 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
         setError('Please enter your name so followers recognise you.');
         return;
       }
+      // Required, not a nicety: this date is the baseline the app measures
+      // posting coverage against. Without it there is no way to tell a trip
+      // that is fully posted from one with months missing, so the History
+      // feature simply cannot be offered (issue #81).
+      if (tripStart == null) {
+        setError('Pick the day your travels started — we use it to spot the stretches you haven’t posted yet.');
+        return;
+      }
       setSaving(true);
       setError(null);
       try {
@@ -122,7 +130,8 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
         >
           <Text style={styles.title}>Set up your profile</Text>
           <Text style={styles.body}>
-            This is what your followers see. You can change it anytime.
+            This is what your followers see. Your name and travel start date are
+            needed to get going — everything here can be changed anytime.
           </Text>
 
           <View style={styles.avatarRow}>
@@ -164,10 +173,10 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
           />
           <Text style={styles.counter}>{bio.length}/{BIO_MAX}</Text>
 
-          <Text style={styles.label}>When did your travels start? (optional)</Text>
+          <Text style={styles.label}>When did your travels start?</Text>
           <Text style={styles.tripHint}>
-            Already on the road? This lets us spot the stretches you haven’t posted yet
-            and offer to rebuild them.
+            Already on the road? We’ll spot the stretches you haven’t posted yet and
+            offer to rebuild them.
           </Text>
           <CalendarPicker
             value={tripStart}
@@ -191,9 +200,6 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
             ) : (
               <Text style={styles.primaryText}>Continue</Text>
             )}
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onDone} hitSlop={8} disabled={saving}>
-            <Text style={styles.skip}>Skip for now</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -269,5 +275,4 @@ const styles = StyleSheet.create({
   },
   primaryText: { color: colors.onAccent, fontWeight: '600', fontSize: 15 },
   disabled: { opacity: 0.5 },
-  skip: { color: colors.textSecondary, fontSize: 14, textDecorationLine: 'underline' },
 });

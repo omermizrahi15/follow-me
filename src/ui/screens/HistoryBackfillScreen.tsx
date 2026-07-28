@@ -16,12 +16,10 @@ import type { RootNavigationProp } from '../navigation/types';
 import { usePublisherId } from '../context/AuthContext';
 import { useHistoryBackfill, describeWindow } from '../hooks/useHistoryBackfill';
 import { PlaceField } from '../components/PlaceField';
-import { CalendarPicker } from '../components/CalendarPicker';
 import type { ReviewablePosting } from '../hooks/useHistoryBackfill';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { planHistoryWindows } from '../../domain/services/historyWindows';
 import type { HistoryWindow } from '../../domain/services/historyWindows';
-import { startOfDay } from '../../domain/services/calendarMonth';
 import { FREQUENCY_DAYS } from '../../domain/entities/PublisherConfig';
 import type { Frequency } from '../../domain/entities/PublisherConfig';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
@@ -35,9 +33,6 @@ const CADENCES: { value: Frequency; label: string }[] = [
   { value: 'biweekly', label: '2 weeks' },
   { value: 'monthly', label: '30 days' },
 ];
-
-/** How far back the start picker reaches. */
-const YEARS_BACK = 5;
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
@@ -57,18 +52,11 @@ function SetupStep({ onStart, initialStartDate = null, gapCount = null, bottomIn
   bottomInset?: number;
 }): React.JSX.Element {
   const [cadence, setCadence] = useState<Frequency>('weekly');
-  // Prefilled from the trip start on the profile — the publisher already told
-  // us when they set off, so asking again would be busywork.
-  const [startDate, setStartDate] = useState<Date | null>(initialStartDate);
+  // Not editable here: the trip start is set once during onboarding, where it
+  // is required. Asking again would be a second source of truth for the one
+  // date the whole coverage calculation hangs on.
+  const startDate = initialStartDate;
   const keyboardPadding = useKeyboardBottomPadding();
-
-  // Pinned once per mount: "today" must not drift mid-session, or the plan
-  // preview would silently change under the publisher at midnight.
-  const today = useMemo(() => startOfDay(new Date()), []);
-  const earliest = useMemo(
-    () => new Date(today.getFullYear() - YEARS_BACK, today.getMonth(), today.getDate()),
-    [today],
-  );
 
   const intervalDays = FREQUENCY_DAYS[cadence];
 
@@ -113,22 +101,23 @@ function SetupStep({ onStart, initialStartDate = null, gapCount = null, bottomIn
       </View>
 
 
-      <View style={styles.startHeader}>
-        <Text style={styles.label}>When did your travels start?</Text>
-        {startDate != null && (
-          <Text style={styles.startValue} accessibilityLiveRegion="polite">
-            {fullDateLabel(startDate)}
+      {startDate != null ? (
+        <View style={styles.startRow}>
+          <Ionicons name="calendar-outline" size={18} color={colors.accent} />
+          <Text style={styles.startRowText}>
+            Your travels started <Text style={styles.startValue}>{fullDateLabel(startDate)}</Text>
           </Text>
-        )}
-      </View>
-
-
-      <CalendarPicker
-        value={startDate}
-        onChange={setStartDate}
-        minDate={earliest}
-        maxDate={today}
-      />
+        </View>
+      ) : (
+        // Only reachable if the profile predates the date being required.
+        <View style={styles.previewCard}>
+          <Ionicons name="alert-circle-outline" size={18} color={colors.accent} />
+          <Text style={styles.previewText}>
+            Add the day your travels started in Settings → Edit profile, and we can work
+            out what’s missing.
+          </Text>
+        </View>
+      )}
 
       {plan != null && (
         <View style={styles.previewCard}>
@@ -492,14 +481,17 @@ const styles = StyleSheet.create({
   label: { ...typography.heading, color: colors.text, marginTop: spacing.sm },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  startHeader: {
+  startRow: {
     flexDirection: 'row',
-    alignItems: 'baseline',
-    justifyContent: 'space-between',
+    alignItems: 'center',
     gap: spacing.sm,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    padding: spacing.md,
     marginTop: spacing.sm,
   },
-  startValue: { ...typography.body, fontWeight: '700', color: colors.accent },
+  startRowText: { ...typography.body, color: colors.text, flex: 1 },
+  startValue: { fontWeight: '700', color: colors.accent },
   chip: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
