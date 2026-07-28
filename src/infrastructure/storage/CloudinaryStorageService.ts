@@ -1,6 +1,6 @@
-import { Image } from 'react-native';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import type { IStorageService } from '../../domain/interfaces';
+import { imageWidth } from '../media/imageSize';
 
 /**
  * Photos are downscaled + re-encoded to JPEG before upload:
@@ -18,12 +18,6 @@ interface UploadableFile {
   uri: string;
   name: string;
   type: string;
-}
-
-function imageWidth(uri: string): Promise<number> {
-  return new Promise((resolve, reject) => {
-    Image.getSize(uri, width => resolve(width), reject);
-  });
 }
 
 export class CloudinaryStorageService implements IStorageService {

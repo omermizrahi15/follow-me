@@ -6,19 +6,11 @@ import type {
   ResolveLocalUri,
   ResolveAssetLocation,
 } from '../../domain/interfaces';
+import { mapInBatches, PHOTO_UPLOAD_BATCH_SIZE } from '../services/mapInBatches';
 
 const identityResolve: ResolveLocalUri = candidate => Promise.resolve(candidate.uri);
 /** Default: no GPS lookup (unit tests / environments without a media library). */
 const noLocation: ResolveAssetLocation = () => Promise.resolve(null);
-
-/**
- * Uploads run in small batches, never all at once: each upload decodes the
- * full-resolution photo into a native bitmap (tens of MB) to downscale it, so
- * unbounded concurrency over a first sync's whole lookback window spikes RAM
- * by gigabytes and the iOS watchdog kills the app at launch (staging crash,
- * WatchdogTermination in Sentry).
- */
-const UPLOAD_BATCH_SIZE = 3;
 
 /**
  * Filename for the uploaded copy. Library uris can be odd (ph:// handles,
@@ -47,7 +39,18 @@ export class SyncCandidatePhotosUseCase {
     private readonly resolveLocation: ResolveAssetLocation = noLocation,
   ) {}
 
-  async execute(publisherId: string, lookbackDays: number): Promise<CandidatePhoto[]> {
+  /**
+   * `shouldStop` is polled between batches so a sync that is already running
+   * can be abandoned. The caller uses it to honour a cloud-photo wipe: without
+   * it, the batches still in flight when the user hit "Remove my photos from
+   * the cloud" would commit their rows *after* the delete and quietly bring
+   * the cloud set back.
+   */
+  async execute(
+    publisherId: string,
+    lookbackDays: number,
+    shouldStop?: () => Promise<boolean>,
+  ): Promise<CandidatePhoto[]> {
     const candidates = await this.mediaLibrary.recentPhotos(lookbackDays);
     const existing = await this.candidateRepo.existingAssetIds(publisherId);
     const fresh = candidates.filter(c => !existing.has(c.id));
@@ -56,22 +59,22 @@ export class SyncCandidatePhotosUseCase {
     // Each batch is saved before the next starts, so an interrupted sync (app
     // backgrounded or killed) resumes where it left off instead of retrying —
     // and re-decoding — every photo on the next launch.
-    const rows: CandidatePhoto[] = [];
-    for (let i = 0; i < fresh.length; i += UPLOAD_BATCH_SIZE) {
-      const batch = await Promise.all(
-        fresh.slice(i, i + UPLOAD_BATCH_SIZE).map(async (c): Promise<CandidatePhoto> => {
-          const localUri = await this.resolveLocalUri(c);
-          const url = await this.storage.upload(localUri, deriveFilename(c.uri, c.id));
-          const location = c.location ?? (await this.resolveLocation(c));
-          const row: CandidatePhoto = { publisherId, assetId: c.id, url, createdAt: c.createdAt };
-          // Only set when present — exactOptionalPropertyTypes forbids `location: undefined`.
-          if (location != null) row.location = location;
-          return row;
-        }),
-      );
-      await this.candidateRepo.saveMany(batch);
-      rows.push(...batch);
-    }
-    return rows;
+    return mapInBatches(
+      fresh,
+      PHOTO_UPLOAD_BATCH_SIZE,
+      async (c): Promise<CandidatePhoto> => {
+        const localUri = await this.resolveLocalUri(c);
+        const url = await this.storage.upload(localUri, deriveFilename(c.uri, c.id));
+        const location = c.location ?? (await this.resolveLocation(c));
+        const row: CandidatePhoto = { publisherId, assetId: c.id, url, createdAt: c.createdAt };
+        // Only set when present — exactOptionalPropertyTypes forbids `location: undefined`.
+        if (location != null) row.location = location;
+        return row;
+      },
+      {
+        onBatch: batch => this.candidateRepo.saveMany(batch),
+        ...(shouldStop != null ? { shouldStop } : {}),
+      },
+    );
   }
 }

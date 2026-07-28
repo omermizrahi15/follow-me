@@ -16,8 +16,14 @@ export interface ApprovalBatchPhoto {
   createdAt: number;
 }
 
-/** Cap on gallery URLs embedded in the push — matches the content extension's grid cap. */
-export const PUSH_GALLERY_LIMIT = 9;
+/**
+ * Cap on gallery URLs embedded in the push. Must be >= the largest `photosPerPost`
+ * (15, see PublisherConfig.PhotoCount) or the expanded gallery silently shows fewer
+ * photos than the publisher configured — and must match `maxPhotos` in
+ * targets/notification-content/NotificationViewController.swift, which renders them.
+ * 15 URLs is ~1.5KB, still well inside the 4KB APNs budget the batchId indirection buys us.
+ */
+export const PUSH_GALLERY_LIMIT = 15;
 
 /**
  * Persist the batch + pool keyed by batchId. Throws on failure: unlike the

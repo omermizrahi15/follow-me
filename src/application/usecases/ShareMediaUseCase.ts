@@ -9,6 +9,7 @@ import type {
   IStorageService,
 } from '../../domain/interfaces';
 import { resolvePostingPlace } from '../services/resolvePostingPlace';
+import { mapInBatches, PHOTO_UPLOAD_BATCH_SIZE } from '../services/mapInBatches';
 import { MediaMapper } from '../mappers/MediaMapper';
 import type { MediaDto } from '../dtos';
 
@@ -65,16 +66,22 @@ export class ShareMediaUseCase {
     // The place lookup runs alongside the uploads — neither waits on the other.
     const [location, uploads] = await Promise.all([
       this.resolveLocation(input),
-      Promise.all(
-        input.items.map(async (item) => {
-          // Photos from the server-push cache are already hosted remotely — skip re-uploading.
-          const isRemote = item.localUri.startsWith('http://') || item.localUri.startsWith('https://');
-          const url = isRemote ? item.localUri : await this.storage.upload(item.localUri, item.filename);
-          uploaded++;
-          onProgress?.({ stage: 'uploading', done: uploaded, total: input.items.length });
-          return { item, url };
-        }),
-      ),
+      // A few at a time, never all at once: the picker lets the publisher select
+      // an unlimited number of photos, and each upload decodes a full-resolution
+      // bitmap to downscale it. Uploading a whole selection concurrently is what
+      // the iOS watchdog kills the app for (issue #77).
+      //
+      // Uploads within a batch finish in whatever order the network returns, so
+      // `done` counts completions, not positions — it rises monotonically to
+      // `total` but says nothing about which item just landed.
+      mapInBatches(input.items, PHOTO_UPLOAD_BATCH_SIZE, async (item) => {
+        // Photos from the server-push cache are already hosted remotely — skip re-uploading.
+        const isRemote = item.localUri.startsWith('http://') || item.localUri.startsWith('https://');
+        const url = isRemote ? item.localUri : await this.storage.upload(item.localUri, item.filename);
+        uploaded++;
+        onProgress?.({ stage: 'uploading', done: uploaded, total: input.items.length });
+        return { item, url };
+      }),
     ]);
 
     const mediaItems = uploads.map(({ item, url }) =>
