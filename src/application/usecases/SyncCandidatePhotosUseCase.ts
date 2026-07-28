@@ -39,7 +39,18 @@ export class SyncCandidatePhotosUseCase {
     private readonly resolveLocation: ResolveAssetLocation = noLocation,
   ) {}
 
-  async execute(publisherId: string, lookbackDays: number): Promise<CandidatePhoto[]> {
+  /**
+   * `shouldStop` is polled between batches so a sync that is already running
+   * can be abandoned. The caller uses it to honour a cloud-photo wipe: without
+   * it, the batches still in flight when the user hit "Remove my photos from
+   * the cloud" would commit their rows *after* the delete and quietly bring
+   * the cloud set back.
+   */
+  async execute(
+    publisherId: string,
+    lookbackDays: number,
+    shouldStop?: () => Promise<boolean>,
+  ): Promise<CandidatePhoto[]> {
     const candidates = await this.mediaLibrary.recentPhotos(lookbackDays);
     const existing = await this.candidateRepo.existingAssetIds(publisherId);
     const fresh = candidates.filter(c => !existing.has(c.id));
@@ -60,7 +71,10 @@ export class SyncCandidatePhotosUseCase {
         if (location != null) row.location = location;
         return row;
       },
-      batch => this.candidateRepo.saveMany(batch),
+      {
+        onBatch: batch => this.candidateRepo.saveMany(batch),
+        ...(shouldStop != null ? { shouldStop } : {}),
+      },
     );
   }
 }

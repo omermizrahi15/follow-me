@@ -109,6 +109,40 @@ describe('SyncCandidatePhotosUseCase', () => {
     expect((await repo.existingAssetIds('pub-1')).size).toBe(3);
   });
 
+  // The crash breadcrumbs for issue #77 show the user wiping their cloud photos
+  // while a sync was running. Without this the in-flight batches commit after
+  // the delete and the cloud set quietly comes back.
+  it('abandons an in-flight sync once the cloud is wiped', async () => {
+    const photos = Array.from({ length: 9 }, (_, i) => candidate(`p${i}`));
+    const library = new FakeMediaLibrary(photos);
+    const repo = new InMemoryCandidatePhotoRepository();
+    const storage = new FakeStorageService();
+
+    // The wipe lands after the first batch has been uploaded and saved.
+    let wiped = false;
+    const originalUpload = storage.upload.bind(storage);
+    storage.upload = async (localUri: string, filename: string): Promise<string> => {
+      const url = await originalUpload(localUri, filename);
+      if (storage.uploads.length >= 3) wiped = true;
+      return url;
+    };
+
+    const useCase = new SyncCandidatePhotosUseCase(library, storage, repo);
+    const rows = await useCase.execute('pub-1', 7, () => Promise.resolve(wiped));
+
+    expect(rows).toHaveLength(3);
+    expect(storage.uploads).toHaveLength(3);
+  });
+
+  it('syncs everything when nothing asks it to stop', async () => {
+    const photos = Array.from({ length: 9 }, (_, i) => candidate(`p${i}`));
+    const { useCase } = makeSut(photos);
+
+    const rows = await useCase.execute('pub-1', 7, () => Promise.resolve(false));
+
+    expect(rows).toHaveLength(9);
+  });
+
   it('resolves the upload uri (e.g. ph:// → file://) before uploading', async () => {
     const library = new FakeMediaLibrary([{ id: 'a', uri: 'ph://a', createdAt: new Date() }]);
     const storage = new FakeStorageService();

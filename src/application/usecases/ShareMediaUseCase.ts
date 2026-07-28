@@ -70,6 +70,10 @@ export class ShareMediaUseCase {
       // an unlimited number of photos, and each upload decodes a full-resolution
       // bitmap to downscale it. Uploading a whole selection concurrently is what
       // the iOS watchdog kills the app for (issue #77).
+      //
+      // Uploads within a batch finish in whatever order the network returns, so
+      // `done` counts completions, not positions — it rises monotonically to
+      // `total` but says nothing about which item just landed.
       mapInBatches(input.items, PHOTO_UPLOAD_BATCH_SIZE, async (item) => {
         // Photos from the server-push cache are already hosted remotely — skip re-uploading.
         const isRemote = item.localUri.startsWith('http://') || item.localUri.startsWith('https://');

@@ -266,12 +266,14 @@ async function main() {
   }
 
   let created = 0;
+  let refreshed = 0;
   for (const issue of watchdog) {
     const tracked = await findTracked(issue.id);
     if (tracked != null) {
       // Refreshing an existing issue is cheap and never spams, so it is not
       // subject to MAX_ISSUES_PER_RUN — that cap guards issue *creation*.
       await refreshTracked(issue, tracked);
+      refreshed += 1;
       continue;
     }
     if (created >= maxIssues) {
@@ -294,7 +296,12 @@ async function main() {
     created += 1;
   }
 
-  console.log(`Done. ${dryRun ? 'Would create' : 'Created'} ${created} issue(s).`);
+  // One search call per watchdog issue, so this count is also the run's GitHub
+  // search spend — worth watching if the watchdog family ever grows.
+  console.log(
+    `Done. ${dryRun ? 'Would create' : 'Created'} ${created} issue(s), ` +
+      `${refreshed} already tracked.`,
+  );
 }
 
 main().catch((err) => {
