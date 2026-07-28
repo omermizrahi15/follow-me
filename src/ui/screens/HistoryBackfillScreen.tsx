@@ -18,9 +18,11 @@ import type { RootNavigationProp } from '../navigation/types';
 import { usePublisherId } from '../context/AuthContext';
 import { useHistoryBackfill, describeWindow } from '../hooks/useHistoryBackfill';
 import { PlaceField } from '../components/PlaceField';
+import { CalendarPicker } from '../components/CalendarPicker';
 import type { ReviewablePosting } from '../hooks/useHistoryBackfill';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { planHistoryWindows } from '../../domain/services/historyWindows';
+import { startOfDay } from '../../domain/services/calendarMonth';
 import { FREQUENCY_DAYS } from '../../domain/entities/PublisherConfig';
 import type { Frequency } from '../../domain/entities/PublisherConfig';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
@@ -35,28 +37,22 @@ const CADENCES: { value: Frequency; label: string }[] = [
   { value: 'monthly', label: '30 days' },
 ];
 
-/** How many months back the start picker offers. */
-const MONTHS_BACK = 36;
+/** How far back the start picker reaches. */
+const YEARS_BACK = 5;
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 
-/**
- * Selectable start months, newest first. Month granularity is deliberate: it
- * needs no native date-picker dependency, and nobody remembers that their trip
- * began on the 14th — only which month they set off.
- */
-function startMonths(now: Date): Date[] {
-  const months: Date[] = [];
-  for (let i = 1; i <= MONTHS_BACK; i++) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    months.push(d);
-  }
-  return months;
+/** "14 Jun 2026" — the chosen start, echoed back in full. */
+function fullDateLabel(d: Date): string {
+  return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-function monthLabel(d: Date): string {
-  return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
-}
+/** Jump-to shortcuts, for the common "roughly N months ago" case. */
+const QUICK_STARTS: { label: string; monthsAgo: number }[] = [
+  { label: '3 months', monthsAgo: 3 },
+  { label: '6 months', monthsAgo: 6 },
+  { label: '1 year', monthsAgo: 12 },
+];
 
 // ---------- step 1: setup ----------
 
@@ -68,7 +64,13 @@ function SetupStep({ onStart }: {
   const [startDate, setStartDate] = useState<Date | null>(null);
   const keyboardPadding = useKeyboardBottomPadding();
 
-  const months = useMemo(() => startMonths(new Date()), []);
+  // Pinned once per mount: "today" must not drift mid-session, or the plan
+  // preview would silently change under the publisher at midnight.
+  const today = useMemo(() => startOfDay(new Date()), []);
+  const earliest = useMemo(
+    () => new Date(today.getFullYear() - YEARS_BACK, today.getMonth(), today.getDate()),
+    [today],
+  );
 
   const intervalDays = useMemo(() => {
     if (cadence !== 'other') return FREQUENCY_DAYS[cadence];
@@ -150,27 +152,45 @@ function SetupStep({ onStart }: {
         </View>
       )}
 
-      <Text style={styles.label}>When did your travels start?</Text>
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.monthRow}>
-        {months.map(m => {
-          const selected = startDate?.getTime() === m.getTime();
+      <View style={styles.startHeader}>
+        <Text style={styles.label}>When did your travels start?</Text>
+        {startDate != null && (
+          <Text style={styles.startValue} accessibilityLiveRegion="polite">
+            {fullDateLabel(startDate)}
+          </Text>
+        )}
+      </View>
+
+      {/* Shortcuts for the vague case; the calendar below is there for the
+          publisher who knows they flew out on the 14th. */}
+      <View style={styles.chipRow}>
+        {QUICK_STARTS.map(({ label, monthsAgo }) => {
+          const target = new Date(today.getFullYear(), today.getMonth() - monthsAgo, today.getDate());
+          const selected = startDate != null && startDate.getTime() === target.getTime();
           return (
             <TouchableOpacity
-              key={m.toISOString()}
-              testID={`backfill-month-${m.getFullYear()}-${m.getMonth() + 1}`}
+              key={label}
+              testID={`backfill-quick-${monthsAgo}`}
               style={[styles.chip, selected && styles.chipActive]}
-              onPress={() => setStartDate(m)}
+              onPress={() => setStartDate(target)}
               activeOpacity={0.7}
-              accessibilityRole="radio"
+              accessibilityRole="button"
               accessibilityState={{ selected }}
-              accessibilityLabel={monthLabel(m)}
-              accessibilityHint="Sets when your travels started"
+              accessibilityLabel={`${label} ago`}
+              accessibilityHint={`Starts your history on ${fullDateLabel(target)}`}
             >
-              <Text style={[styles.chipText, selected && styles.chipTextActive]}>{monthLabel(m)}</Text>
+              <Text style={[styles.chipText, selected && styles.chipTextActive]}>{label}</Text>
             </TouchableOpacity>
           );
         })}
-      </ScrollView>
+      </View>
+
+      <CalendarPicker
+        value={startDate}
+        onChange={setStartDate}
+        minDate={earliest}
+        maxDate={today}
+      />
 
       {plan != null && (
         <View style={styles.previewCard}>
@@ -500,7 +520,14 @@ const styles = StyleSheet.create({
   label: { ...typography.heading, color: colors.text, marginTop: spacing.sm },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm },
-  monthRow: { flexDirection: 'row', gap: spacing.sm, paddingRight: spacing.lg },
+  startHeader: {
+    flexDirection: 'row',
+    alignItems: 'baseline',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+    marginTop: spacing.sm,
+  },
+  startValue: { ...typography.body, fontWeight: '700', color: colors.accent },
   chip: {
     paddingHorizontal: spacing.md,
     paddingVertical: spacing.sm,
