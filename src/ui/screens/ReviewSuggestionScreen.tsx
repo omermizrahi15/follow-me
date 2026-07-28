@@ -10,8 +10,7 @@ import {
   SafeAreaView,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import type { RouteProp } from '@react-navigation/native';
-import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
+import type { RootNavigationProp } from '../navigation/types';
 import { useSuggestedPhotos } from '../hooks/useSuggestedPhotos';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
@@ -123,11 +122,9 @@ function PhotoCard({ c, onSwap }: {
 interface ContentProps {
   onBack: () => void;
   bottomInset?: number;
-  /** When true the batch is auto-posted as soon as it loads (from "Post now" notification action). */
-  autoConfirm?: boolean;
 }
 
-export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm = false }: ContentProps): React.JSX.Element {
+export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProps): React.JSX.Element {
   const publisherId = usePublisherId();
   const { phase, found, unique, classified, total, partial, batch, pool, photosPerPost, fromCache, error, reload } = useSuggestedPhotos(publisherId);
   const { share, loading: sharing, error: shareError, progress: shareProgress } = useShareMedia();
@@ -357,15 +354,6 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
     })();
   }, [kept, share, publisherId, place, placeLoading]);
 
-  // "Post now" notification action: auto-post as soon as the batch is ready.
-  const confirmedRef = useRef(false);
-  useEffect(() => {
-    if (autoConfirm && phase === 'done' && kept.length > 0 && !done && !confirmedRef.current) {
-      confirmedRef.current = true;
-      handleConfirm();
-    }
-  }, [autoConfirm, phase, kept.length, done, handleConfirm]);
-
   if (done) {
     return (
       <View style={[innerStyles.container, { paddingBottom: bottomInset }]}>
@@ -581,16 +569,12 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
 
 type Props = {
   navigation: RootNavigationProp;
-  route: RouteProp<RootStackParamList, 'ReviewSuggestion'>;
 };
 
-export function ReviewSuggestionScreen({ navigation, route }: Props): React.JSX.Element {
+export function ReviewSuggestionScreen({ navigation }: Props): React.JSX.Element {
   return (
     <SafeAreaView style={screenStyles.root}>
-      <ReviewSuggestionContent
-        onBack={() => navigation.goBack()}
-        autoConfirm={route.params?.autoConfirm ?? false}
-      />
+      <ReviewSuggestionContent onBack={() => navigation.goBack()} />
     </SafeAreaView>
   );
 }

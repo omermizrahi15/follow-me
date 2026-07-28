@@ -19,6 +19,33 @@ describe('resolveChosenGalleryUrls', () => {
     expect(result.missing).toEqual([]);
   });
 
+  it('carries the asset id alongside the resolved url, so the batch stays publishable', () => {
+    // Publishing keys the media row on the asset id, and the test push persists
+    // this batch server-side for its background "Post now" — a url on its own
+    // could be shown but not posted.
+    const result = resolveChosenGalleryUrls(
+      [photo('a', 'ph://asset-a'), photo('b', 'https://cdn/b.jpg')],
+      new Map([['a', 'https://cdn/a.jpg']]),
+      10,
+    );
+
+    expect(result.photos).toEqual([
+      { id: 'a', url: 'https://cdn/a.jpg' },
+      { id: 'b', url: 'https://cdn/b.jpg' },
+    ]);
+  });
+
+  it('leaves photos with no cloud copy out of the publishable set', () => {
+    const result = resolveChosenGalleryUrls(
+      [photo('a', 'ph://asset-a'), photo('b', 'ph://asset-b')],
+      new Map([['b', 'https://cdn/b.jpg']]),
+      10,
+    );
+
+    expect(result.photos).toEqual([{ id: 'b', url: 'https://cdn/b.jpg' }]);
+    expect(result.missing).toEqual(['a']);
+  });
+
   it('keeps the batch order, which is the order the review screen shows', () => {
     const batch = [photo('c', 'ph://c'), photo('a', 'ph://a'), photo('b', 'ph://b')];
     const cloud = new Map([

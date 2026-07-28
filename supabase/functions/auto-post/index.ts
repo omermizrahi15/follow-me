@@ -16,13 +16,8 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { selectBatch, type SharedClassification } from '../_shared/photoSelection.ts';
 import { isAutoPostDue } from '../_shared/autoPostSchedule.ts';
-import { credsFromEnv, sendBatch, sendWhatsApp, sendWhatsAppTemplate, TwilioSendError } from '../_shared/twilio.ts';
-import { logAcceptedSend, logRejectedSend, markSubscriberUnreachable } from '../_shared/messageLog.ts';
-import { buildPostTemplate } from '../_shared/postTemplate.ts';
-import { collageUrl } from '../_shared/collage.ts';
-import { savePostGallery } from '../_shared/postGallery.ts';
-import { composeAutoPostBody } from '../_shared/notificationBody.ts';
-import { publisherIdentity } from '../_shared/publisher.ts';
+import { credsFromEnv } from '../_shared/twilio.ts';
+import { postingIdFor, publishBatch } from '../_shared/publishBatch.ts';
 import { galleryUrls, saveApprovalBatch } from '../_shared/approvalBatch.ts';
 import { resolveBatchPlace } from '../_shared/geocode.ts';
 import type { Coordinate } from '../_shared/postingLocation.ts';
@@ -368,98 +363,31 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     return 'reminder (empty batch)';
   }
 
-  const { name, phone } = await publisherIdentity(supabase, config.publisher_id);
-  const urls = batch.map(b => b.url);
   // Name the batch's place from the selected photos' GPS (issue #23) — null when
   // none were geotagged; the message/template then omits the location clause.
   const place = await resolveBatchPlace(coordsForAssets(rows, batch.map(b => b.assetId)));
-  const galleryUrl = await savePostGallery(supabase, config.publisher_id, urls);
-  const caption = composeAutoPostBody(
-    name,
-    phone,
-    galleryUrl != null ? { url: galleryUrl, photoCount: urls.length } : null,
-    place,
-  );
 
-  const { data: subs } = await supabase
-    .from('subscribers')
-    .select('contact_handle')
-    .eq('publisher_id', config.publisher_id)
-    .eq('status', 'active');
-
-  // One collage message per subscriber when possible; per-photo fallback
-  // otherwise. A permanently unreachable number (invalid/blocked) is marked
-  // 'unreachable' and never stops the rest of the fan-out.
-  const publisherId = config.publisher_id;
-  const recordAccepted = async (contactHandle: string, sid: string | null): Promise<void> => {
-    if (sid != null) await logAcceptedSend(supabase, { sid, publisherId, contactHandle });
-  };
-  const recordPermanentFailure = async (contactHandle: string, err: TwilioSendError): Promise<void> => {
-    await logRejectedSend(supabase, { publisherId, contactHandle, error: err });
-    await markSubscriberUnreachable(supabase, publisherId, contactHandle);
-  };
-
-  const collage = collageUrl(urls);
-  // Approved template (works out-of-session); same for every subscriber since
-  // the variables don't depend on the recipient. Null → free-form fallback.
-  const template = collage != null
-    ? buildPostTemplate(
-        { postSid: TWILIO.templatePostSid, postLocationSid: TWILIO.templatePostLocationSid },
-        { publisherName: name, publisherPhone: phone, place, photoCount: urls.length, galleryUrl, mediaUrl: collage },
-      )
-    : null;
-  for (const sub of (subs ?? []) as { contact_handle: string }[]) {
-    if (collage != null) {
-      try {
-        const { sid } = template != null
-          ? await sendWhatsAppTemplate(TWILIO, sub.contact_handle, template.contentSid, template.variables)
-          : await sendWhatsApp(TWILIO, sub.contact_handle, caption, collage);
-        await recordAccepted(sub.contact_handle, sid);
-      } catch (err) {
-        console.error(`auto-post collage to ${sub.contact_handle} failed:`, err);
-        if (err instanceof TwilioSendError && err.permanent) {
-          await recordPermanentFailure(sub.contact_handle, err);
-        }
-      }
-    } else {
-      const result = await sendBatch(TWILIO, sub.contact_handle, caption, urls);
-      for (const sid of result.sids) await recordAccepted(sub.contact_handle, sid);
-      if (result.permanentError != null) {
-        await recordPermanentFailure(sub.contact_handle, result.permanentError);
-      }
-      if (result.failed > 0) {
-        console.error(`auto-post to ${sub.contact_handle}: ${result.failed}/${urls.length} sends failed:`, result.errors);
-      }
-    }
-  }
-
-  // Carry the candidate's GPS onto the published row (issue #78) so the
-  // Me-page globe can plot autonomously posted batches too — until now the
-  // coordinate was used to name the place and then dropped. `place` is stored
-  // alongside it so the feed shows the same label the message did.
-  // One posting_id for the whole batch, like ShareMediaUseCase stamps on the
-  // manual path. Without it every photo falls back to the column default and
-  // becomes its own single-item posting — which on the globe means N markers
-  // stacked on one spot joined by zero-length route segments.
   const candidateById = new Map(rows.map(r => [r.asset_id, r]));
-  const postingId = `posting-auto-${config.publisher_id}-${now.getTime().toString(36)}`;
-  await supabase.from('media').upsert(
-    batch.map(b => {
+  const result = await publishBatch(supabase, TWILIO, {
+    publisherId: config.publisher_id,
+    photos: batch.map(b => {
       const candidate = candidateById.get(b.assetId);
       return {
         id: b.assetId,
-        owner_id: config.publisher_id,
         url: b.url,
-        created_at: new Date(b.createdAt).toISOString(),
-        posting_id: postingId,
-        location: place,
-        latitude: candidate?.latitude ?? null,
-        longitude: candidate?.longitude ?? null,
+        createdAt: b.createdAt,
+        coordinate:
+          candidate?.latitude != null && candidate.longitude != null
+            ? { latitude: candidate.latitude, longitude: candidate.longitude }
+            : null,
       };
     }),
-  );
+    place,
+    postingId: postingIdFor('auto', config.publisher_id, now),
+    now,
+  });
   await stamp();
-  return `posted ${batch.length} to ${(subs ?? []).length} subscribers`;
+  return `posted ${result.photoCount} to ${result.subscriberCount} subscribers`;
 }
 
 Deno.serve(async (req: Request) => {

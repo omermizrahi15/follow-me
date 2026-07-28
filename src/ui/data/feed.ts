@@ -1,4 +1,5 @@
 import type { Coordinate } from '../../domain/interfaces';
+import type { FeedPostingDto } from '../../application/dtos';
 
 /**
  * The shapes the feed is rendered from. They live here rather than beside one
@@ -28,4 +29,25 @@ export interface FeedPosting {
   /** Cover image shown for the post (falls back to the first media). */
   coverUri?: string;
   media: FeedMedia[];
+}
+
+/** e.g. "June 18, 2026" — the label the feed and the story viewer both show. */
+export function formatPostingDate(iso: string): string {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+/**
+ * Application DTO → the shape the UI renders. Lives here beside the types
+ * rather than in the feed hook: the story viewer resolves a posting by id when
+ * it is opened from the "Posted ✅" push, and has to build the same object.
+ */
+export function toFeedPosting(dto: FeedPostingDto): FeedPosting {
+  return {
+    id: dto.id,
+    date: formatPostingDate(dto.createdAt),
+    createdAt: dto.createdAt,
+    media: dto.media.map(m => ({ id: m.id, uri: m.url })),
+    ...(dto.location != null ? { place: dto.location } : {}),
+    ...(dto.coordinate != null ? { coordinate: dto.coordinate } : {}),
+  };
 }
