@@ -6,8 +6,8 @@ import { test, expect, type Page, type Route } from '@playwright/test';
  * with the anon key; we intercept those calls so the tests are deterministic
  * and touch no real data.
  *
- * The behaviour under test is the two-view flow: the link opens its own post,
- * and going back lands on the publisher's whole feed.
+ * The behaviour under test is the two-view flow: opening a post plays it as a
+ * story (no thumbnail grid), and going back lands on the publisher's feed.
  */
 
 const PUBLISHER = 'pub-1';
@@ -66,30 +66,46 @@ async function mockSupabase(page: Page, posts = POSTS): Promise<void> {
 }
 
 const feed = (page: Page) => page.locator('#feedView');
-const post = (page: Page) => page.locator('#postView');
+const story = (page: Page) => page.locator('#story');
 const cards = (page: Page) => page.locator('.card');
 
 test.describe('post gallery', () => {
-  test('the shared link opens the post it points at', async ({ page }) => {
+  test('the shared link plays its post as a story straight away', async ({ page }) => {
     await mockSupabase(page);
     await page.goto('/gallery.html?id=post-linked');
 
-    await expect(post(page)).toBeVisible();
+    await expect(story(page)).toBeVisible();
     await expect(feed(page)).toBeHidden();
-    await expect(page.locator('#title')).toHaveText('Porto, Portugal');
-    await expect(page.locator('#subtitle')).toHaveText('2 photos · May 2, 2026');
-    await expect(page.locator('.grid button')).toHaveCount(2);
+    await expect(page.locator('#storyPlace')).toHaveText('Porto, Portugal');
+    // First photo of two — no grid to pick from.
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 1/2');
+    await expect(page.locator('#storyImage')).toHaveAttribute('src', 'https://img.test/b1.jpg');
+    await expect(page.locator('#storySegments span')).toHaveCount(2);
+  });
+
+  test('tapping advances through the photos, then leaves for the feed', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/gallery.html?id=post-linked');
+    await expect(story(page)).toBeVisible();
+
+    await story(page).click({ position: { x: 600, y: 400 } });
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 2/2');
+
+    // Past the last photo — the story ends on the feed, not a dead end.
+    await story(page).click({ position: { x: 600, y: 400 } });
+    await expect(story(page)).toBeHidden();
+    await expect(feed(page)).toBeVisible();
   });
 
   test('going back from the linked post lists every post, newest first', async ({ page }) => {
     await mockSupabase(page);
     await page.goto('/gallery.html?id=post-linked');
-    await expect(post(page)).toBeVisible();
+    await expect(story(page)).toBeVisible();
 
     await page.goBack();
 
     await expect(feed(page)).toBeVisible();
-    await expect(post(page)).toBeHidden();
+    await expect(story(page)).toBeHidden();
     await expect(page.locator('#feedName')).toHaveText('Omer');
     await expect(page.locator('#feedCount')).toHaveText('3 posts');
     await expect(cards(page)).toHaveCount(3);
@@ -99,29 +115,22 @@ test.describe('post gallery', () => {
     await expect(cards(page).nth(2)).toContainText('January 9, 2026');
   });
 
-  test('the in-page back button reaches the feed too', async ({ page }) => {
+  test('a card plays its own post from the first photo', async ({ page }) => {
     await mockSupabase(page);
     await page.goto('/gallery.html?id=post-linked');
-    await page.getByRole('button', { name: 'All posts' }).click();
-
-    await expect(feed(page)).toBeVisible();
-    await expect(page).toHaveURL(/\?u=pub-1$/);
-  });
-
-  test('a card opens its own post, and back returns to the feed', async ({ page }) => {
-    await mockSupabase(page);
-    await page.goto('/gallery.html?id=post-linked');
-    await expect(post(page)).toBeVisible();
+    await expect(story(page)).toBeVisible();
     await page.goBack();
     await cards(page).nth(0).click();
 
-    await expect(post(page)).toBeVisible();
-    await expect(page.locator('#title')).toHaveText('Lisbon, Portugal');
-    await expect(page.locator('.grid button')).toHaveCount(3);
+    await expect(story(page)).toBeVisible();
+    await expect(page.locator('#storyPlace')).toHaveText('Lisbon, Portugal');
+    await expect(page.locator('#storyMeta')).toHaveText('June 18, 2026 · 1/3');
+    await expect(page.locator('#storyImage')).toHaveAttribute('src', 'https://img.test/a1.jpg');
     await expect(page).toHaveURL(/\?id=post-newest$/);
 
     await page.goBack();
     await expect(feed(page)).toBeVisible();
+    await expect(story(page)).toBeHidden();
   });
 
   test('the feed link renders the feed directly', async ({ page }) => {
@@ -140,27 +149,40 @@ test.describe('post gallery', () => {
     await expect(cards(page).nth(2).locator('.card-chip')).toHaveCount(0);
   });
 
-  test('back from a photo returns to the post, not the feed', async ({ page }) => {
+  // The cover image is decorative, so the card would otherwise be a button
+  // with no accessible name at all.
+  test('each card announces its post', async ({ page }) => {
     await mockSupabase(page);
-    await page.goto('/gallery.html?id=post-linked');
-    await page.locator('.grid button').first().click();
-    await expect(page.locator('#story')).toBeVisible();
+    await page.goto(`/gallery.html?u=${PUBLISHER}`);
+
+    await expect(
+      page.getByRole('button', { name: 'Lisbon, Portugal, June 18, 2026 — 3 photos' }),
+    ).toBeVisible();
+    await expect(page.getByRole('button', { name: 'January 9, 2026 — 1 photo' })).toBeVisible();
+  });
+
+  test('advancing deep into a story still costs one back to leave', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await cards(page).nth(0).click();
+    await story(page).click({ position: { x: 600, y: 400 } });
+    await expect(page.locator('#storyMeta')).toHaveText('June 18, 2026 · 2/3');
 
     await page.goBack();
 
-    await expect(page.locator('#story')).toBeHidden();
-    await expect(post(page)).toBeVisible();
-    await expect(feed(page)).toBeHidden();
+    await expect(story(page)).toBeHidden();
+    await expect(feed(page)).toBeVisible();
   });
 
-  test('closing the story with ✕ leaves the post shown', async ({ page }) => {
+  test('closing the story with ✕ lands on the feed', async ({ page }) => {
     await mockSupabase(page);
     await page.goto('/gallery.html?id=post-linked');
-    await page.locator('.grid button').first().click();
+    await expect(story(page)).toBeVisible();
     await page.getByRole('button', { name: 'Close' }).click();
 
-    await expect(page.locator('#story')).toBeHidden();
-    await expect(post(page)).toBeVisible();
+    await expect(story(page)).toBeHidden();
+    await expect(feed(page)).toBeVisible();
+    await expect(cards(page)).toHaveCount(3);
   });
 
   test('an unknown post id shows a friendly error', async ({ page }) => {
@@ -168,7 +190,7 @@ test.describe('post gallery', () => {
     await page.goto('/gallery.html?id=nope');
 
     await expect(page.locator('#status')).toHaveText('This post was not found or has expired.');
-    await expect(post(page)).toBeHidden();
+    await expect(story(page)).toBeHidden();
     await expect(feed(page)).toBeHidden();
   });
 

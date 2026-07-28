@@ -93,7 +93,7 @@ Note: `workflow_run` only fires once this workflow is on the default branch, and
 The subscribe page (`docs/join/index.html`) and the post gallery (`docs/gallery.html`) are static browser pages, not part of the iOS app, so Maestro can't reach them. They're covered separately with **Playwright**; every backend call is intercepted, so the tests are deterministic and touch no real data.
 
 - [`web-e2e/subscribe.spec.ts`](../web-e2e/subscribe.spec.ts) — render the form, successful subscribe → confirmation, the exact `{publisherId, contactHandle}` payload sent to the `subscribe` edge function, server-error and network-error handling.
-- [`web-e2e/gallery.spec.ts`](../web-e2e/gallery.spec.ts) — the two-view flow a follower gets from the WhatsApp link: `?id=` opens that post, back (browser button or in-page) lands on the publisher's whole feed, a card opens its post, and back out of a photo returns to the post rather than the feed.
+- [`web-e2e/gallery.spec.ts`](../web-e2e/gallery.spec.ts) — the two-view flow a follower gets from the WhatsApp link: `?id=` plays that post as a story from the first photo, tapping advances and then leaves for the publisher's whole feed, a feed card plays its own post, and back always costs one step out no matter how deep into a story you are.
 
 ```sh
 npm run e2e:web          # headless chromium, ~6s; serves docs/ on :8080

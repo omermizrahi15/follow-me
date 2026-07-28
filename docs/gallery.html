@@ -5,10 +5,14 @@
   Two views over one page, so a follower who opens the WhatsApp link lands on
   the post it points at and can go back to everything else the publisher shared:
 
-    ?id=<postId>    one post — photo grid + story viewer (the link's target)
+    ?id=<postId>    that post, playing as a story (the link's target)
     ?u=<publisher>  the feed — every post as a card, newest first
 
-  Entering on ?id seeds history as [feed, post], so the browser's own back
+  Opening a post *is* opening its story — full-screen, first photo, one tap at
+  a time. There is no thumbnail grid in between: the cover on the feed card is
+  the preview, so a grid would just be a second one.
+
+  Entering on ?id seeds history as [feed, story], so the browser's own back
   button (and the phone's back gesture) reaches the feed without a reload. The
   feed cards mirror the app's PostCard: wide cover, place over date, count chip.
 
@@ -75,22 +79,6 @@
       border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 600;
     }
     .empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); font-size: 14px; }
-
-    /* ---------- post view ---------- */
-    .post-head { padding: 20px 0 16px; }
-    .back {
-      display: inline-flex; align-items: center; gap: 6px;
-      background: none; border: 0; padding: 4px 0; margin-bottom: 12px;
-      color: var(--accent); font-size: 15px; font-weight: 600; cursor: pointer;
-      font-family: inherit;
-      -webkit-tap-highlight-color: transparent;
-    }
-    .post-head h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; }
-    .post-head p { margin-top: 4px; color: var(--text-secondary); font-size: 14px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
-    .grid button { display: block; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background: var(--surface-alt); border: 0; padding: 0; cursor: pointer; }
-    .grid img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .15s ease; }
-    .grid button:hover img { transform: scale(1.03); }
 
     /* ---------- story viewer (issue #67) ---------- */
     /* Full-screen, one photo at a time. Mirrors the app's PostingDetailScreen:
@@ -169,16 +157,6 @@
       <p class="empty" id="feedEmpty" hidden>No posts yet.</p>
     </section>
 
-    <!-- One post: the grid the WhatsApp link opens. -->
-    <section id="postView" hidden>
-      <div class="post-head">
-        <button class="back" id="backToFeed" type="button">← All posts</button>
-        <h1 id="title">Loading…</h1>
-        <p id="subtitle"></p>
-      </div>
-      <div class="grid" id="grid"></div>
-    </section>
-
     <p class="status" id="status" hidden></p>
   </div>
   <footer>Shared with Follow Me</footer>
@@ -208,7 +186,6 @@
       if (!url.includes('/image/upload/') || url.includes('/image/upload/f_')) return url;
       return url.replace('/image/upload/', '/image/upload/f_auto,q_auto:good,w_' + width + '/');
     }
-    const thumbUrl = url => sizedUrl(url, 600);
     const fullUrl = url => sizedUrl(url, 2048);
     /** Feed covers are one-per-row cards; the app's PostCard asks for the same width. */
     const coverUrl = url => sizedUrl(url, 720);
@@ -219,7 +196,6 @@
     }
 
     const feedView = document.getElementById('feedView');
-    const postView = document.getElementById('postView');
     const statusEl = document.getElementById('status');
 
     // Publisher + posts, filled by the loaders and reused across views, so
@@ -228,12 +204,12 @@
     let publisherName = 'Your friend';
     const postsById = new Map();
     let feedRendered = false;
-    /** The post the post-view is showing — the story pushes history against it. */
+    /** The post the story is playing — history states are keyed on it. */
     let currentPostId = null;
 
     function fail(message) {
       feedView.hidden = true;
-      postView.hidden = true;
+      closeStoryOverlay();
       statusEl.textContent = message;
       statusEl.hidden = false;
     }
@@ -314,45 +290,30 @@
     });
 
     // ---------- views ----------
-    function renderPost(post) {
+    /** Point the story at a post: photos, and the who/where/when in its header. */
+    function loadStory(post) {
       currentPostId = post.id;
-      feedView.hidden = true;
-      postView.hidden = false;
-      statusEl.hidden = true;
-
-      const date = formatDate(post.created_at);
-      const count = post.media_urls.length;
-      document.title = publisherName + "'s photos — Follow Me";
-      document.getElementById('title').textContent = post.place || publisherName + "'s photos \u{1F4F8}";
-      document.getElementById('subtitle').textContent =
-        count + ' photo' + (count === 1 ? '' : 's') + ' · ' + date;
+      photoUrls = post.media_urls;
+      storyDate = formatDate(post.created_at);
       // The story header mirrors the app's: where/when over the photo.
       document.getElementById('storyPlace').textContent = post.place || publisherName;
-      storyDate = date;
-
-      photoUrls = post.media_urls;
-      const grid = document.getElementById('grid');
-      grid.replaceChildren();
-      photoUrls.forEach((url, index) => {
-        const cell = document.createElement('button');
-        cell.type = 'button';
-        cell.setAttribute('aria-label', 'View photo ' + (index + 1));
-        const img = document.createElement('img');
-        img.src = thumbUrl(url);
-        img.loading = 'lazy';
-        img.alt = 'photo';
-        cell.appendChild(img);
-        cell.addEventListener('click', () => openStory(index));
-        grid.appendChild(cell);
-      });
+      document.title = (post.place || publisherName + "'s photos") + ' — Follow Me';
     }
 
     /** One feed card — the web twin of the app's PostCard. */
     function postCard(post) {
+      const date = formatDate(post.created_at);
+      const count = post.media_urls.length;
+
       const card = document.createElement('button');
       card.type = 'button';
       card.className = 'card';
       card.dataset.postId = post.id;
+      // The cover is decorative, so without this the card is an unnamed button.
+      card.setAttribute(
+        'aria-label',
+        (post.place ? post.place + ', ' : '') + date + ' — ' + count + ' photo' + (count === 1 ? '' : 's'),
+      );
 
       const cover = post.media_urls[0];
       if (cover) {
@@ -367,10 +328,10 @@
       scrim.className = 'card-scrim';
       card.appendChild(scrim);
 
-      if (post.media_urls.length > 1) {
+      if (count > 1) {
         const chip = document.createElement('div');
         chip.className = 'card-chip';
-        chip.textContent = '⧉ ' + post.media_urls.length;
+        chip.textContent = '⧉ ' + count;
         card.appendChild(chip);
       }
 
@@ -378,7 +339,6 @@
       // the same fallback PostCard makes.
       const caption = document.createElement('div');
       caption.className = 'card-caption';
-      const date = formatDate(post.created_at);
       const place = document.createElement('div');
       place.className = 'card-place';
       place.textContent = post.place || date;
@@ -397,7 +357,6 @@
 
     function renderFeed() {
       feedView.hidden = false;
-      postView.hidden = true;
       statusEl.hidden = true;
       document.title = publisherName + ' — Follow Me';
 
@@ -417,33 +376,38 @@
     }
 
     // ---------- routing ----------
-    // Three history entries — feed → post → story — so the browser back button
-    // (and the phone's back gesture) unwinds the way a follower expects: out of
-    // the photo, out of the post, onto the feed.
+    // Two history entries — feed → story — so the browser back button (and the
+    // phone's back gesture) unwinds the way a follower expects: out of the
+    // photos, onto the feed. Opening a post *is* opening its story; there is no
+    // thumbnail grid in between.
     function feedUrl() { return '?u=' + encodeURIComponent(publisherId); }
     function postUrl(id) { return '?id=' + encodeURIComponent(id); }
 
-    async function showPostById(id) {
-      let post = postsById.get(id);
+    /** The post for an id — from what's loaded, else fetched. Null if it's gone. */
+    async function postById(id) {
+      const known = postsById.get(id);
+      if (known != null) return known;
+      const rows = await fetchJson('posts?id=eq.' + encodeURIComponent(id) + '&select=*');
+      const post = rows[0];
       if (post == null) {
-        const rows = await fetchJson('posts?id=eq.' + encodeURIComponent(id) + '&select=*');
-        post = rows[0];
-        if (post == null) return fail('This post was not found or has expired.');
-        postsById.set(post.id, post);
-        feedRendered = false;
+        fail('This post was not found or has expired.');
+        return null;
       }
-      renderPost(post);
+      postsById.set(post.id, post);
+      feedRendered = false;
+      return post;
     }
 
     async function render(state) {
       if (state.v === 'story') {
-        await showPostById(state.id);
-        openStoryOverlay(state.i);
+        const post = await postById(state.id);
+        if (post == null) return;
+        loadStory(post);
+        openStoryOverlay(state.i || 0);
         return;
       }
       closeStoryOverlay();
-      if (state.v === 'post') await showPostById(state.id);
-      else renderFeed();
+      renderFeed();
     }
 
     function go(state, url) {
@@ -451,15 +415,8 @@
       void render(state);
     }
 
-    function openPost(id) { go({ v: 'post', id }, postUrl(id)); }
-    function openStory(index) { go({ v: 'story', id: currentPostId, i: index }, postUrl(currentPostId)); }
-
-    /** Back to the feed — reuse the history entry rather than stacking a new one. */
-    function showFeed() {
-      if (history.state != null && history.state.v !== 'feed') history.back();
-      else go({ v: 'feed' }, feedUrl());
-    }
-    document.getElementById('backToFeed').addEventListener('click', showFeed);
+    /** Tapping a post plays it from the first photo. */
+    function openPost(id) { go({ v: 'story', id, i: 0 }, postUrl(id)); }
 
     /** Advance by delta; stepping past the last photo leaves the story. */
     function step(delta) {
@@ -471,10 +428,13 @@
       history.replaceState({ v: 'story', id: currentPostId, i: next }, '', postUrl(currentPostId));
     }
 
-    /** Close the story by unwinding history, so back and ✕ agree. */
+    /**
+     * Leave the story for the feed by unwinding history, so ✕, Escape, and
+     * tapping past the last photo all agree with the browser's back button.
+     */
     function closeStory() {
       if (history.state != null && history.state.v === 'story') history.back();
-      else closeStoryOverlay();
+      else void render({ v: 'feed' });
     }
 
     window.addEventListener('popstate', e => {
@@ -540,16 +500,17 @@
         publisherId = post.publisher_id;
         postsById.set(post.id, post);
 
-        // Seed [feed, post] as early as the publisher is known, so back works
+        // Seed [feed, story] as early as the publisher is known, so back works
         // even while the name and the rest of the feed are still loading.
+        const opening = { v: 'story', id: post.id, i: 0 };
         history.replaceState({ v: 'feed' }, '', feedUrl());
-        history.pushState({ v: 'post', id: post.id }, '', postUrl(post.id));
+        history.pushState(opening, '', postUrl(post.id));
 
         await loadPublisher();
         // Render whatever history says we're on: a follower who hit back
         // during that fetch is on the feed now and must not be yanked back
-        // into the post.
-        await render(history.state || { v: 'post', id: post.id });
+        // into the photos.
+        await render(history.state || opening);
 
         await loadPosts();
         return;
