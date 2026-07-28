@@ -8,6 +8,13 @@ import { validCoordinate } from '../../domain/services/coordinate';
 import { imageWidth } from './imageSize';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * How long one photo may spend coming down from iCloud during classification.
+ * Long enough that a normal fetch on a normal connection completes, short
+ * enough that a stuck one costs a single suggestion rather than the stretch.
+ */
+const ICLOUD_FETCH_TIMEOUT_MS = 15_000;
 /** Assets fetched per pagination page. */
 const PAGE_SIZE = 100;
 
@@ -104,10 +111,12 @@ export class ExpoMediaLibrary implements IMediaLibrary {
  * bytes would reintroduce the memory spike this downscale exists to avoid.
  */
 export const expoResolvePayload: ResolvePayload = async candidate => {
-  // Never wait on an iCloud download here: a photo that isn't on the device is
-  // skipped (see below), which costs one suggestion — cheap next to stalling
-  // the whole scan on a slow connection.
-  const uri = await resolveLocalUri(candidate, false);
+  // Do fetch iCloud originals — skipping them was worse than waiting. Under
+  // "Optimise iPhone Storage" most originals live in iCloud, so refusing to
+  // download left only the handful cached on device and every reconstructed
+  // post came back with a single photo. A bounded wait keeps the batches full
+  // without letting one pathological fetch stall the stretch.
+  const uri = await resolveLocalUri(candidate, true, ICLOUD_FETCH_TIMEOUT_MS);
   // ph:// URIs can't be read by FileSystem — only skip candidates that couldn't
   // be resolved to a local file:// path (e.g. iCloud-only photos not yet downloaded).
   if (!uri.startsWith('file://')) return null;
@@ -141,12 +150,25 @@ export const expoResolvePayload: ResolvePayload = async candidate => {
 export async function resolveLocalUri(
   candidate: PhotoCandidate,
   download: boolean,
+  timeoutMs?: number,
 ): Promise<string> {
   if (candidate.uri.startsWith('file://')) return candidate.uri;
-  const info = await MediaLibrary.getAssetInfoAsync(candidate.id, {
+
+  const lookup = MediaLibrary.getAssetInfoAsync(candidate.id, {
     shouldDownloadFromNetwork: download,
   });
-  return info.localUri ?? candidate.uri;
+
+  // Unbounded is right when the caller needs the bytes at any cost (upload).
+  // For classification a slow photo is not worth an open-ended wait: returning
+  // the unusable ph:// uri makes the caller skip it and move to the next.
+  const info = timeoutMs == null
+    ? await lookup
+    : await Promise.race([
+        lookup,
+        new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs)),
+      ]);
+
+  return info?.localUri ?? candidate.uri;
 }
 
 /** Upload path: the bytes are the point, so an iCloud original is worth waiting for. */

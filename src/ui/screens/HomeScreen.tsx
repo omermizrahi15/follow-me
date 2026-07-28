@@ -370,7 +370,7 @@ const styles = StyleSheet.create({
   name: { ...typography.heading, fontSize: 17, color: colors.text, marginBottom: 1 },
   // Followers count + both actions share one line, so the buttons stay compact
   // and shrink rather than push the count off the row on narrow phones.
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm },
   statCol: { flexShrink: 0 },
   statNumber: { ...typography.heading, fontSize: 17, color: colors.text },
   statLabel: { ...typography.caption, fontSize: 11, color: colors.textSecondary, marginTop: -1 },

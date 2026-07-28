@@ -23,6 +23,7 @@ import { FREQUENCY_DAYS } from '../../domain/entities/PublisherConfig';
 import type { Frequency } from '../../domain/entities/PublisherConfig';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { Coordinate } from '../../domain/interfaces';
+import { CATEGORY_LABEL } from '../data/categoryLabels';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /** Cadence choices, mirroring the auto-posting section plus a free-form option. */
@@ -164,6 +165,10 @@ function ScanningStep({ current, total, classified, of, batch, scanned }: {
   batch: PhotoClassification[];
   scanned: { window: HistoryWindow; batch: PhotoClassification[] }[];
 }): React.JSX.Element {
+  // Which finished stretch is opened out. Scanning carries on underneath —
+  // looking at what is already reconstructed should never pause the run.
+  const [openId, setOpenId] = useState<string | null>(null);
+
   // Two bars, because they answer different questions: how far through the trip
   // are we, and is this stretch actually moving. With only the first, a slow
   // stretch is indistinguishable from a hung one.
@@ -171,11 +176,13 @@ function ScanningStep({ current, total, classified, of, batch, scanned }: {
   const withinPct = of > 0 ? Math.round((classified / of) * 100) : 0;
 
   return (
-    <ScrollView contentContainerStyle={styles.body} accessibilityLiveRegion="polite">
-      <Text style={styles.scanTitle} accessibilityRole="header">Rebuilding your travels…</Text>
-      <Text style={styles.scanSub}>
-        {total > 0 ? `Stretch ${Math.max(current, 1)} of ${total}` : 'Planning the timeline'}
-      </Text>
+    <ScrollView contentContainerStyle={styles.body}>
+      <View accessibilityLiveRegion="polite">
+        <Text style={styles.scanTitle} accessibilityRole="header">Rebuilding your travels…</Text>
+        <Text style={styles.scanSub}>
+          {total > 0 ? `Stretch ${Math.max(current, 1)} of ${total}` : 'Planning the timeline'}
+        </Text>
+      </View>
 
       <View style={styles.track}>
         <View style={[styles.fill, { width: `${overall}%` }]} />
@@ -192,28 +199,65 @@ function ScanningStep({ current, total, classified, of, batch, scanned }: {
         </>
       )}
 
-      {/* The running pick, so a long stretch visibly produces something. */}
+      {/* The running pick for the stretch being scanned, at the same size as
+          the review grid — a strip of tiny thumbnails told you something was
+          happening but not what was being chosen. */}
       {batch.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
-          {batch.map(c => (
-            <Image key={c.candidate.id} source={{ uri: c.candidate.uri }} style={styles.photoSmall} />
-          ))}
-        </ScrollView>
+        <View style={styles.previewGrid}>
+          {batch.map(c => <PreviewPhoto key={c.candidate.id} photo={c} />)}
+        </View>
       )}
 
-      {scanned.length > 0 && <Text style={styles.label}>Done so far</Text>}
-      {[...scanned].reverse().map(done => (
-        <View key={done.window.start.toISOString()} style={styles.doneRow}>
-          <Ionicons name="checkmark-circle" size={16} color={colors.success} />
-          <Text style={styles.doneWhen}>{describeWindow(done.window.start, done.window.end)}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRowTight}>
-            {done.batch.slice(0, 4).map(c => (
-              <Image key={c.candidate.id} source={{ uri: c.candidate.uri }} style={styles.photoTiny} />
-            ))}
-          </ScrollView>
-        </View>
-      ))}
+      {scanned.length > 0 && <Text style={styles.label}>Ready to review</Text>}
+      {[...scanned].reverse().map(done => {
+        const id = done.window.start.toISOString();
+        const open = openId === id;
+        return (
+          <View key={id} style={styles.doneCard}>
+            <TouchableOpacity
+              style={styles.doneHeader}
+              onPress={() => setOpenId(open ? null : id)}
+              activeOpacity={0.7}
+              accessibilityRole="button"
+              accessibilityState={{ expanded: open }}
+              accessibilityLabel={`${describeWindow(done.window.start, done.window.end)}, ${done.batch.length} photos`}
+              accessibilityHint={open ? 'Collapses this post' : 'Opens this post to see every photo'}
+            >
+              <Ionicons name="checkmark-circle" size={18} color={colors.success} />
+              <View style={styles.doneHeaderText}>
+                <Text style={styles.doneWhen}>{describeWindow(done.window.start, done.window.end)}</Text>
+                <Text style={styles.doneCount}>
+                  {done.batch.length} {done.batch.length === 1 ? 'photo' : 'photos'}
+                </Text>
+              </View>
+              <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
+            </TouchableOpacity>
+
+            {open ? (
+              <View style={styles.previewGrid}>
+                {done.batch.map(c => <PreviewPhoto key={c.candidate.id} photo={c} />)}
+              </View>
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
+                {done.batch.map(c => (
+                  <Image key={c.candidate.id} source={{ uri: c.candidate.uri }} style={styles.photo} />
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        );
+      })}
     </ScrollView>
+  );
+}
+
+/** A photo at review size, with the label the AI gave it. */
+function PreviewPhoto({ photo }: { photo: PhotoClassification }): React.JSX.Element {
+  return (
+    <View style={styles.previewCell}>
+      <Image source={{ uri: photo.candidate.uri }} style={styles.previewPhoto} />
+      <Text style={styles.previewChip} numberOfLines={1}>{CATEGORY_LABEL[photo.category]}</Text>
+    </View>
   );
 }
 
@@ -621,16 +665,23 @@ const styles = StyleSheet.create({
   },
   fill: { height: '100%', backgroundColor: colors.accent, borderRadius: radius.pill },
   scanDetail: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
-  photoSmall: { width: 64, height: 64, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt },
-  photoTiny: { width: 34, height: 34, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt },
-  photoRowTight: { flexDirection: 'row', gap: 4 },
-  doneRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
+  previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+  previewCell: { width: '31%', gap: 3 },
+  previewPhoto: { width: '100%', aspectRatio: 1, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt },
+  previewChip: { ...typography.caption, fontSize: 10, color: colors.textSecondary },
+  doneCard: {
+    backgroundColor: colors.surface,
+    borderRadius: radius.lg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: spacing.md,
     gap: spacing.sm,
-    paddingVertical: spacing.xs,
+    marginTop: spacing.sm,
   },
-  doneWhen: { ...typography.caption, color: colors.text, minWidth: 96 },
+  doneHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
+  doneHeaderText: { flex: 1, gap: 1 },
+  doneWhen: { ...typography.heading, fontSize: 15, color: colors.text },
+  doneCount: { ...typography.caption, fontSize: 11, color: colors.textMuted },
 
   card: {
     backgroundColor: colors.surface,

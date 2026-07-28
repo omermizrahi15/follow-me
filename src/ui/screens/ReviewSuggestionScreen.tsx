@@ -21,21 +21,11 @@ import { resolvePlaceForCoordinates } from '../../composition/container';
 import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
-import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
+import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { PlaceField } from '../components/PlaceField';
+import { CATEGORY_LABEL } from '../data/categoryLabels';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
-const CATEGORY_LABEL: Record<PhotoCategory, string> = {
-  selfie_with_view: 'People + view',
-  sunset_sunrise: 'Sunset / sunrise',
-  architecture: 'Architecture',
-  selfie_with_people: 'People',
-  food: 'Food',
-  nature: 'Nature',
-  night_scene: 'Night scene',
-  cultural: 'Cultural',
-  other: 'Other',
-};
 
 // ---------- step indicator ----------
 
