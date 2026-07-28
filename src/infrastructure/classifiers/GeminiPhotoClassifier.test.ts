@@ -1,5 +1,10 @@
 import { GeminiPhotoClassifier } from './GeminiPhotoClassifier';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
+import { reportMessage } from '../monitoring/sentry';
+
+jest.mock('../monitoring/sentry', () => ({ reportMessage: jest.fn() }));
+
+const reportedMessage = reportMessage as jest.Mock;
 
 /**
  * Concurrency/finish-condition tests: whatever mix of fast, slow, and failing
@@ -40,7 +45,17 @@ function makeSut(): GeminiPhotoClassifier {
 
 beforeEach(() => {
   mockFetch.mockReset();
+  reportedMessage.mockClear();
 });
+
+/** Every request answers 429, as the Edge Function does once the day's budget is spent. */
+function respondQuotaExhausted(): void {
+  mockFetch.mockResolvedValue({
+    ok: false,
+    status: 429,
+    text: () => Promise.resolve('Daily classification quota exceeded'),
+  });
+}
 
 describe('GeminiPhotoClassifier.classify — always resolves', () => {
   it('resolves with all results for a batch larger than the concurrency window', async () => {
@@ -105,5 +120,54 @@ describe('GeminiPhotoClassifier.classify — always resolves', () => {
     const results = await makeSut().classify([]);
     expect(results).toEqual([]);
     expect(mockFetch).not.toHaveBeenCalled();
+  });
+});
+
+describe('GeminiPhotoClassifier — daily quota (issue #81)', () => {
+  it('flags exhaustion so a backfill can stop instead of scanning on', async () => {
+    respondQuotaExhausted();
+    const sut = makeSut();
+
+    const results = await sut.classify([candidate('p1'), candidate('p2')]);
+
+    // Nothing throws — the run just comes back empty, which is exactly why the
+    // caller needs an explicit signal to tell "out of budget" from "no photos".
+    expect(results).toEqual([]);
+    expect(sut.quotaExhausted()).toBe(true);
+  });
+
+  it('reports the quota wall to monitoring once per run, not once per photo', async () => {
+    respondQuotaExhausted();
+
+    await makeSut().classify(Array.from({ length: 6 }, (_, i) => candidate(`p${i}`)));
+
+    expect(reportedMessage).toHaveBeenCalledTimes(1);
+    expect(reportedMessage).toHaveBeenCalledWith(
+      expect.stringContaining('quota'),
+      'classify_photos',
+      expect.objectContaining({ photosInRun: 6 }),
+    );
+  });
+
+  it('clears the flag on the next run, so tomorrow’s scan is not poisoned', async () => {
+    respondQuotaExhausted();
+    const sut = makeSut();
+    await sut.classify([candidate('p1')]);
+    expect(sut.quotaExhausted()).toBe(true);
+
+    respondWithDelay(() => 1);
+    await sut.classify([candidate('p2')]);
+
+    expect(sut.quotaExhausted()).toBe(false);
+  });
+
+  it('does not report or flag for ordinary per-photo failures', async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('boom') });
+    const sut = makeSut();
+
+    await sut.classify([candidate('p1'), candidate('p2')]);
+
+    expect(sut.quotaExhausted()).toBe(false);
+    expect(reportedMessage).not.toHaveBeenCalled();
   });
 });

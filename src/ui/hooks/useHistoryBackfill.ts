@@ -40,10 +40,18 @@ export interface ReviewablePosting {
   dropped: boolean;
 }
 
+/** A posting that could not be written, and why — shown, never swallowed. */
+export interface PublishFailure {
+  /** Human-readable window, e.g. "1 Jun – 7 Jun". */
+  when: string;
+  reason: string;
+}
+
 /** What a publish run actually managed to write. */
 export interface PublishOutcome {
   published: number;
   failed: number;
+  failures: PublishFailure[];
 }
 
 interface State {
@@ -73,6 +81,17 @@ const INITIAL: State = {
   failedCount: 0,
   error: null,
 };
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+
+/**
+ * "1 Jun – 7 Jun" for a window. The end is exclusive, so the label steps back a
+ * millisecond — otherwise a week reads as spanning eight days.
+ */
+export function describeWindow(start: Date, end: Date): string {
+  const fmt = (d: Date): string => `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
+  return `${fmt(start)} – ${fmt(new Date(end.getTime() - 1))}`;
+}
 
 /** Every classified photo of a draft, batch and pool alike, keyed by id. */
 function indexPhotos(draft: BackfillDraft): Map<string, PhotoClassification> {
@@ -230,28 +249,35 @@ export function useHistoryBackfill(publisherId: string): State & {
     // Sequential: each posting uploads several full-resolution photos, and
     // publishing a whole timeline at once is exactly the unbounded-upload
     // pattern that got the app watchdog-killed before (see SyncCandidatePhotos).
+    const failures: PublishFailure[] = [];
     for (const posting of kept) {
       try {
         await publishPosting(publisherId, posting);
         count++;
         setState(s => ({ ...s, published: count }));
-      } catch {
+      } catch (e: unknown) {
         // One posting failing — an iCloud photo that won't download, a dropped
         // upload — must not discard the rest of a twenty-post timeline. The
         // publisher can re-run the backfill; already-published photos are
         // excluded from the next suggestion pass.
         failed++;
+        failures.push({
+          when: describeWindow(posting.draft.window.start, posting.draft.window.end),
+          reason: e instanceof Error ? e.message : 'unknown error',
+        });
       }
     }
 
     if (count === 0 && failed > 0) {
-      const message = 'Could not publish your history — no posts went through.';
-      setState(s => ({ ...s, phase: 'error', error: message }));
+      // Lead with the actual reason: "no posts went through" alone leaves the
+      // publisher with nothing to act on.
+      const message = `Could not publish your history — ${failures[0]?.reason ?? 'no posts went through'}.`;
+      setState(s => ({ ...s, phase: 'error', error: message, failedCount: failed }));
       throw new Error(message);
     }
 
     setState(s => ({ ...s, phase: 'done', published: count, failedCount: failed }));
-    return { published: count, failed };
+    return { published: count, failed, failures };
   }, [publisherId, state.postings]);
 
   const reset = useCallback((): void => setState(INITIAL), []);
@@ -294,19 +320,38 @@ async function publishPosting(publisherId: string, posting: ReviewablePosting): 
     .filter((c): c is PhotoClassification => c != null);
   if (chosen.length === 0) return;
 
-  const items = await Promise.all(
+  // Resolving a photo can fail on its own — an iCloud original that won't
+  // download over a bad connection is the common one. Skip just that photo and
+  // publish the rest of the stretch; losing the whole posting because one shot
+  // of nine wouldn't come down is a far worse trade.
+  const skipped: string[] = [];
+  const resolved = await Promise.all(
     chosen.map(async c => {
       const isRemote = c.candidate.uri.startsWith('http');
-      const localUri = isRemote ? c.candidate.uri : await expoResolveLocalUri(c.candidate);
-      const coordinate = isRemote ? undefined : await coordinateFor(c.candidate.id);
-      return {
-        mediaId: c.candidate.id,
-        localUri,
-        filename: c.candidate.uri.split('/').pop() ?? `${c.candidate.id}.jpg`,
-        ...(coordinate != null ? { coordinate } : {}),
-      };
+      try {
+        const localUri = isRemote ? c.candidate.uri : await expoResolveLocalUri(c.candidate);
+        // A missing GPS fix is normal, never a reason to drop the photo —
+        // coordinateFor already swallows its own failures and returns undefined.
+        const coordinate = isRemote ? undefined : await coordinateFor(c.candidate.id);
+        return {
+          mediaId: c.candidate.id,
+          localUri,
+          filename: c.candidate.uri.split('/').pop() ?? `${c.candidate.id}.jpg`,
+          ...(coordinate != null ? { coordinate } : {}),
+        };
+      } catch (e: unknown) {
+        skipped.push(e instanceof Error ? e.message : 'could not be read');
+        return null;
+      }
     }),
   );
+  const items = resolved.filter((i): i is NonNullable<typeof i> => i != null);
+
+  if (items.length === 0) {
+    // Every photo unreadable — the caller counts this posting as failed and
+    // shows the reason rather than reporting a silent success of nothing.
+    throw new Error(skipped[0] ?? 'no photos could be read');
+  }
 
   const newest = chosen.reduce(
     (latest, c) => (c.candidate.createdAt > latest ? c.candidate.createdAt : latest),

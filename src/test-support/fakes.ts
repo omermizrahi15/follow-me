@@ -376,18 +376,27 @@ export class FakeMediaLibrary implements IMediaLibrary {
  */
 export class FakePhotoClassifier implements IPhotoClassifier {
   receivedCandidateIds: string[] = [];
-  /** How many classify() calls have run — one per backfill window (issue #81). */
+  /**
+   * How many classify() calls have run — one per backfill window (issue #81).
+   * Incremented at the TOP of classify(), before any work, so during the Nth
+   * call it already reads N. Tests set quotaExhaustedFromCallIndex against this
+   * numbering, and the real classifier likewise decides mid-call.
+   */
   callCount = 0;
   /**
-   * Simulates the daily classify quota: from this call onwards (1-based),
-   * classify() returns nothing and reports the budget spent.
+   * Simulates the daily classify quota. From this 1-based call index onward,
+   * classify() yields nothing and reports the budget spent — so `2` means the
+   * first call succeeds and every call after it comes back empty.
    */
-  exhaustQuotaFromCall: number | null = null;
+  quotaExhaustedFromCallIndex: number | null = null;
 
   constructor(private readonly byId: Map<string, PhotoClassification> = new Map()) {}
 
   quotaExhausted(): boolean {
-    return this.exhaustQuotaFromCall != null && this.callCount >= this.exhaustQuotaFromCall;
+    return (
+      this.quotaExhaustedFromCallIndex != null &&
+      this.callCount >= this.quotaExhaustedFromCallIndex
+    );
   }
 
   classify(

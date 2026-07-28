@@ -2,6 +2,7 @@ import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
+  Keyboard,
   TextInput,
   TouchableOpacity,
   Image,
@@ -15,7 +16,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
 import { usePublisherId } from '../context/AuthContext';
-import { useHistoryBackfill } from '../hooks/useHistoryBackfill';
+import { useHistoryBackfill, describeWindow } from '../hooks/useHistoryBackfill';
 import { PlaceField } from '../components/PlaceField';
 import type { ReviewablePosting } from '../hooks/useHistoryBackfill';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
@@ -55,11 +56,6 @@ function startMonths(now: Date): Date[] {
 
 function monthLabel(d: Date): string {
   return `${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
-}
-
-function rangeLabel(start: Date, end: Date): string {
-  const fmt = (d: Date): string => `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
-  return `${fmt(start)} – ${fmt(new Date(end.getTime() - 1))}`;
 }
 
 // ---------- step 1: setup ----------
@@ -111,6 +107,9 @@ function SetupStep({ onStart }: {
             style={[styles.chip, cadence === value && styles.chipActive]}
             onPress={() => setCadence(value)}
             activeOpacity={0.7}
+            accessibilityRole="radio"
+            accessibilityState={{ selected: cadence === value }}
+            accessibilityLabel={`Post every ${label}`}
           >
             <Text style={[styles.chipText, cadence === value && styles.chipTextActive]}>{label}</Text>
           </TouchableOpacity>
@@ -120,6 +119,10 @@ function SetupStep({ onStart }: {
           style={[styles.chip, cadence === 'other' && styles.chipActive]}
           onPress={() => setCadence('other')}
           activeOpacity={0.7}
+          accessibilityRole="radio"
+          accessibilityState={{ selected: cadence === 'other' }}
+          accessibilityLabel="Other posting frequency"
+          accessibilityHint="Lets you type your own number of days between posts"
         >
           <Text style={[styles.chipText, cadence === 'other' && styles.chipTextActive]}>Other</Text>
         </TouchableOpacity>
@@ -135,7 +138,13 @@ function SetupStep({ onStart }: {
             onChangeText={t => setCustomDays(t.replace(/[^0-9]/g, '').slice(0, 3))}
             keyboardType="number-pad"
             maxLength={3}
+            returnKeyType="done"
+            // The number pad has no return key on iOS; submitting via the
+            // keyboard's Done is how a switch-control or keyboard user leaves
+            // this field without hunting for a tap target.
+            onSubmitEditing={Keyboard.dismiss}
             accessibilityLabel="Days between posts"
+            accessibilityHint={`Currently every ${customDays === '' ? 'unset' : customDays} days`}
           />
           <Text style={styles.customLabel}>days</Text>
         </View>
@@ -152,6 +161,10 @@ function SetupStep({ onStart }: {
               style={[styles.chip, selected && styles.chipActive]}
               onPress={() => setStartDate(m)}
               activeOpacity={0.7}
+              accessibilityRole="radio"
+              accessibilityState={{ selected }}
+              accessibilityLabel={monthLabel(m)}
+              accessibilityHint="Sets when your travels started"
             >
               <Text style={[styles.chipText, selected && styles.chipTextActive]}>{monthLabel(m)}</Text>
             </TouchableOpacity>
@@ -178,6 +191,14 @@ function SetupStep({ onStart }: {
         disabled={!ready}
         onPress={() => { if (startDate != null) onStart(startDate, intervalDays); }}
         activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityState={{ disabled: !ready }}
+        accessibilityLabel="Rebuild my history"
+        accessibilityHint={
+          ready
+            ? `Looks through ${plan.windows.length} stretches of your photo library and suggests a post for each`
+            : 'Choose how often you would have posted and when your travels started first'
+        }
       >
         <Text style={styles.primaryButtonText}>Rebuild my history</Text>
       </TouchableOpacity>
@@ -190,9 +211,9 @@ function SetupStep({ onStart }: {
 function ScanningStep({ current, total }: { current: number; total: number }): React.JSX.Element {
   const pct = total > 0 ? Math.round((current / total) * 100) : 0;
   return (
-    <View style={styles.centered}>
+    <View style={styles.centered} accessibilityLiveRegion="polite">
       <ActivityIndicator color={colors.accent} size="large" />
-      <Text style={styles.scanTitle}>Rebuilding your travels…</Text>
+      <Text style={styles.scanTitle} accessibilityRole="header">Rebuilding your travels…</Text>
       <Text style={styles.scanSub}>
         {total > 0 ? `Stretch ${Math.max(current, 1)} of ${total}` : 'Planning the timeline'}
       </Text>
@@ -218,7 +239,7 @@ function PostingCard({ posting, photos, onToggle, onPlace, onSwap }: {
       <View style={styles.cardHeader}>
         <View style={styles.cardHeaderText}>
           <Text style={styles.cardDate}>
-            {rangeLabel(posting.draft.window.start, posting.draft.window.end)}
+            {describeWindow(posting.draft.window.start, posting.draft.window.end)}
           </Text>
           <Text style={styles.cardCount}>
             {posting.slots.length} {posting.slots.length === 1 ? 'photo' : 'photos'}
@@ -250,7 +271,9 @@ function PostingCard({ posting, photos, onToggle, onPlace, onSwap }: {
               onPress={() => onSwap(id)}
               disabled={dropped}
               activeOpacity={0.7}
+              accessibilityRole="button"
               accessibilityLabel="Suggest a different photo"
+              accessibilityHint="Replaces this photo with another from the same stretch"
             >
               <Image source={{ uri: photo.candidate.uri }} style={styles.photo} />
             </TouchableOpacity>
@@ -343,6 +366,14 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
           disabled={keeping.length === 0 || publishing}
           onPress={onPublish}
           activeOpacity={0.8}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: keeping.length === 0 || publishing, busy: publishing }}
+          accessibilityLabel={
+            publishing
+              ? `Publishing, ${published} of ${keeping.length} done`
+              : `Add ${keeping.length} ${keeping.length === 1 ? 'post' : 'posts'} to my story`
+          }
+          accessibilityHint="Your followers are not messaged about these"
         >
           {publishing ? (
             <Text style={styles.primaryButtonText}>
@@ -377,13 +408,20 @@ export function HistoryBackfillScreen(): React.JSX.Element {
 
   function handlePublish(): void {
     void publish()
-      .then(({ published: count, failed }) => {
+      .then(({ published: count, failed, failures }) => {
         const added = `${count} ${count === 1 ? 'post' : 'posts'} added to your story.`;
+        // Never round a partial failure up to a success — name which stretches
+        // failed and why, so "3 couldn't be uploaded" is something the
+        // publisher can actually act on.
+        const detail = failures
+          .slice(0, 3)
+          .map(f => `• ${f.when}: ${f.reason}`)
+          .join('\n');
+        const more = failures.length > 3 ? `\n…and ${failures.length - 3} more.` : '';
         Alert.alert(
           'Your history is live',
-          // Never round a partial failure up to a success — say what didn't make it.
           failed > 0
-            ? `${added} ${failed} couldn’t be uploaded — run this again to retry those.`
+            ? `${added}\n\n${failed} couldn’t be uploaded — run this again to retry:\n${detail}${more}`
             : added,
           [{ text: 'Done', onPress: () => navigation.goBack() }],
         );
@@ -428,7 +466,13 @@ export function HistoryBackfillScreen(): React.JSX.Element {
           <Ionicons name="alert-circle-outline" size={40} color={colors.danger} />
           <Text style={styles.scanTitle}>Something went wrong</Text>
           <Text style={styles.scanSub}>{error}</Text>
-          <TouchableOpacity style={styles.secondaryButton} onPress={reset} activeOpacity={0.8}>
+          <TouchableOpacity
+            style={styles.secondaryButton}
+            onPress={reset}
+            activeOpacity={0.8}
+            accessibilityRole="button"
+            accessibilityLabel="Start over"
+          >
             <Text style={styles.secondaryButtonText}>Start over</Text>
           </TouchableOpacity>
         </View>

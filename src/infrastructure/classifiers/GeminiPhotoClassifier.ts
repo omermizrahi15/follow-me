@@ -1,6 +1,7 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { IPhotoClassifier } from '../../domain/interfaces';
+import { reportMessage } from '../monitoring/sentry';
 
 /** Wire shape sent to the classify-photos Edge Function for one photo. */
 export interface PhotoPayload {
@@ -72,6 +73,9 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
    */
   private hitQuota = false;
 
+  /** Photos the current classify() run started with — reported alongside a quota hit. */
+  private runSize = 0;
+
   quotaExhausted(): boolean {
     return this.hitQuota;
   }
@@ -82,6 +86,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     shouldStop?: () => boolean,
   ): Promise<PhotoClassification[]> {
     this.hitQuota = false;
+    this.runSize = candidates.length;
     if (candidates.length === 0) return [];
 
     const total = candidates.length;
@@ -165,7 +170,16 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           // 429 is the daily quota, not a per-photo failure: every remaining
           // photo would fail identically, so record it for the caller instead
           // of letting a whole backfill quietly come back empty.
-          if (res.status === 429) this.hitQuota = true;
+          if (res.status === 429 && !this.hitQuota) {
+            this.hitQuota = true;
+            // Reported once per run, not once per photo: a quota wall trips
+            // every in-flight request, and N identical events per scan would
+            // drown the signal we actually want — how often real publishers
+            // hit the ceiling, which nothing throws and no stack trace shows.
+            reportMessage('classify-photos daily quota exhausted', 'classify_photos', {
+              photosInRun: this.runSize,
+            });
+          }
           console.warn(`classify-photos failed for ${c.id} (${res.status}): ${await res.text()}`);
           return null;
         }

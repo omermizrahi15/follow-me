@@ -174,7 +174,7 @@ describe('BackfillHistoryUseCase — progress', () => {
 describe('BackfillHistoryUseCase — classification quota', () => {
   it('stops scanning once the daily budget is spent', async () => {
     const { useCase, classifier, library } = makeSut();
-    classifier.exhaustQuotaFromCall = 2; // first window succeeds, then the budget dies
+    classifier.quotaExhaustedFromCallIndex = 2; // first window succeeds, then the budget dies
 
     const { quotaExhausted, scannedWindows } = await useCase.execute(input);
 
@@ -185,7 +185,7 @@ describe('BackfillHistoryUseCase — classification quota', () => {
 
   it('keeps every window reconstructed before the budget ran out', async () => {
     const { useCase, classifier } = makeSut();
-    classifier.exhaustQuotaFromCall = 2;
+    classifier.quotaExhaustedFromCallIndex = 2;
 
     const { drafts } = await useCase.execute(input);
 
@@ -196,7 +196,7 @@ describe('BackfillHistoryUseCase — classification quota', () => {
 
   it('reports the full plan even when it stopped early, so the UI can say what is left', async () => {
     const { useCase, classifier } = makeSut();
-    classifier.exhaustQuotaFromCall = 1;
+    classifier.quotaExhaustedFromCallIndex = 1;
 
     const { plan, scannedWindows } = await useCase.execute(input);
 
