@@ -20,6 +20,7 @@
 
 import { execSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
+import QRCode from 'qrcode';
 
 const CHANNEL = process.env.CHANNEL;
 const PROFILE = process.env.PROFILE;
@@ -94,6 +95,39 @@ const explainAgainst = (build) => {
   return changes.sort((a, b) => a.id.localeCompare(b.id));
 };
 
+// A freshly started build carries no project in its payload, so fall back to the
+// one every listed build reports — it's the same project either way.
+const PROJECT = builds.find((b) => b.project)?.project;
+const buildUrl = (b) => {
+  const p = b.project ?? PROJECT;
+  return p && `https://expo.dev/accounts/${p.ownerAccount?.name}/projects/${p.slug}/builds/${b.id}`;
+};
+
+// A scannable QR of the build page, so the phone that has to install the .ipa
+// never has to receive the URL by hand.
+//
+// The symbol can't live in the job summary itself. Drawn with characters it is
+// unreadable — GitHub's code blocks leave a background gap between glyph rows
+// (a 12px glyph in an 18px line box), and rastered at that geometry no decoder
+// resolves it — and GitHub's sanitizer strips the src off `data:` images, so it
+// can't be inlined as one either. So the summary links docs/install/, a static
+// page on the repo's existing GitHub Pages site, and hands it the finished
+// symbol in the fragment: `#<size>.<base64url bits>.<encoded url>`, row-major,
+// one bit per module. Encoding it here keeps that page free of any QR library,
+// and a fragment is never sent to a server.
+const INSTALL_PAGE = (() => {
+  const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? 'omermizrahi15/follow-me').split('/');
+  return `https://${owner}.github.io/${repo}/install/`;
+})();
+
+const scanLink = (url) => {
+  const { modules } = QRCode.create(url, { errorCorrectionLevel: 'L' });
+  const { size, data } = modules;
+  const bytes = Buffer.alloc(Math.ceil((size * size) / 8));
+  for (let i = 0; i < size * size; i++) if (data[i]) bytes[i >> 3] |= 128 >> (i & 7);
+  return `${INSTALL_PAGE}#${size}.${bytes.toString('base64url')}.${encodeURIComponent(url)}`;
+};
+
 // --- 4. render ---
 const out = [];
 const push = (...lines) => out.push(...lines);
@@ -102,7 +136,7 @@ if (reachable.length) {
   push(`## ✅ OTA reachable — no rebuild needed`, '');
   push(`\`${CHANNEL}\` has an installed build on runtimeVersion \`${runtimeVersion}\`, so this update is delivered over-the-air. Nothing to do on your machine.`, '');
   const b = reachable[0];
-  push(`Matching build: [\`${b.id.slice(0, 8)}\`](https://expo.dev/accounts/${b.project?.ownerAccount?.name}/projects/${b.project?.slug}/builds/${b.id}) · ${(b.gitCommitHash ?? '').slice(0, 7)} · ${b.completedAt ?? b.createdAt}`, '');
+  push(`Matching build: [\`${b.id.slice(0, 8)}\`](${buildUrl(b)}) · ${(b.gitCommitHash ?? '').slice(0, 7)} · ${b.completedAt ?? b.createdAt}`, '');
 } else {
   push(`## ⚠️ Native rebuild required — this update reaches no device`, '');
   push(
@@ -135,15 +169,18 @@ if (reachable.length) {
   if (pending.length) {
     const b = pending[0];
     push(`### 🏗 A matching build is already running`, '');
-    push(`Build \`${b.id.slice(0, 8)}\` (${b.status}) is on this runtimeVersion — no new build started. Install it when it finishes and the OTA lands.`, '');
+    push(`[Build \`${b.id.slice(0, 8)}\`](${buildUrl(b)}) (${b.status}) is on this runtimeVersion — no new build started. Install it when it finishes and the OTA lands.`, '');
+    push(`### [📱 Scan to install on your phone →](${scanLink(buildUrl(b))})`, '');
   } else if (AUTO_BUILD && MODE === 'cd') {
     push(`### 🏗 Rebuild started automatically`, '');
     try {
       const started = eas(`build --platform ios --profile ${PROFILE} --message "auto: runtimeVersion ${runtimeVersion.slice(0, 12)} has no installed build"`);
       const b = Array.isArray(started) ? started[0] : started;
-      const url = `https://expo.dev/accounts/${b.project?.ownerAccount?.name}/projects/${b.project?.slug}/builds/${b.id}`;
+      const url = buildUrl(b);
       push(`[Build \`${b.id.slice(0, 8)}\`](${url}) is queued on profile \`${PROFILE}\`.`, '');
-      push(`**You still have to install it** — internal distribution can't push a binary to your phone. Open the link, scroll to "Install", scan the QR from the device.`, '');
+      push(`**You still have to install it** — internal distribution can't push a binary to your phone.`, '');
+      push(`### [📱 Scan to install on your phone →](${scanLink(url)})`, '');
+      push(`Opens a QR for this build. Point your camera at it, then tap **Install** once the build goes green.`, '');
     } catch (err) {
       push(`Could not start the build automatically — run it yourself:`, '');
       push('```bash', `eas build --profile ${PROFILE} --platform ios`, '```', '');

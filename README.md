@@ -129,7 +129,7 @@ table is the full map — what you see under *Actions* is exactly these:
 - **On the PR** — a job summary saying either "OTA is enough" or which native input moved (`added — native module react-native-webview`). Advisory, never blocks.
 - **On merge** — if the update reached no device the **CD job goes red** (so GitHub emails you) and, for staging, a fresh `eas build --profile preview` is **started automatically**; the summary links it. Production only reports, so a production build is never spent unasked.
 
-Installing the finished `.ipa` is the one manual step — internal distribution can't push a binary to the phone.
+Installing the finished `.ipa` is the one manual step — internal distribution can't push a binary to the phone. To save retyping the build URL there, the summary links **[📱 Scan to install](docs/install/index.html)** ([`docs/install/`](docs/install/index.html) on the Pages site), which shows a QR of the build page. The symbol is encoded by CI and passed in the link's fragment, so that page ships no QR library and makes no network calls; it can't be drawn in the job summary directly, because GitHub's code blocks gap every glyph row (no decoder reads it) and its sanitizer strips the `src` off `data:` images.
 
 **Service tests** live next to the code as Deno `*_test.ts` (e.g. [`supabase/functions/_shared/optOut_test.ts`](supabase/functions/_shared/optOut_test.ts)); run them locally with `deno task test`. Functions without unit tests yet still get lint + typecheck in CI.
 

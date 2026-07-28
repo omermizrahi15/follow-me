@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0E3A53" />
+    <meta name="robots" content="noindex" />
+    <title>Follow Me — Install a build</title>
+    <!--
+      Renders a scannable QR for an EAS build page, linked from the CD job summary
+      when an OTA reached no device and a native rebuild is required.
+
+      Why a page at all: a QR can't live in the job summary itself. Drawn with
+      characters it breaks — GitHub's code blocks leave a background gap between
+      glyph rows, which no decoder reads — and GitHub's sanitizer strips the src
+      off `data:` images, so it can't be inlined as one either.
+
+      The CD job has already encoded the symbol; the fragment carries it as
+      `#<size>.<base64url bits>.<encoded url>`, row-major, one bit per module. So
+      this page ships no QR library, just the drawing. The fragment never reaches
+      the server, and the page makes no network requests of its own.
+    -->
+    <style>
+      :root { color-scheme: light; }
+      * { box-sizing: border-box; }
+      html, body {
+        margin: 0;
+        min-height: 100%;
+        background: #F4F6F9;
+        color: #13212B;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        -webkit-font-smoothing: antialiased;
+      }
+      body { display: flex; align-items: center; justify-content: center; padding: 24px; }
+      .card {
+        width: 100%;
+        max-width: 400px;
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 20px;
+        padding: 32px 24px;
+        box-shadow: 0 12px 40px rgba(19, 33, 43, 0.08);
+        text-align: center;
+      }
+      h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; margin: 0 0 6px; }
+      .subtitle { color: #5A6672; font-size: 14px; line-height: 20px; margin: 0 0 24px; }
+      /* The quiet zone and the white plate stay white in every theme: a QR that
+         inherits a dark background is an inverted symbol many cameras refuse. */
+      .plate {
+        display: inline-block;
+        background: #FFFFFF;
+        border: 1px solid #E2E8F0;
+        border-radius: 16px;
+        padding: 16px;
+        line-height: 0;
+      }
+      canvas {
+        width: 288px;
+        height: 288px;
+        max-width: 100%;
+        image-rendering: pixelated; /* keep module edges hard when upscaled */
+      }
+      a.open {
+        display: block;
+        margin-top: 20px;
+        background: #0E3A53;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 600;
+        border-radius: 12px;
+        padding: 15px;
+        text-decoration: none;
+      }
+      .url {
+        margin-top: 16px;
+        color: #5A6672;
+        font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+        font-size: 11px;
+        line-height: 16px;
+        word-break: break-all;
+      }
+      .error { color: #B3261E; font-size: 14px; line-height: 20px; }
+    </style>
+  </head>
+  <body>
+    <div class="card">
+      <h1>Install this build</h1>
+      <p class="subtitle" id="subtitle">
+        Point your phone's camera at the code, then tap <strong>Install</strong> on the page that opens.
+      </p>
+      <div id="out"></div>
+    </div>
+    <script>
+      (function () {
+        var out = document.getElementById('out');
+        var fail = function (msg) {
+          document.getElementById('subtitle').remove();
+          out.innerHTML = '<p class="error"></p>';
+          out.firstChild.textContent = msg;
+        };
+
+        // #<size>.<base64url bits>.<encoded url> — size and the payload never
+        // contain a dot, so the first two are unambiguous and the rest is the URL
+        // (which does contain dots).
+        var raw = location.hash.slice(1);
+        var a = raw.indexOf('.');
+        var b = raw.indexOf('.', a + 1);
+        if (a < 0 || b < 0) return fail('This link is missing its build code. Open the build from the CD job summary instead.');
+
+        var size = parseInt(raw.slice(0, a), 10);
+        var bits = raw.slice(a + 1, b);
+        var url;
+        try { url = decodeURIComponent(raw.slice(b + 1)); } catch (e) { url = ''; }
+        if (!(size > 0) || !/^https:\/\/expo\.dev\//.test(url)) return fail('This link is malformed. Open the build from the CD job summary instead.');
+
+        var bin = atob(bits.replace(/-/g, '+').replace(/_/g, '/'));
+        if (bin.length * 8 < size * size) return fail('This link is truncated. Open the build from the CD job summary instead.');
+
+        var QUIET = 4; // modules of margin the spec requires around the symbol
+        var span = size + QUIET * 2;
+        var SCALE = 8;
+        var canvas = document.createElement('canvas');
+        canvas.width = canvas.height = span * SCALE;
+        var ctx = canvas.getContext('2d');
+        ctx.fillStyle = '#FFFFFF';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#000000';
+        for (var i = 0; i < size * size; i++) {
+          if (!(bin.charCodeAt(i >> 3) & (128 >> (i & 7)))) continue;
+          var x = i % size, y = (i / size) | 0;
+          ctx.fillRect((x + QUIET) * SCALE, (y + QUIET) * SCALE, SCALE, SCALE);
+        }
+
+        var plate = document.createElement('div');
+        plate.className = 'plate';
+        plate.appendChild(canvas);
+        out.appendChild(plate);
+
+        // Also useful when this page is opened on the phone itself, where there
+        // is nothing to scan.
+        var open = document.createElement('a');
+        open.className = 'open';
+        open.href = url;
+        open.rel = 'noopener';
+        open.textContent = 'Open the build page';
+        out.appendChild(open);
+
+        var caption = document.createElement('p');
+        caption.className = 'url';
+        caption.textContent = url;
+        out.appendChild(caption);
+      })();
+    </script>
+  </body>
+</html>
