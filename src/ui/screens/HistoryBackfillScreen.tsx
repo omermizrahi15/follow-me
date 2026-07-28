@@ -5,7 +5,6 @@ import {
   TouchableOpacity,
   Image,
   ScrollView,
-  ActivityIndicator,
   StyleSheet,
   SafeAreaView,
   Alert,
@@ -157,19 +156,64 @@ function SetupStep({ onStart, initialStartDate = null, gapCount = null, bottomIn
 
 // ---------- step 2: scanning ----------
 
-function ScanningStep({ current, total }: { current: number; total: number }): React.JSX.Element {
-  const pct = total > 0 ? Math.round((current / total) * 100) : 0;
+function ScanningStep({ current, total, classified, of, batch, scanned }: {
+  current: number;
+  total: number;
+  classified: number;
+  of: number;
+  batch: PhotoClassification[];
+  scanned: { window: HistoryWindow; batch: PhotoClassification[] }[];
+}): React.JSX.Element {
+  // Two bars, because they answer different questions: how far through the trip
+  // are we, and is this stretch actually moving. With only the first, a slow
+  // stretch is indistinguishable from a hung one.
+  const overall = total > 0 ? Math.round(((current - 1) / total) * 100) : 0;
+  const withinPct = of > 0 ? Math.round((classified / of) * 100) : 0;
+
   return (
-    <View style={styles.centered} accessibilityLiveRegion="polite">
-      <ActivityIndicator color={colors.accent} size="large" />
+    <ScrollView contentContainerStyle={styles.body} accessibilityLiveRegion="polite">
       <Text style={styles.scanTitle} accessibilityRole="header">Rebuilding your travels…</Text>
       <Text style={styles.scanSub}>
         {total > 0 ? `Stretch ${Math.max(current, 1)} of ${total}` : 'Planning the timeline'}
       </Text>
+
       <View style={styles.track}>
-        <View style={[styles.fill, { width: `${pct}%` }]} />
+        <View style={[styles.fill, { width: `${overall}%` }]} />
       </View>
-    </View>
+
+      {of > 0 && (
+        <>
+          <Text style={styles.scanDetail}>
+            Looking at {classified} of {of} photos in this stretch
+          </Text>
+          <View style={styles.trackThin}>
+            <View style={[styles.fill, { width: `${withinPct}%` }]} />
+          </View>
+        </>
+      )}
+
+      {/* The running pick, so a long stretch visibly produces something. */}
+      {batch.length > 0 && (
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
+          {batch.map(c => (
+            <Image key={c.candidate.id} source={{ uri: c.candidate.uri }} style={styles.photoSmall} />
+          ))}
+        </ScrollView>
+      )}
+
+      {scanned.length > 0 && <Text style={styles.label}>Done so far</Text>}
+      {[...scanned].reverse().map(done => (
+        <View key={done.window.start.toISOString()} style={styles.doneRow}>
+          <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+          <Text style={styles.doneWhen}>{describeWindow(done.window.start, done.window.end)}</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRowTight}>
+            {done.batch.slice(0, 4).map(c => (
+              <Image key={c.candidate.id} source={{ uri: c.candidate.uri }} style={styles.photoTiny} />
+            ))}
+          </ScrollView>
+        </View>
+      ))}
+    </ScrollView>
   );
 }
 
@@ -365,6 +409,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
   const publisherId = usePublisherId();
   const {
     phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error,
+    scanClassified, scanOf, scanBatch, scanned,
     run, toggleDropped, setPlace, swapPhoto, publish, reset,
   } = useHistoryBackfill(publisherId);
 
@@ -402,7 +447,16 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
         />
       )}
 
-      {phase === 'scanning' && <ScanningStep current={scanningWindow} total={totalWindows} />}
+      {phase === 'scanning' && (
+        <ScanningStep
+          current={scanningWindow}
+          total={totalWindows}
+          classified={scanClassified}
+          of={scanOf}
+          batch={scanBatch}
+          scanned={scanned}
+        />
+      )}
 
       {(phase === 'review' || phase === 'publishing' || phase === 'done') && (
         <ReviewStep
@@ -555,11 +609,28 @@ const styles = StyleSheet.create({
     height: 6,
     borderRadius: radius.pill,
     backgroundColor: colors.surfaceAlt,
-    width: '80%',
-    marginTop: spacing.lg,
+    marginTop: spacing.md,
     overflow: 'hidden',
   },
+  trackThin: {
+    height: 4,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceAlt,
+    overflow: 'hidden',
+    marginTop: spacing.xs,
+  },
   fill: { height: '100%', backgroundColor: colors.accent, borderRadius: radius.pill },
+  scanDetail: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
+  photoSmall: { width: 64, height: 64, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt },
+  photoTiny: { width: 34, height: 34, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt },
+  photoRowTight: { flexDirection: 'row', gap: 4 },
+  doneRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xs,
+  },
+  doneWhen: { ...typography.caption, color: colors.text, minWidth: 96 },
 
   card: {
     backgroundColor: colors.surface,

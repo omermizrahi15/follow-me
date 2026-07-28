@@ -104,7 +104,10 @@ export class ExpoMediaLibrary implements IMediaLibrary {
  * bytes would reintroduce the memory spike this downscale exists to avoid.
  */
 export const expoResolvePayload: ResolvePayload = async candidate => {
-  const uri = await expoResolveLocalUri(candidate);
+  // Never wait on an iCloud download here: a photo that isn't on the device is
+  // skipped (see below), which costs one suggestion — cheap next to stalling
+  // the whole scan on a slow connection.
+  const uri = await resolveLocalUri(candidate, false);
   // ph:// URIs can't be read by FileSystem — only skip candidates that couldn't
   // be resolved to a local file:// path (e.g. iCloud-only photos not yet downloaded).
   if (!uri.startsWith('file://')) return null;
@@ -126,14 +129,28 @@ export const expoResolvePayload: ResolvePayload = async candidate => {
 };
 
 /**
- * Resolves a library uri to a readable local file uri (iOS `ph://` → `file://`),
- * used before uploading candidates to the cloud.
+ * Resolves a library uri to a readable local file uri (iOS `ph://` → `file://`).
+ *
+ * `download` decides what happens for a photo whose original lives in iCloud
+ * rather than on the device — the normal state under "Optimise iPhone Storage".
+ * `getAssetInfoAsync` defaults to downloading it, which is right before an
+ * upload (we need the bytes) and badly wrong while classifying: a backfill
+ * would pull hundreds of full-resolution originals over the network and appear
+ * to hang for minutes on the first stretch.
  */
-export const expoResolveLocalUri: ResolveLocalUri = async candidate => {
+export async function resolveLocalUri(
+  candidate: PhotoCandidate,
+  download: boolean,
+): Promise<string> {
   if (candidate.uri.startsWith('file://')) return candidate.uri;
-  const info = await MediaLibrary.getAssetInfoAsync(candidate.id);
+  const info = await MediaLibrary.getAssetInfoAsync(candidate.id, {
+    shouldDownloadFromNetwork: download,
+  });
   return info.localUri ?? candidate.uri;
-};
+}
+
+/** Upload path: the bytes are the point, so an iCloud original is worth waiting for. */
+export const expoResolveLocalUri: ResolveLocalUri = candidate => resolveLocalUri(candidate, true);
 
 /**
  * Reads a candidate's GPS coordinate from its asset metadata (issue #23), or
@@ -143,7 +160,10 @@ export const expoResolveLocalUri: ResolveLocalUri = async candidate => {
  * extra per-asset lookup stays bounded.
  */
 export const expoResolveAssetLocation: ResolveAssetLocation = async candidate => {
-  const info = await MediaLibrary.getAssetInfoAsync(candidate.id);
+  // Metadata only — a coordinate never justifies pulling the original down.
+  const info = await MediaLibrary.getAssetInfoAsync(candidate.id, {
+    shouldDownloadFromNetwork: false,
+  });
   const loc = info.location;
   if (loc == null) return null;
   return validCoordinate(loc.latitude, loc.longitude);

@@ -24,7 +24,10 @@ export async function coordinateFor(assetId: string): Promise<Coordinate | undef
 
   let resolved: Coordinate | undefined;
   try {
-    const info = await MediaLibrary.getAssetInfoAsync(assetId);
+    // Metadata only: never pull an iCloud original down just to read its GPS.
+    const info = await MediaLibrary.getAssetInfoAsync(assetId, {
+      shouldDownloadFromNetwork: false,
+    });
     resolved =
       info.location != null
         ? validCoordinate(info.location.latitude, info.location.longitude) ?? undefined

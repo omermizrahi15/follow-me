@@ -61,6 +61,14 @@ interface State {
   /** 1-based index of the window being scanned. */
   scanningWindow: number;
   totalWindows: number;
+  /** Photos classified so far in the current stretch, and how many there are. */
+  scanClassified: number;
+  scanOf: number;
+  /** The running pick for the current stretch — shown live, so a slow scan
+   *  still visibly produces something rather than sitting on a spinner. */
+  scanBatch: PhotoClassification[];
+  /** Stretches finished so far, newest first, for the running timeline. */
+  scanned: { window: HistoryWindow; batch: PhotoClassification[] }[];
   /** True when the day's AI budget cut the scan short. */
   quotaExhausted: boolean;
   /** How many postings have been written during publishing. */
@@ -76,6 +84,10 @@ const INITIAL: State = {
   postings: [],
   scanningWindow: 0,
   totalWindows: 0,
+  scanClassified: 0,
+  scanOf: 0,
+  scanBatch: [],
+  scanned: [],
   quotaExhausted: false,
   published: 0,
   failedCount: 0,
@@ -149,7 +161,23 @@ export function useHistoryBackfill(publisherId: string): State & {
               setState(s => ({ ...s, plan, totalWindows: plan.windows.length }));
             },
             onWindowStart: index => {
-              setState(s => ({ ...s, scanningWindow: index }));
+              // Reset the inner counters so the new stretch doesn't inherit
+              // the previous one's progress bar.
+              setState(s => ({
+                ...s, scanningWindow: index, scanClassified: 0, scanOf: 0, scanBatch: [],
+              }));
+            },
+            onWindowProgress: (_index, _total, p) => {
+              setState(s => ({
+                ...s, scanClassified: p.classified, scanOf: p.of, scanBatch: p.batch,
+              }));
+            },
+            onWindowDone: (_index, _total, draft) => {
+              if (draft == null) return;
+              setState(s => ({
+                ...s,
+                scanned: [...s.scanned, { window: draft.window, batch: draft.batch }],
+              }));
             },
           },
         );

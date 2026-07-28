@@ -37,6 +37,16 @@ export interface BackfillProgress {
   onPlanned?(plan: HistoryWindowPlan): void;
   /** Fires as each window starts. `index` is 1-based. */
   onWindowStart?(index: number, total: number, window: HistoryWindow): void;
+  /**
+   * Fires repeatedly *within* a window as its photos are classified. Without
+   * it a stretch is a black box: a slow one looks identical to a hung one, and
+   * on a poor connection a single window can take minutes.
+   */
+  onWindowProgress?(
+    index: number,
+    total: number,
+    progress: { classified: number; of: number; batch: PhotoClassification[] },
+  ): void;
   /** Fires when a window finishes; `draft` is null when it held no photos. */
   onWindowDone?(index: number, total: number, draft: BackfillDraft | null): void;
 }
@@ -105,7 +115,16 @@ export class BackfillHistoryUseCase {
     for (const [i, window] of plan.windows.entries()) {
       progress?.onWindowStart?.(i + 1, total, window);
 
-      const { batch, pool } = await this.suggestPhotos.execute(input.config, undefined, window);
+      const { batch, pool } = await this.suggestPhotos.execute(
+        input.config,
+        {
+          onScanning: () => undefined,
+          onScanned: () => undefined,
+          onClassifying: (classified, of, currentBatch) =>
+            progress?.onWindowProgress?.(i + 1, total, { classified, of, batch: currentBatch }),
+        },
+        window,
+      );
       scannedWindows++;
 
       // A window with nothing in it is normal — weeks at home between trips.
