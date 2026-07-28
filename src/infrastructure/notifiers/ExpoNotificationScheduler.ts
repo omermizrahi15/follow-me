@@ -63,13 +63,16 @@ export class ExpoNotificationScheduler implements INotificationScheduler {
    * Pass `localAttachmentUris` (file:// paths) for the collapsed thumbnail, and
    * `galleryUrls` (https) so the NotificationContentExtension can render the same
    * expandable gallery the real server push shows. `place` titles it with a
-   * location, mirroring the autonomous push (issue #23).
+   * location, mirroring the autonomous push (issue #23). `batchId` points at a
+   * batch persisted server-side — without it "Post now" has nothing to publish
+   * in the background and can only ask for the app.
    */
   async scheduleTestIn(
     seconds: number,
     localAttachmentUris: string[] = [],
     galleryUrls: string[] = [],
     place?: string | null,
+    batchId?: string,
   ): Promise<void> {
     const granted = await this.ensurePermission();
     if (!granted) throw new Error('Notification permission not granted');
@@ -105,7 +108,12 @@ export class ExpoNotificationScheduler implements INotificationScheduler {
         // `gallery` feeds the content extension's grid; `imageUrl` mirrors the
         // server push (the service extension's thumbnail source) — same keys the
         // real auto-post payload carries.
-        data: { screen: REMINDER_TARGET_SCREEN, gallery: galleryUrls, imageUrl: galleryUrls[0] ?? null },
+        data: {
+          screen: REMINDER_TARGET_SCREEN,
+          gallery: galleryUrls,
+          imageUrl: galleryUrls[0] ?? null,
+          ...(batchId != null ? { batchId } : {}),
+        },
       },
       trigger: {
         type: SchedulableTriggerInputTypes.TIME_INTERVAL,

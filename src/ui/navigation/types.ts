@@ -11,12 +11,15 @@ export type RootStackParamList = {
   /** Edit the full publisher profile (name, photo, bio), from Settings. */
   EditProfile: undefined;
   Upload: undefined;
-  /** `autoConfirm` — set by the "Post now" notification action; auto-posts on load. */
-  ReviewSuggestion: { autoConfirm?: boolean } | undefined;
+  ReviewSuggestion: undefined;
   /** Reconstruct travels from before the publisher installed the app (issue #81). */
   HistoryBackfill: undefined;
-  /** All media of one feed posting, opened by tapping the post. */
-  Posting: { posting: FeedPosting };
+  /**
+   * All media of one feed posting. The feed passes the posting it already has;
+   * the "Posted ✅" push only knows the id it just created, so that form is
+   * resolved against the feed on mount.
+   */
+  Posting: { posting: FeedPosting } | { postingId: string };
 };
 
 /** Navigation prop for the root stack. */

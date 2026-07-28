@@ -13,6 +13,8 @@ type ApprovalBatchRow = {
   batch: CachedPhoto[];
   pool: CachedPhoto[];
   created_at: string;
+  posted_at: string | null;
+  posting_id: string | null;
 };
 
 interface Database {
@@ -20,7 +22,11 @@ interface Database {
     Tables: {
       approval_batches: {
         Row: ApprovalBatchRow;
-        Insert: Omit<ApprovalBatchRow, 'created_at'> & { created_at?: string };
+        Insert: Omit<ApprovalBatchRow, 'created_at' | 'posted_at' | 'posting_id'> & {
+          created_at?: string;
+          posted_at?: string | null;
+          posting_id?: string | null;
+        };
         Update: Partial<ApprovalBatchRow>;
         Relationships: [];
       };
@@ -55,5 +61,20 @@ export class SupabaseApprovalBatchRepository {
     if (data == null) return null;
     // batch is NOT NULL and pool defaults to '[]' server-side, so both arrive as arrays.
     return { batch: data.batch, pool: data.pool };
+  }
+
+  /**
+   * Persist a batch the app computed, so the server can publish it by id.
+   *
+   * Production batches are written by the auto-post job; this exists for the
+   * dev test notification, whose "Post now" would otherwise have no server-side
+   * batch to send and could only ask for the app — leaving the background-post
+   * path untestable without waiting for the cron.
+   */
+  async save(batchId: string, publisherId: string, batch: CachedPhoto[]): Promise<void> {
+    const { error } = await this.client
+      .from('approval_batches')
+      .insert({ batch_id: batchId, publisher_id: publisherId, batch, pool: [] });
+    if (error != null) throw new Error(error.message);
   }
 }

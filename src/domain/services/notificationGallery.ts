@@ -18,7 +18,9 @@ export interface ResolvablePhoto {
 }
 
 export interface ResolvedGallery {
-  /** Remote urls for the chosen photos, in batch order, deduped. */
+  /** The chosen photos that resolved, in batch order, deduped. */
+  photos: ResolvablePhoto[];
+  /** Their urls — the shape notification payloads take. */
   urls: string[];
   /** Ids of chosen photos with no remote copy — reportable, never silently replaced. */
   missing: string[];
@@ -42,7 +44,7 @@ export function resolveChosenGalleryUrls(
   cloudUrlByAssetId: Map<string, string>,
   want: number,
 ): ResolvedGallery {
-  const urls: string[] = [];
+  const photos: ResolvablePhoto[] = [];
   const missing: string[] = [];
   const seen = new Set<string>();
 
@@ -52,8 +54,12 @@ export function resolveChosenGalleryUrls(
 
     const url = isRemote(photo.url) ? photo.url : cloudUrlByAssetId.get(photo.id);
     if (url == null) missing.push(photo.id);
-    else urls.push(url);
+    else photos.push({ id: photo.id, url });
   }
 
-  return { urls, missing };
+  // The id travels with the url because a resolved photo is now also
+  // publishable: the dev test push persists this batch server-side so its
+  // "Post now" exercises the real background-post path, and publishing keys
+  // the `media` row on the asset id.
+  return { photos, urls: photos.map(p => p.url), missing };
 }

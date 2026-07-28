@@ -5,7 +5,7 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import * as Notifications from 'expo-notifications';
 import { cacheBatchFromNotification, type ReviewNotificationData } from '../notifications/cacheApprovalBatch';
-import { POST_NOW_ACTION } from '../../infrastructure/notifiers/NotificationCategories';
+import { postNowRequest } from '../notifications/postNow';
 import { HomeScreen } from '../screens/HomeScreen';
 import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
@@ -31,19 +31,32 @@ export const navigationRef = createNavigationContainerRef<RootStackParamList>();
  * shared by contract, not import).
  */
 const REVIEW_ROUTE: keyof RootStackParamList = 'ReviewSuggestion';
+/** Target of the "Posted ✅" push the server sends after a background post. */
+const POSTING_ROUTE: keyof RootStackParamList = 'Posting';
 
-/** Navigate to the review screen if a notification response targets it. */
+/** Navigate to the screen a notification response targets. */
 async function routeFromNotification(response: Notifications.NotificationResponse | null): Promise<void> {
+  // "Post now" is deliberately not a navigation: it posts in the background
+  // (App.js handles it) and the app is never brought forward. Its confirmation
+  // push is what lands the publisher on the post.
+  if (postNowRequest(response).kind !== 'ignore') return;
+
   const data = response?.notification.request.content.data as ReviewNotificationData | undefined;
   if (data == null) return;
+
+  if (data.screen === POSTING_ROUTE) {
+    if (typeof data.postingId === 'string' && data.postingId !== '' && navigationRef.isReady()) {
+      navigationRef.navigate('Posting', { postingId: data.postingId });
+    }
+    return;
+  }
 
   // Resolve the batch into the cache BEFORE navigating so the review screen's
   // cache-first load picks it up instead of kicking off a device scan.
   await cacheBatchFromNotification(data);
 
   if (data.screen === REVIEW_ROUTE && navigationRef.isReady()) {
-    const autoConfirm = response?.actionIdentifier === POST_NOW_ACTION;
-    navigationRef.navigate('ReviewSuggestion', autoConfirm ? { autoConfirm: true } : undefined);
+    navigationRef.navigate('ReviewSuggestion');
   }
 }
 

@@ -160,7 +160,35 @@ export const scheduleTestNotification = (
   localAttachmentUris: string[] = [],
   galleryUrls: string[] = [],
   place?: string | null,
-): Promise<void> => notificationScheduler.scheduleTestIn(seconds, localAttachmentUris, galleryUrls, place);
+  batchId?: string,
+): Promise<void> =>
+  notificationScheduler.scheduleTestIn(seconds, localAttachmentUris, galleryUrls, place, batchId);
+
+/**
+ * DEV ONLY — persist a batch the app already chose so the test notification's
+ * "Post now" hits the same server path the real approval push does. Returns the
+ * batch id to put in the notification payload.
+ */
+export const saveTestApprovalBatch = async (
+  publisherId: string,
+  photos: { id: string; url: string }[],
+): Promise<string> => {
+  const batchId = `dev-${publisherId}-${Date.now().toString(36)}`;
+  await approvalBatchRepo.save(
+    batchId,
+    publisherId,
+    photos.map(p => ({
+      id: p.id,
+      url: p.url,
+      category: 'other' as const,
+      caption: '',
+      quality: 0,
+      scene: '',
+      createdAt: Date.now(),
+    })),
+  );
+  return batchId;
+};
 
 /** DEV ONLY — recent cloud-synced photo URLs (Cloudinary) for notification tests. */
 export const recentCandidateUrls = (publisherId: string, limit: number): Promise<string[]> =>
@@ -184,6 +212,32 @@ export const candidateUrlsByAssetIds = (
 export const fetchApprovalBatch = monitored(
   'fetch_approval_batch',
   (batchId: string): Promise<ApprovalBatch | null> => approvalBatchRepo.fetch(batchId),
+);
+
+/**
+ * Publish an approval batch server-side — the "Post now" notification action.
+ *
+ * The batch's photos already live in the cloud, so nothing has to be read from
+ * the device: one authenticated call and the server sends to the followers and
+ * pushes back a "Posted ✅" confirmation. That is what lets the action run from
+ * a background launch without the app ever coming to the foreground.
+ *
+ * Idempotent server-side (the batch row is claimed before sending), so a
+ * redelivered notification response returns the original posting id.
+ */
+export const publishApprovalBatch = monitored(
+  'publish_approval_batch',
+  async (batchId: string): Promise<{ postingId: string | null }> => {
+    const token = (await authService.getSession())?.access_token;
+    if (token == null) throw new Error('Not signed in');
+    const res = await fetch(`${supabaseUrl}/functions/v1/post-batch`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, apikey: supabaseKey, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ batchId }),
+    });
+    if (!res.ok) throw new Error(`Post failed (${res.status}): ${await res.text()}`);
+    return (await res.json()) as { postingId: string | null };
+  },
 );
 
 /**

@@ -91,7 +91,7 @@ export class SupabaseMediaRepository implements IMediaRepository {
       location: media.location ?? null,
       latitude: media.coordinate?.latitude ?? null,
       longitude: media.coordinate?.longitude ?? null,
-      // Only sent when true, so a live post never depends on migration 20240023
+      // Only sent when true, so a live post never depends on migration 20240025
       // having landed — the column defaults to false anyway. Keeps ordinary
       // sharing working on any environment the migration hasn't reached yet.
       ...(media.backfilled ? { backfilled: true } : {}),
