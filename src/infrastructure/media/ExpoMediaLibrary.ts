@@ -161,14 +161,21 @@ export async function resolveLocalUri(
   // Unbounded is right when the caller needs the bytes at any cost (upload).
   // For classification a slow photo is not worth an open-ended wait: returning
   // the unusable ph:// uri makes the caller skip it and move to the next.
-  const info = timeoutMs == null
-    ? await lookup
-    : await Promise.race([
-        lookup,
-        new Promise<null>(resolve => setTimeout(() => resolve(null), timeoutMs)),
-      ]);
+  if (timeoutMs == null) return (await lookup).localUri ?? candidate.uri;
 
-  return info?.localUri ?? candidate.uri;
+  // The timer is cleared whichever side wins. Left dangling it would keep one
+  // pending timeout alive per photo for the full window — enough to hold the
+  // event loop open and, in tests, to stop the worker exiting.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const info = await Promise.race([
+      lookup,
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), timeoutMs); }),
+    ]);
+    return info?.localUri ?? candidate.uri;
+  } finally {
+    if (timer != null) clearTimeout(timer);
+  }
 }
 
 /** Upload path: the bytes are the point, so an iCloud original is worth waiting for. */
