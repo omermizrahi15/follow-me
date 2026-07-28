@@ -161,9 +161,13 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
   });
 
   /**
-   * Plane icon, drawn at runtime rather than shipped as an asset. The glyph
-   * points north-east, and MapLibre rotates a line-placed icon from "pointing
-   * east", so it is pre-rotated 45° clockwise to line up with the leg.
+   * Plane icon, drawn at runtime rather than shipped as an asset.
+   *
+   * NO pre-rotation. This used to rotate the glyph 45° on the belief that ✈
+   * points north-east; it does not — measured against a horizontal line, the
+   * glyph's nose already points EAST, which is the direction MapLibre rotates
+   * a line-placed symbol towards. The correction was what tilted the plane off
+   * its own leg.
    */
   function planeIcon() {
     var size = 64;
@@ -172,7 +176,6 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
     canvas.height = size;
     var ctx = canvas.getContext('2d');
     ctx.translate(size / 2, size / 2);
-    ctx.rotate(Math.PI / 4);
     ctx.font = '42px -apple-system, "Segoe UI Symbol", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

@@ -26,25 +26,31 @@ interface Props {
 export function SuggestionPhotoCard({ photo, onSwap, width = '47%' }: Props): React.JSX.Element {
   return (
     <View style={[styles.card, { width }]}>
-      <Image source={{ uri: photo.candidate.uri }} style={styles.photo} />
-      <TouchableOpacity
-        style={styles.chip}
-        onPress={onSwap ?? undefined}
-        disabled={onSwap == null}
-        activeOpacity={onSwap != null ? 0.7 : 1}
-        accessibilityRole={onSwap != null ? 'button' : 'text'}
-        accessibilityLabel={
-          onSwap != null
-            ? `${CATEGORY_LABEL[photo.category]}. Suggest a different photo`
-            : CATEGORY_LABEL[photo.category]
-        }
-        hitSlop={4}
-      >
-        <Text style={styles.chipText}>{CATEGORY_LABEL[photo.category]}</Text>
-        {onSwap != null && (
-          <Ionicons name="refresh" size={10} color={colors.ink} style={styles.chipIcon} />
-        )}
-      </TouchableOpacity>
+      {/* The chip is positioned against the IMAGE, not the card. Anchoring it
+          to the card meant offsetting it by the caption's height with a magic
+          number, which only held at one card size — on the smaller history
+          cards the same offset landed the chip in the middle of the photo. */}
+      <View style={styles.imageWrap}>
+        <Image source={{ uri: photo.candidate.uri }} style={styles.photo} />
+        <TouchableOpacity
+          style={styles.chip}
+          onPress={onSwap ?? undefined}
+          disabled={onSwap == null}
+          activeOpacity={onSwap != null ? 0.7 : 1}
+          accessibilityRole={onSwap != null ? 'button' : 'text'}
+          accessibilityLabel={
+            onSwap != null
+              ? `${CATEGORY_LABEL[photo.category]}. Suggest a different photo`
+              : CATEGORY_LABEL[photo.category]
+          }
+          hitSlop={4}
+        >
+          <Text style={styles.chipText} numberOfLines={1}>{CATEGORY_LABEL[photo.category]}</Text>
+          {onSwap != null && (
+            <Ionicons name="refresh" size={10} color={colors.ink} style={styles.chipIcon} />
+          )}
+        </TouchableOpacity>
+      </View>
       {photo.caption !== '' && (
         <Text style={styles.caption} numberOfLines={1}>{photo.caption}</Text>
       )}
@@ -54,11 +60,15 @@ export function SuggestionPhotoCard({ photo, onSwap, width = '47%' }: Props): Re
 
 const styles = StyleSheet.create({
   card: {},
+  imageWrap: { width: '100%' },
   photo: { width: '100%', aspectRatio: 1, borderRadius: radius.md, backgroundColor: colors.surfaceAlt },
   chip: {
     position: 'absolute',
-    bottom: spacing.lg + 18,
+    bottom: spacing.sm,
     left: spacing.sm,
+    // Hugs its label rather than spanning the photo, but capped so a long
+    // category can't run off the edge of the narrower history cards.
+    maxWidth: '88%',
     backgroundColor: colors.frosted,
     borderRadius: radius.pill,
     paddingHorizontal: spacing.sm,
@@ -66,7 +76,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
-  chipText: { ...typography.caption, fontSize: 11, fontWeight: '600', color: colors.ink },
+  chipText: { ...typography.caption, fontSize: 11, fontWeight: '600', color: colors.ink, flexShrink: 1 },
   chipIcon: { marginLeft: 3 },
   caption: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: spacing.xs },
 });
