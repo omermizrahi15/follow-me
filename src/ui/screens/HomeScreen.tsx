@@ -255,11 +255,11 @@ export function HomeScreen(): React.JSX.Element {
                         activeOpacity={0.85}
                         onPress={() => navigation.navigate('Upload')}
                       >
-                        <Ionicons name="add" size={16} color="#fff" />
+                        <Ionicons name="add" size={14} color="#fff" />
                         <Text style={styles.addButtonText} numberOfLines={1}>Add post</Text>
                       </TouchableOpacity>
                       <TouchableOpacity testID="home-invite" style={styles.inviteButton} activeOpacity={0.85} onPress={shareInvite}>
-                        <Ionicons name="person-add-outline" size={15} color={colors.ink} />
+                        <Ionicons name="person-add-outline" size={13} color={colors.ink} />
                         <Text style={styles.inviteButtonText} numberOfLines={1}>Invite</Text>
                       </TouchableOpacity>
                     </View>
@@ -349,7 +349,7 @@ const styles = StyleSheet.create({
   profile: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.lg,
     // Separates the profile block from the post cards below, which are a
     // different kind of thing — without it they read as one block.
     marginBottom: spacing.xxl,
@@ -370,7 +370,7 @@ const styles = StyleSheet.create({
   name: { ...typography.heading, fontSize: 17, color: colors.text, marginBottom: 1 },
   // Followers count + both actions share one line, so the buttons stay compact
   // and shrink rather than push the count off the row on narrow phones.
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md },
   statCol: { flexShrink: 0 },
   statNumber: { ...typography.heading, fontSize: 17, color: colors.text },
   statLabel: { ...typography.caption, fontSize: 11, color: colors.textSecondary, marginTop: -1 },
@@ -379,27 +379,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
+    gap: 5,
     backgroundColor: colors.ink,
-    paddingVertical: spacing.sm,
+    paddingVertical: 7,
     paddingHorizontal: spacing.sm,
     borderRadius: radius.md,
   },
-  addButtonText: { color: '#fff', fontWeight: '600', fontSize: 12 },
+  addButtonText: { color: '#fff', fontWeight: '600', fontSize: 11 },
   inviteButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
+    gap: 5,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingVertical: spacing.sm,
+    paddingVertical: 7,
     paddingHorizontal: spacing.sm,
     borderRadius: radius.md,
   },
-  inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 12 },
+  inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 11 },
   navWrap: {
     position: 'absolute',
     left: spacing.lg,
