@@ -67,8 +67,6 @@ interface State {
   /** The running pick for the current stretch — shown live, so a slow scan
    *  still visibly produces something rather than sitting on a spinner. */
   scanBatch: PhotoClassification[];
-  /** Stretches finished so far, newest first, for the running timeline. */
-  scanned: { window: HistoryWindow; batch: PhotoClassification[] }[];
   /** True when the day's AI budget cut the scan short. */
   quotaExhausted: boolean;
   /** How many postings have been written during publishing. */
@@ -87,7 +85,6 @@ const INITIAL: State = {
   scanClassified: 0,
   scanOf: 0,
   scanBatch: [],
-  scanned: [],
   quotaExhausted: false,
   published: 0,
   failedCount: 0,
@@ -103,6 +100,19 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 export function describeWindow(start: Date, end: Date): string {
   const fmt = (d: Date): string => `${d.getDate()} ${MONTH_NAMES[d.getMonth()]}`;
   return `${fmt(start)} – ${fmt(new Date(end.getTime() - 1))}`;
+}
+
+/** A finished draft as the review timeline holds it. */
+function toReviewable(draft: BackfillDraft): ReviewablePosting {
+  return {
+    id: draft.window.start.toISOString(),
+    draft,
+    slots: draft.batch.map(c => c.candidate.id),
+    place: '',
+    placeLoading: true,
+    hasGps: false, // corrected once the GPS probe has run
+    dropped: false,
+  };
 }
 
 /** Every classified photo of a draft, batch and pool alike, keyed by id. */
@@ -174,56 +184,42 @@ export function useHistoryBackfill(publisherId: string): State & {
             },
             onWindowDone: (_index, _total, draft) => {
               if (draft == null) return;
-              setState(s => ({
-                ...s,
-                scanned: [...s.scanned, { window: draft.window, batch: draft.batch }],
-              }));
+              // Land the finished stretch in `postings` straight away rather
+              // than collecting drafts and rebuilding at the end: the review
+              // list IS the scan list, so a photo swapped while the scan is
+              // still running is not thrown away when it completes.
+              const posting = toReviewable(draft);
+              setState(s => ({ ...s, postings: [...s.postings, posting] }));
+              // Its place resolves in the background, per stretch, so review is
+              // instant instead of waiting on a burst of geocodes at the end.
+              void resolvePlaceFor(posting).then(({ place, coordinate }) => {
+                setState(s => ({
+                  ...s,
+                  postings: s.postings.map(p => {
+                    if (p.id !== posting.id) return p;
+                    const base = {
+                      ...p,
+                      placeLoading: false,
+                      hasGps: coordinate != null,
+                      ...(coordinate != null ? { coordinate } : {}),
+                    };
+                    return editedPlaces.current.has(p.id) ? base : { ...base, place: place ?? '' };
+                  }),
+                }));
+              }).catch(() => undefined);
             },
           },
         );
 
-        const postings: ReviewablePosting[] = result.drafts.map(draft => ({
-          id: draft.window.start.toISOString(),
-          draft,
-          slots: draft.batch.map(c => c.candidate.id),
-          place: '',
-          placeLoading: true,
-          hasGps: false, // corrected below, once the GPS probe has run
-          dropped: false,
-        }));
 
         setState(s => ({
           ...s,
           phase: 'review',
           plan: result.plan,
-          postings,
           quotaExhausted: result.quotaExhausted,
           error: null,
         }));
 
-        // Places resolve after the timeline is already on screen: each is a
-        // network round-trip, and the publisher can start reviewing photos
-        // straight away rather than waiting on every geocode.
-        await Promise.all(
-          postings.map(async posting => {
-            const { place, coordinate } = await resolvePlaceFor(posting);
-            setState(s => ({
-              ...s,
-              postings: s.postings.map(p => {
-                if (p.id !== posting.id) return p;
-                // hasGps and the coordinate describe the photos, so they land
-                // even when the publisher has already typed over the label.
-                const base = {
-                  ...p,
-                  placeLoading: false,
-                  hasGps: coordinate != null,
-                  ...(coordinate != null ? { coordinate } : {}),
-                };
-                return editedPlaces.current.has(p.id) ? base : { ...base, place: place ?? '' };
-              }),
-            }));
-          }),
-        );
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : 'Could not rebuild your history';
         setState(s => ({ ...s, phase: 'error', error: message }));

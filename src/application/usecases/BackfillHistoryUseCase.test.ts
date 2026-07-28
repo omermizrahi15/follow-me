@@ -72,15 +72,17 @@ describe('BackfillHistoryUseCase — planning', () => {
 });
 
 describe('BackfillHistoryUseCase — scanning', () => {
-  it('scans one window per interval, newest first', async () => {
+  it('scans one window per interval, oldest first', async () => {
     const { useCase, library } = makeSut();
 
     await useCase.execute(input);
 
+    // A history is rebuilt forwards from where the trip began, so the first
+    // stretch scanned is the start of the travels and the last is nearest today.
     expect(library.requestedWindows.map(w => w.start.toISOString())).toEqual([
-      '2026-06-15T00:00:00.000Z',
-      '2026-06-08T00:00:00.000Z',
       '2026-06-01T00:00:00.000Z',
+      '2026-06-08T00:00:00.000Z',
+      '2026-06-15T00:00:00.000Z',
     ]);
   });
 
@@ -89,7 +91,7 @@ describe('BackfillHistoryUseCase — scanning', () => {
 
     const { drafts } = await useCase.execute(input);
 
-    expect(draftIds(drafts)).toEqual([['week3'], ['week2'], ['week1']]);
+    expect(draftIds(drafts)).toEqual([['week1'], ['week2'], ['week3']]);
   });
 
   it('carries each window’s dates on its draft, for back-dating the posting', async () => {
@@ -97,8 +99,8 @@ describe('BackfillHistoryUseCase — scanning', () => {
 
     const { drafts } = await useCase.execute(input);
 
-    expect(drafts[0]?.window.start).toEqual(new Date('2026-06-15T00:00:00Z'));
-    expect(drafts[0]?.window.end).toEqual(END);
+    expect(drafts[0]?.window.start).toEqual(START);
+    expect(drafts[drafts.length - 1]?.window.end).toEqual(END);
   });
 
   it('drops windows with no photos — weeks at home are not postings', async () => {
@@ -107,7 +109,7 @@ describe('BackfillHistoryUseCase — scanning', () => {
 
     const { drafts, scannedWindows } = await useCase.execute(input);
 
-    expect(draftIds(drafts)).toEqual([['week3'], ['week1']]);
+    expect(draftIds(drafts)).toEqual([['week1'], ['week3']]);
     expect(scannedWindows).toBe(3); // all three were still scanned
   });
 
@@ -124,9 +126,10 @@ describe('BackfillHistoryUseCase — scanning', () => {
     const { useCase, library } = makeSut([]);
     const before = Date.now();
 
-    await useCase.execute({ config: config(), startDate: START, intervalDays: 7, maxWindows: 1 });
+    await useCase.execute({ config: config(), startDate: START, intervalDays: 7 });
 
-    const end = library.requestedWindows[0]?.end.getTime() ?? 0;
+    // The newest window is scanned last, so its end is the one anchored to now.
+    const end = library.requestedWindows[library.requestedWindows.length - 1]?.end.getTime() ?? 0;
     expect(end).toBeGreaterThanOrEqual(before);
     expect(end).toBeLessThanOrEqual(Date.now());
   });
@@ -155,7 +158,8 @@ describe('BackfillHistoryUseCase — explicit gap windows (issue #81)', () => {
     const plan = useCase.plan({ ...input, windows: gaps });
 
     expect(plan.total).toBe(2);
-    expect(plan.windows).toEqual(gaps);
+    // Given newest-first, returned oldest-first.
+    expect(plan.windows).toEqual([...gaps].reverse());
     expect(library.requestedWindows).toEqual([]);
   });
 
@@ -209,7 +213,8 @@ describe('BackfillHistoryUseCase — progress', () => {
 
     await useCase.execute(input, { onWindowDone: (_i, _t, d) => drafts.push(d) });
 
-    expect(drafts.map(d => d == null)).toEqual([false, true, true]);
+    // Oldest first, and only the newest week has a photo.
+    expect(drafts.map(d => d == null)).toEqual([true, true, false]);
   });
 });
 
@@ -232,8 +237,9 @@ describe('BackfillHistoryUseCase — classification quota', () => {
     const { drafts } = await useCase.execute(input);
 
     // The completed work survives — the publisher reviews it now and resumes
-    // the rest tomorrow, rather than losing the whole run.
-    expect(draftIds(drafts)).toEqual([['week3']]);
+    // the rest tomorrow, rather than losing the whole run. Oldest first, so the
+    // earliest stretch is the one that got done.
+    expect(draftIds(drafts)).toEqual([['week1']]);
   });
 
   it('reports the full plan even when it stopped early, so the UI can say what is left', async () => {

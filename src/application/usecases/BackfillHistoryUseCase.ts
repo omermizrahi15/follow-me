@@ -79,25 +79,36 @@ export class BackfillHistoryUseCase {
     private readonly classifier: Pick<IPhotoClassifier, 'quotaExhausted'>,
   ) {}
 
-  /** The window plan for a range, without scanning — powers the setup preview. */
+  /**
+   * The windows to scan, without scanning — powers the setup preview.
+   *
+   * OLDEST FIRST, unlike the newest-first planner it is built from: a history
+   * is rebuilt forwards from where the trip began, so the first stretch the
+   * publisher sees is the start of their travels and the last is nearest today.
+   * Capping therefore keeps the earliest windows and a second run picks up
+   * where this one stopped.
+   */
   plan(input: BackfillHistoryInput): HistoryWindowPlan {
-    // Explicit windows are already the answer; just apply the run cap to them.
-    if (input.windows != null) {
-      const cap = input.maxWindows ?? MAX_HISTORY_WINDOWS;
-      return {
-        windows: input.windows.slice(0, cap),
-        total: input.windows.length,
-        truncated: input.windows.length > cap,
-      };
-    }
-    return planHistoryWindows(
+    const cap = input.maxWindows ?? MAX_HISTORY_WINDOWS;
+
+    // Explicit windows (the gaps the UI found) are already the answer.
+    const all = input.windows ?? planHistoryWindows(
       {
         startDate: input.startDate,
         endDate: input.endDate ?? new Date(),
         intervalDays: input.intervalDays,
       },
-      input.maxWindows ?? MAX_HISTORY_WINDOWS,
-    );
+      // Uncapped here so the cap is applied to the chronological order below,
+      // not to the newest-first order it arrives in.
+      Number.MAX_SAFE_INTEGER,
+    ).windows;
+
+    const chronological = [...all].sort((a, b) => a.start.getTime() - b.start.getTime());
+    return {
+      windows: chronological.slice(0, cap),
+      total: chronological.length,
+      truncated: chronological.length > cap,
+    };
   }
 
   async execute(

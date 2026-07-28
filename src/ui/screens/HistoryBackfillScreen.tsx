@@ -15,6 +15,7 @@ import type { RootNavigationProp } from '../navigation/types';
 import { usePublisherId } from '../context/AuthContext';
 import { useHistoryBackfill, describeWindow } from '../hooks/useHistoryBackfill';
 import { PlaceField } from '../components/PlaceField';
+import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
 import type { ReviewablePosting } from '../hooks/useHistoryBackfill';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { planHistoryWindows } from '../../domain/services/historyWindows';
@@ -23,7 +24,6 @@ import { FREQUENCY_DAYS } from '../../domain/entities/PublisherConfig';
 import type { Frequency } from '../../domain/entities/PublisherConfig';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { Coordinate } from '../../domain/interfaces';
-import { CATEGORY_LABEL } from '../data/categoryLabels';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /** Cadence choices, mirroring the auto-posting section plus a free-form option. */
@@ -157,26 +157,31 @@ function SetupStep({ onStart, initialStartDate = null, gapCount = null, bottomIn
 
 // ---------- step 2: scanning ----------
 
-function ScanningStep({ current, total, classified, of, batch, scanned }: {
+function ScanningStep({ current, total, classified, of, batch, done, onSwap, bottomInset }: {
   current: number;
   total: number;
   classified: number;
   of: number;
   batch: PhotoClassification[];
-  scanned: { window: HistoryWindow; batch: PhotoClassification[] }[];
+  /** Stretches already reconstructed — the same objects the review step edits. */
+  done: ReviewablePosting[];
+  onSwap: (postingId: string, photoId: string) => void;
+  bottomInset: number;
 }): React.JSX.Element {
-  // Which finished stretch is opened out. Scanning carries on underneath —
-  // looking at what is already reconstructed should never pause the run.
   const [openId, setOpenId] = useState<string | null>(null);
+  // Until the publisher opens something themselves, the newest finished stretch
+  // stays open so there is always something to look at. The moment they choose,
+  // that choice sticks and later stretches arrive folded rather than yanking
+  // the view out from under whatever they are reading.
+  const [chosen, setChosen] = useState(false);
+  const newestId = done.length > 0 ? done[done.length - 1]?.id ?? null : null;
+  const effectiveOpenId = chosen ? openId : newestId;
 
-  // Two bars, because they answer different questions: how far through the trip
-  // are we, and is this stretch actually moving. With only the first, a slow
-  // stretch is indistinguishable from a hung one.
   const overall = total > 0 ? Math.round(((current - 1) / total) * 100) : 0;
   const withinPct = of > 0 ? Math.round((classified / of) * 100) : 0;
 
   return (
-    <ScrollView contentContainerStyle={styles.body}>
+    <ScrollView contentContainerStyle={[styles.body, { paddingBottom: spacing.xxl * 2 + bottomInset }]}>
       <View accessibilityLiveRegion="polite">
         <Text style={styles.scanTitle} accessibilityRole="header">Rebuilding your travels…</Text>
         <Text style={styles.scanSub}>
@@ -199,35 +204,48 @@ function ScanningStep({ current, total, classified, of, batch, scanned }: {
         </>
       )}
 
-      {/* The running pick for the stretch being scanned, at the same size as
-          the review grid — a strip of tiny thumbnails told you something was
-          happening but not what was being chosen. */}
+      {/* The stretch being scanned. No swap here — the batch is still forming,
+          so offering to change it would be offering to change a guess. */}
       {batch.length > 0 && (
         <View style={styles.previewGrid}>
-          {batch.map(c => <PreviewPhoto key={c.candidate.id} photo={c} />)}
+          {batch.map(c => (
+            <SuggestionPhotoCard key={c.candidate.id} photo={c} onSwap={null} width="31%" />
+          ))}
         </View>
       )}
 
-      {scanned.length > 0 && <Text style={styles.label}>Ready to review</Text>}
-      {[...scanned].reverse().map(done => {
-        const id = done.window.start.toISOString();
-        const open = openId === id;
+      {done.length > 0 && <Text style={styles.label}>Ready to review</Text>}
+      {done.map(posting => {
+        const open = effectiveOpenId === posting.id;
+        const photos = new Map(
+          [...posting.draft.batch, ...posting.draft.pool].map(c => [c.candidate.id, c]),
+        );
+        const shown = posting.slots
+          .map(id => photos.get(id))
+          .filter((c): c is PhotoClassification => c != null);
+        const spare = [...posting.draft.batch, ...posting.draft.pool].some(
+          c => !posting.slots.includes(c.candidate.id),
+        );
+
         return (
-          <View key={id} style={styles.doneCard}>
+          <View key={posting.id} style={styles.doneCard}>
             <TouchableOpacity
               style={styles.doneHeader}
-              onPress={() => setOpenId(open ? null : id)}
+              onPress={() => { setChosen(true); setOpenId(open ? null : posting.id); }}
               activeOpacity={0.7}
               accessibilityRole="button"
               accessibilityState={{ expanded: open }}
-              accessibilityLabel={`${describeWindow(done.window.start, done.window.end)}, ${done.batch.length} photos`}
+              accessibilityLabel={`${describeWindow(posting.draft.window.start, posting.draft.window.end)}, ${shown.length} photos`}
               accessibilityHint={open ? 'Collapses this post' : 'Opens this post to see every photo'}
             >
               <Ionicons name="checkmark-circle" size={18} color={colors.success} />
               <View style={styles.doneHeaderText}>
-                <Text style={styles.doneWhen}>{describeWindow(done.window.start, done.window.end)}</Text>
+                <Text style={styles.doneWhen}>
+                  {describeWindow(posting.draft.window.start, posting.draft.window.end)}
+                </Text>
                 <Text style={styles.doneCount}>
-                  {done.batch.length} {done.batch.length === 1 ? 'photo' : 'photos'}
+                  {shown.length} {shown.length === 1 ? 'photo' : 'photos'}
+                  {posting.place !== '' ? ` · ${posting.place}` : ''}
                 </Text>
               </View>
               <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
@@ -235,11 +253,18 @@ function ScanningStep({ current, total, classified, of, batch, scanned }: {
 
             {open ? (
               <View style={styles.previewGrid}>
-                {done.batch.map(c => <PreviewPhoto key={c.candidate.id} photo={c} />)}
+                {shown.map(c => (
+                  <SuggestionPhotoCard
+                    key={c.candidate.id}
+                    photo={c}
+                    width="31%"
+                    onSwap={spare ? () => onSwap(posting.id, c.candidate.id) : null}
+                  />
+                ))}
               </View>
             ) : (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
-                {done.batch.map(c => (
+                {shown.map(c => (
                   <Image key={c.candidate.id} source={{ uri: c.candidate.uri }} style={styles.photo} />
                 ))}
               </ScrollView>
@@ -248,16 +273,6 @@ function ScanningStep({ current, total, classified, of, batch, scanned }: {
         );
       })}
     </ScrollView>
-  );
-}
-
-/** A photo at review size, with the label the AI gave it. */
-function PreviewPhoto({ photo }: { photo: PhotoClassification }): React.JSX.Element {
-  return (
-    <View style={styles.previewCell}>
-      <Image source={{ uri: photo.candidate.uri }} style={styles.previewPhoto} />
-      <Text style={styles.previewChip} numberOfLines={1}>{CATEGORY_LABEL[photo.category]}</Text>
-    </View>
   );
 }
 
@@ -331,7 +346,7 @@ function PostingCard({ posting, photos, onToggle, onPlace, onSwap }: {
   );
 }
 
-function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPublish, publishing, published }: {
+function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPublish, publishing, published, bottomInset }: {
   postings: ReviewablePosting[];
   quotaExhausted: boolean;
   onToggle: (id: string) => void;
@@ -340,6 +355,8 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
   onPublish: () => void;
   publishing: boolean;
   published: number;
+  /** Height of the floating nav — without it the last card sits under it. */
+  bottomInset: number;
 }): React.JSX.Element {
   const keeping = postings.filter(p => !p.dropped && p.slots.length > 0);
 
@@ -367,7 +384,7 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
 
   return (
     <>
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView contentContainerStyle={[styles.body, { paddingBottom: spacing.xxl + bottomInset }]}>
         {quotaExhausted && (
           <View style={styles.noticeCard}>
             <Ionicons name="hourglass-outline" size={18} color={colors.accent} />
@@ -393,7 +410,7 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
         ))}
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: spacing.lg + bottomInset }]}>
         <Text style={styles.footerNote}>
           Your followers won’t be messaged about these — history just appears in your gallery.
         </Text>
@@ -453,7 +470,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
   const publisherId = usePublisherId();
   const {
     phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error,
-    scanClassified, scanOf, scanBatch, scanned,
+    scanClassified, scanOf, scanBatch,
     run, toggleDropped, setPlace, swapPhoto, publish, reset,
   } = useHistoryBackfill(publisherId);
 
@@ -498,7 +515,9 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
           classified={scanClassified}
           of={scanOf}
           batch={scanBatch}
-          scanned={scanned}
+          done={postings}
+          onSwap={swapPhoto}
+          bottomInset={bottomInset}
         />
       )}
 
@@ -512,6 +531,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
           onPublish={handlePublish}
           publishing={phase === 'publishing'}
           published={published}
+          bottomInset={bottomInset}
         />
       )}
 
@@ -666,9 +686,6 @@ const styles = StyleSheet.create({
   fill: { height: '100%', backgroundColor: colors.accent, borderRadius: radius.pill },
   scanDetail: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
   previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
-  previewCell: { width: '31%', gap: 3 },
-  previewPhoto: { width: '100%', aspectRatio: 1, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt },
-  previewChip: { ...typography.caption, fontSize: 10, color: colors.textSecondary },
   doneCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,
