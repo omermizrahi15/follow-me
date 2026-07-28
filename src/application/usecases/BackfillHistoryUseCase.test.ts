@@ -178,6 +178,43 @@ describe('BackfillHistoryUseCase — explicit gap windows (issue #81)', () => {
   });
 });
 
+describe('BackfillHistoryUseCase — pause (issue #81)', () => {
+  it('holds at a window boundary until the gate resolves', async () => {
+    const { useCase, library } = makeSut();
+    let release = (): void => undefined;
+    const held = new Promise<void>(resolve => { release = resolve; });
+    let calls = 0;
+
+    // Gate the SECOND window: the first runs, then the scan waits.
+    const running = useCase.execute({
+      ...input,
+      beforeWindow: () => (++calls === 2 ? held : Promise.resolve()),
+    });
+
+    // Let the first window finish, then confirm the scan really is parked.
+    await new Promise(r => setTimeout(r, 20));
+    expect(library.requestedWindows).toHaveLength(1);
+
+    release();
+    await running;
+    expect(library.requestedWindows).toHaveLength(3);
+  });
+
+  it('never pauses mid-window — the gate is only consulted between them', async () => {
+    const { useCase } = makeSut();
+    const seen: number[] = [];
+
+    await useCase.execute({
+      ...input,
+      // One call per window, before it starts: the AI calls already in flight
+      // are never abandoned, so a pause cannot waste the quota they cost.
+      beforeWindow: () => { seen.push(seen.length); return Promise.resolve(); },
+    });
+
+    expect(seen).toHaveLength(3);
+  });
+});
+
 describe('BackfillHistoryUseCase — progress', () => {
   it('reports the plan before scanning starts', async () => {
     const { useCase } = makeSut();

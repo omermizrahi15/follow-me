@@ -157,7 +157,7 @@ function SetupStep({ onStart, initialStartDate = null, gapCount = null, bottomIn
 
 // ---------- step 2: scanning ----------
 
-function ScanningStep({ current, total, classified, of, batch, done, onSwap, bottomInset }: {
+function ScanningStep({ current, total, classified, of, batch, done, onSwap, paused, onTogglePause, bottomInset }: {
   current: number;
   total: number;
   classified: number;
@@ -166,6 +166,8 @@ function ScanningStep({ current, total, classified, of, batch, done, onSwap, bot
   /** Stretches already reconstructed — the same objects the review step edits. */
   done: ReviewablePosting[];
   onSwap: (postingId: string, photoId: string) => void;
+  paused: boolean;
+  onTogglePause: () => void;
   bottomInset: number;
 }): React.JSX.Element {
   const [openId, setOpenId] = useState<string | null>(null);
@@ -176,6 +178,9 @@ function ScanningStep({ current, total, classified, of, batch, done, onSwap, bot
   const [chosen, setChosen] = useState(false);
   const newestId = done.length > 0 ? done[done.length - 1]?.id ?? null : null;
   const effectiveOpenId = chosen ? openId : newestId;
+  // "Reading" = they deliberately opened a post. Everything above it then stops
+  // moving, so the page can't shift under them.
+  const reading = chosen && openId != null;
 
   const overall = total > 0 ? Math.round(((current - 1) / total) * 100) : 0;
   const withinPct = of > 0 ? Math.round((classified / of) * 100) : 0;
@@ -189,9 +194,28 @@ function ScanningStep({ current, total, classified, of, batch, done, onSwap, bot
         </Text>
       </View>
 
-      <View style={styles.track}>
-        <View style={[styles.fill, { width: `${overall}%` }]} />
+      <View style={styles.progressRow}>
+        <View style={styles.track}>
+          <View style={[styles.fill, { width: `${overall}%` }]} />
+        </View>
+        <TouchableOpacity
+          testID="backfill-pause"
+          style={styles.pauseButton}
+          onPress={onTogglePause}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityState={{ selected: paused }}
+          accessibilityLabel={paused ? 'Resume rebuilding' : 'Pause rebuilding'}
+          accessibilityHint="Pausing takes effect after the current stretch finishes"
+        >
+          <Ionicons name={paused ? 'play' : 'pause'} size={16} color={colors.ink} />
+        </TouchableOpacity>
       </View>
+      {paused && (
+        <Text style={styles.scanQuiet}>
+          Paused. The stretch already running will finish, then it waits for you.
+        </Text>
+      )}
 
       {of > 0 && (
         <>
@@ -204,14 +228,23 @@ function ScanningStep({ current, total, classified, of, batch, done, onSwap, bot
         </>
       )}
 
-      {/* The stretch being scanned. No swap here — the batch is still forming,
-          so offering to change it would be offering to change a guess. */}
-      {batch.length > 0 && (
+      {/* The stretch being scanned, folded away the moment the publisher opens
+          a finished post. This grid GROWS as photos are classified, and sitting
+          above the finished list it pushed everything down mid-read — the
+          bounce. Folded, the scan carries on silently underneath. No swap
+          either way: the batch is still forming, so offering to change it would
+          be offering to change a guess. */}
+      {batch.length > 0 && !reading && (
         <View style={styles.previewGrid}>
           {batch.map(c => (
             <SuggestionPhotoCard key={c.candidate.id} photo={c} onSwap={null} width="31%" />
           ))}
         </View>
+      )}
+      {batch.length > 0 && reading && (
+        <Text style={styles.scanQuiet}>
+          Still working through this stretch — {batch.length} picked so far. It’ll appear below when it’s done.
+        </Text>
       )}
 
       {done.length > 0 && <Text style={styles.label}>Ready to review</Text>}
@@ -470,7 +503,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
   const publisherId = usePublisherId();
   const {
     phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error,
-    scanClassified, scanOf, scanBatch,
+    scanClassified, scanOf, scanBatch, paused, togglePause,
     run, toggleDropped, setPlace, swapPhoto, publish, reset,
   } = useHistoryBackfill(publisherId);
 
@@ -510,6 +543,8 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
 
       {phase === 'scanning' && (
         <ScanningStep
+          paused={paused}
+          onTogglePause={togglePause}
           current={scanningWindow}
           total={totalWindows}
           classified={scanClassified}
@@ -671,9 +706,9 @@ const styles = StyleSheet.create({
   scanSub: { ...typography.body, color: colors.textSecondary, textAlign: 'center' },
   track: {
     height: 6,
+    flex: 1,
     borderRadius: radius.pill,
     backgroundColor: colors.surfaceAlt,
-    marginTop: spacing.md,
     overflow: 'hidden',
   },
   trackThin: {
@@ -685,6 +720,18 @@ const styles = StyleSheet.create({
   },
   fill: { height: '100%', backgroundColor: colors.accent, borderRadius: radius.pill },
   scanDetail: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
+  scanQuiet: { ...typography.caption, color: colors.textMuted, marginTop: spacing.sm, lineHeight: 18 },
+  progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md },
+  pauseButton: {
+    width: 34,
+    height: 34,
+    borderRadius: radius.pill,
+    backgroundColor: colors.surfaceAlt,
+    borderWidth: 1,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
   doneCard: {
     backgroundColor: colors.surface,

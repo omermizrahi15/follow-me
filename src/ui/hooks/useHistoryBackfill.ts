@@ -69,6 +69,8 @@ interface State {
   scanBatch: PhotoClassification[];
   /** True when the day's AI budget cut the scan short. */
   quotaExhausted: boolean;
+  /** Publisher has paused the scan; it stops at the next window boundary. */
+  paused: boolean;
   /** How many postings have been written during publishing. */
   published: number;
   /** Postings that failed to publish — reported rather than silently dropped. */
@@ -86,6 +88,7 @@ const INITIAL: State = {
   scanOf: 0,
   scanBatch: [],
   quotaExhausted: false,
+  paused: false,
   published: 0,
   failedCount: 0,
   error: null,
@@ -137,15 +140,31 @@ export function useHistoryBackfill(publisherId: string): State & {
   setPlace: (id: string, place: string, coordinate?: Coordinate) => void;
   swapPhoto: (id: string, photoId: string) => void;
   publish: () => Promise<PublishOutcome>;
+  togglePause: () => void;
   reset: () => void;
 } {
   const [state, setState] = useState<State>(INITIAL);
   // Places the publisher typed themselves — never overwritten by resolution.
   const editedPlaces = useRef<Set<string>>(new Set());
+  // The pause gate. Held in a ref because the running scan closes over it once
+  // and must see every later toggle, which a state value would not give it.
+  const pause = useRef<{ paused: boolean; waiting: (() => void)[] }>({ paused: false, waiting: [] });
+
+  const togglePause = useCallback((): void => {
+    const gate = pause.current;
+    gate.paused = !gate.paused;
+    if (!gate.paused) {
+      // Release whatever window was held at the boundary.
+      gate.waiting.forEach(resume => resume());
+      gate.waiting = [];
+    }
+    setState(s => ({ ...s, paused: gate.paused }));
+  }, []);
 
   const run = useCallback((startDate: Date, intervalDays: number, windows?: HistoryWindow[]): void => {
     setState({ ...INITIAL, phase: 'scanning' });
     editedPlaces.current = new Set();
+    pause.current = { paused: false, waiting: [] };
 
     if (!publisherId) {
       setState(s => ({ ...s, phase: 'error', error: 'Not signed in' }));
@@ -165,6 +184,10 @@ export function useHistoryBackfill(publisherId: string): State & {
             // partly-posted trip doesn't spend the day's AI budget rescanning
             // windows that already have a posting.
             ...(windows != null ? { windows } : {}),
+            beforeWindow: () =>
+              pause.current.paused
+                ? new Promise<void>(resolve => pause.current.waiting.push(resolve))
+                : Promise.resolve(),
           },
           {
             onPlanned: plan => {
@@ -315,7 +338,7 @@ export function useHistoryBackfill(publisherId: string): State & {
 
   const reset = useCallback((): void => setState(INITIAL), []);
 
-  return { ...state, run, toggleDropped, setPlace, swapPhoto, publish, reset };
+  return { ...state, run, toggleDropped, setPlace, swapPhoto, publish, togglePause, reset };
 }
 
 /**

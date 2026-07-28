@@ -21,6 +21,13 @@ export interface BackfillHistoryInput {
    * AI budget re-suggesting stretches that already have a posting (issue #81).
    */
   windows?: HistoryWindow[];
+  /**
+   * Awaited before each window starts. The UI resolves it immediately when
+   * running and holds it while paused, so a pause takes effect at a window
+   * boundary — never mid-classification, which would waste the AI calls
+   * already in flight and the quota they cost.
+   */
+  beforeWindow?: () => Promise<void>;
 }
 
 /** One reconstructed posting, before the publisher reviews and publishes it. */
@@ -124,6 +131,7 @@ export class BackfillHistoryUseCase {
     let quotaExhausted = false;
 
     for (const [i, window] of plan.windows.entries()) {
+      await input.beforeWindow?.();
       progress?.onWindowStart?.(i + 1, total, window);
 
       const { batch, pool } = await this.suggestPhotos.execute(
