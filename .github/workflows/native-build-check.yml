@@ -5,18 +5,29 @@ name: CI · native rebuild check
 # module or app-config changes require recompiling and reinstalling the app —
 # and would otherwise ship silently as an OTA that never actually lands.
 # Non-blocking: it writes a job summary + annotations, never fails the build.
+#
+# Two passes. The first reads the diff offline and always runs. The second asks
+# EAS for the truth — it fingerprints the branch and checks whether any installed
+# staging build shares that runtimeVersion — which is the same check CD runs
+# after merge, just early enough to be a warning instead of a red main.
 on:
   pull_request:
     paths:
       - 'package.json'
+      - 'package-lock.json'
       - 'app.json'
       - 'app.config.js'
+      - 'eas.json'
       - 'ios/**'
 
 jobs:
   check:
     name: Native rebuild needed?
     runs-on: ubuntu-latest
+    # Job-level so the `env.EXPO_TOKEN != ''` guards below can read it: a fork PR
+    # gets no secrets, and the EAS half of the check has to skip cleanly there.
+    env:
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,8 +35,29 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
       - name: Analyze diff for native-affecting changes
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: node .github/scripts/native-build-check.mjs
+
+      # The fingerprint hashes node_modules (autolinked pods, native module
+      # versions), so the real dependency tree has to be on disk for the hash to
+      # match the one EAS computed for the installed build.
+      - if: env.EXPO_TOKEN != ''
+        run: npm ci
+      - if: env.EXPO_TOKEN != ''
+        uses: expo/expo-github-action@v8
+        with:
+          eas-version: latest
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Will the post-merge OTA reach a device?
+        # Skipped without EXPO_TOKEN — the offline heuristic above already
+        # covered the PR in that case.
+        if: env.EXPO_TOKEN != ''
+        env:
+          CHANNEL: staging
+          PROFILE: preview
+          MODE: preflight # advisory: annotates, never fails the PR
+        run: node .github/scripts/ota-rebuild-check.mjs

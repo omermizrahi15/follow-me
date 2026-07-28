@@ -1,7 +1,10 @@
 name: Sentry watchdog → GitHub issue
 
 # Polls Sentry for critical "watchdog"-family crashes (Watchdog Termination,
-# App Hang, Out-of-Memory) and opens a labeled bug issue for each new one.
+# App Hang, Out-of-Memory) and opens a labeled bug issue for each new one. An
+# issue that already exists has its counts refreshed in place, and is reopened
+# with a comment if the crash fires again after it was closed — so a tracked
+# issue never goes stale about whether the crash is still happening.
 # Dedup is by a hidden `sentry-issue-id:<id>` marker in the issue body, so the
 # cron and manual runs never double-file. See .github/scripts/sentry-watchdog-to-issue.mjs.
 on:

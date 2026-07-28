@@ -114,8 +114,8 @@ table is the full map — what you see under *Actions* is exactly these:
 | **CI · integration (staging)** | [`integration.yml`](.github/workflows/integration.yml) | PR touching `src/infrastructure/` or `supabase/` | integration suite against the real staging Supabase |
 | **CI · e2e web (join page)** | [`web-e2e.yml`](.github/workflows/web-e2e.yml) | PR touching `docs/join/` or `web-e2e/` | Playwright on the public subscribe page |
 | **CI · e2e app (Maestro)** | [`e2e-ui.yml`](.github/workflows/e2e-ui.yml) | after `CI · app` passes on `main`, nightly, or on demand — never on the PR critical path (~15-min simulator build) | Maestro UI flows on the iOS simulator |
-| **CI · native rebuild check** | [`native-build-check.yml`](.github/workflows/native-build-check.yml) | PR touching `package.json`/`app.json`/`app.config.js`/`ios/**` | warns when the change needs `eas build` (can't ship OTA); never blocks |
-| **CD · app (EAS OTA)** | [`deploy-app.yml`](.github/workflows/deploy-app.yml) | merge to `main` (app paths) | EAS Update (OTA) → staging channel; production via *Run workflow* |
+| **CI · native rebuild check** | [`native-build-check.yml`](.github/workflows/native-build-check.yml) | PR touching `package.json`/`package-lock.json`/`app.json`/`app.config.js`/`eas.json`/`ios/**` | warns when the change needs `eas build` (can't ship OTA) — diff heuristic, then the real fingerprint-vs-installed-build check; never blocks |
+| **CD · app (EAS OTA)** | [`deploy-app.yml`](.github/workflows/deploy-app.yml) | merge to `main` (app paths) | EAS Update (OTA) → staging channel; production via *Run workflow*. Fails red if the update reached no device, and auto-starts the staging rebuild |
 | **CD · services (Edge Functions)** | [`deploy-services.yml`](.github/workflows/deploy-services.yml) | merge to `main` (function paths) | per-changed-function `functions deploy` → staging; production via *Run workflow* |
 | **CD · database (migrations)** | [`deploy-db.yml`](.github/workflows/deploy-db.yml) | merge to `main` (`supabase/migrations/`) | `db push` → staging; production via *Run workflow* |
 | **pages build and deployment** | *(GitHub-managed)* | merge to `main` (`docs/**`) | publishes GitHub Pages — this is the CD for the join page; the name can't be changed |
@@ -124,7 +124,14 @@ table is the full map — what you see under *Actions* is exactly these:
 
 **Promotion model.** Every CD workflow auto-deploys to **staging** on merge to `main` (path-filtered), and deploys to **any environment on demand** via *Actions → Run workflow* (choose `staging`/`production`, and for services an optional list of function names or `all`). Production jobs run under the `production` GitHub Environment, so you can require a reviewer (Settings → Environments).
 
-**Service tests** live next to the code as Deno `*_test.ts` (e.g. [`supabase/functions/_shared/optOut_test.ts`](supabase/functions/_shared/optOut_test.ts)); run them locally with `deno task test`. Functions without unit tests yet still get lint + typecheck in CI. OTA app updates cover JS-only changes; native/dependency changes still need a fresh `eas build` (bump the app `version` so `runtimeVersion` advances).
+**Do I need to rebuild the app?** You never have to guess. `runtimeVersion` is the `fingerprint` policy ([`app.config.js`](app.config.js)), so every OTA is tagged with a hash of the native layer and is delivered *only* to builds carrying that same hash — change a native module or the app config and the update publishes fine but reaches nobody. Both CI and CD ask EAS whether an installed build shares the hash ([`ota-rebuild-check.mjs`](.github/scripts/ota-rebuild-check.mjs)):
+
+- **On the PR** — a job summary saying either "OTA is enough" or which native input moved (`added — native module react-native-webview`). Advisory, never blocks.
+- **On merge** — if the update reached no device the **CD job goes red** (so GitHub emails you) and, for staging, a fresh `eas build --profile preview` is **started automatically**; the summary links it. Production only reports, so a production build is never spent unasked.
+
+Installing the finished `.ipa` is the one manual step — internal distribution can't push a binary to the phone.
+
+**Service tests** live next to the code as Deno `*_test.ts` (e.g. [`supabase/functions/_shared/optOut_test.ts`](supabase/functions/_shared/optOut_test.ts)); run them locally with `deno task test`. Functions without unit tests yet still get lint + typecheck in CI.
 
 **Required GitHub secrets** (Settings → Secrets and variables → Actions):
 

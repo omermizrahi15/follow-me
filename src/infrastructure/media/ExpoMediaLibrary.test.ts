@@ -1,5 +1,110 @@
+jest.mock('react-native', () => ({
+  Image: { getSize: jest.fn() },
+}));
+
+jest.mock('expo-image-manipulator', () => ({
+  manipulateAsync: jest.fn(),
+  SaveFormat: { JPEG: 'jpeg' },
+}));
+
+jest.mock('expo-media-library', () => ({
+  getAssetInfoAsync: jest.fn(),
+  getAssetsAsync: jest.fn(),
+  getPermissionsAsync: jest.fn(),
+  requestPermissionsAsync: jest.fn(),
+  MediaType: { photo: 'photo' },
+  SortBy: { creationTime: 'creationTime' },
+}));
+
+jest.mock('expo-file-system/legacy', () => ({
+  readAsStringAsync: jest.fn(),
+  EncodingType: { Base64: 'base64' },
+}));
+
+import { Image } from 'react-native';
+import { manipulateAsync } from 'expo-image-manipulator';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as MediaLibrary from 'expo-media-library';
-import { ExpoMediaLibrary } from './ExpoMediaLibrary';
+import { ExpoMediaLibrary, expoResolvePayload } from './ExpoMediaLibrary';
+import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
+
+// eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mock, not a real method
+const mockGetSize = Image.getSize as unknown as jest.Mock;
+const mockManipulate = manipulateAsync as unknown as jest.Mock;
+// eslint-disable-next-line @typescript-eslint/unbound-method -- jest.Mock, not a real method
+const mockReadFile = FileSystem.readAsStringAsync as unknown as jest.Mock;
+
+function setImageWidth(width: number): void {
+  mockGetSize.mockImplementation((_uri: string, onSuccess: (w: number, h: number) => void) => {
+    onSuccess(width, Math.round(width * 0.75));
+  });
+}
+
+const candidate: PhotoCandidate = {
+  id: 'asset-1',
+  uri: 'file:///photos/a.jpg',
+  createdAt: new Date('2026-07-01T00:00:00Z'),
+};
+
+describe('expoResolvePayload', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    mockManipulate.mockResolvedValue({ uri: 'file:///tmp/small.jpg', base64: 'c21hbGw=' });
+  });
+
+  // Full-resolution base64 held across CONCURRENCY in-flight requests (and
+  // duplicated by JSON.stringify) is what the iOS watchdog kills the app for.
+  it('downscales oversized photos before encoding them', async (): Promise<void> => {
+    setImageWidth(4032);
+
+    const payload = await expoResolvePayload(candidate);
+
+    expect(mockManipulate).toHaveBeenCalledWith(
+      'file:///photos/a.jpg',
+      [{ resize: { width: 1024 } }],
+      expect.objectContaining({ base64: true, format: 'jpeg' }),
+    );
+    expect(payload).toEqual({ id: 'asset-1', base64: 'c21hbGw=', mimeType: 'image/jpeg' });
+  });
+
+  it('does not resize a photo that is already small enough', async (): Promise<void> => {
+    setImageWidth(800);
+
+    await expoResolvePayload(candidate);
+
+    expect(mockManipulate).toHaveBeenCalledWith(
+      'file:///photos/a.jpg',
+      [],
+      expect.objectContaining({ base64: true }),
+    );
+  });
+
+  it('never reads the original file into memory', async (): Promise<void> => {
+    setImageWidth(4032);
+    await expoResolvePayload(candidate);
+    expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it('skips the photo instead of falling back to full-resolution bytes', async (): Promise<void> => {
+    setImageWidth(4032);
+    mockManipulate.mockRejectedValueOnce(new Error('decode failed'));
+
+    await expect(expoResolvePayload(candidate)).resolves.toBeNull();
+    expect(mockReadFile).not.toHaveBeenCalled();
+  });
+
+  it('skips a photo that could not be resolved to a local file', async (): Promise<void> => {
+    const remote: PhotoCandidate = { ...candidate, uri: 'ph://asset-1' };
+    const { getAssetInfoAsync } = jest.requireMock<{ getAssetInfoAsync: jest.Mock }>(
+      'expo-media-library',
+    );
+    // iCloud-only photo: no localUri, so the ph:// handle comes straight back.
+    getAssetInfoAsync.mockResolvedValue({});
+
+    await expect(expoResolvePayload(remote)).resolves.toBeNull();
+    expect(mockManipulate).not.toHaveBeenCalled();
+  });
+});
 
 /**
  * The window contract the history backfill depends on (issue #81): a window is
@@ -11,20 +116,6 @@ import { ExpoMediaLibrary } from './ExpoMediaLibrary';
  * The OS filters are inclusive on some platforms, which is why the adapter
  * re-checks each asset in JS. These tests pin that down.
  */
-
-jest.mock('expo-media-library', () => ({
-  MediaType: { photo: 'photo' },
-  SortBy: { creationTime: 'creationTime' },
-  getPermissionsAsync: jest.fn(),
-  requestPermissionsAsync: jest.fn(),
-  getAssetsAsync: jest.fn(),
-  getAssetInfoAsync: jest.fn(),
-}));
-
-jest.mock('expo-file-system/legacy', () => ({
-  readAsStringAsync: jest.fn(),
-  EncodingType: { Base64: 'base64' },
-}));
 
 const getPermissionsAsync = MediaLibrary.getPermissionsAsync as jest.Mock;
 const requestPermissionsAsync = MediaLibrary.requestPermissionsAsync as jest.Mock;
@@ -56,24 +147,27 @@ const T = (iso: string): number => new Date(iso).getTime();
 
 const BOUNDARY = '2026-06-08T00:00:00Z';
 
-const photos: FakeAsset[] = [
+const windowPhotos: FakeAsset[] = [
   { id: 'before', uri: 'ph://before', creationTime: T('2026-06-07T23:59:59Z') },
   { id: 'on-boundary', uri: 'ph://on-boundary', creationTime: T(BOUNDARY) },
   { id: 'after', uri: 'ph://after', creationTime: T('2026-06-08T00:00:01Z') },
 ];
-
-beforeEach(() => {
-  jest.clearAllMocks();
-  getPermissionsAsync.mockResolvedValue({ granted: true });
-  libraryContains(photos);
-});
 
 const ids = async (start: string, end: string): Promise<string[]> => {
   const found = await new ExpoMediaLibrary().photosBetween(new Date(start), new Date(end));
   return found.map(p => p.id);
 };
 
+/** Granted permission + the three-photo library, unless a test says otherwise. */
+function givenLibrary(): void {
+  jest.clearAllMocks();
+  getPermissionsAsync.mockResolvedValue({ granted: true });
+  libraryContains(windowPhotos);
+}
+
 describe('ExpoMediaLibrary.photosBetween — window boundaries', () => {
+  beforeEach(givenLibrary);
+
   it('includes a photo taken exactly at the window start', async () => {
     expect(await ids(BOUNDARY, '2026-06-15T00:00:00Z')).toContain('on-boundary');
   });
@@ -116,7 +210,7 @@ describe('ExpoMediaLibrary.photosBetween — window boundaries', () => {
 
   it('drops screenshots even when they fall inside the window', async () => {
     libraryContains([
-      ...photos,
+      ...windowPhotos,
       { id: 'shot', uri: 'ph://shot', creationTime: T('2026-06-08T12:00:00Z'), mediaSubtypes: ['screenshot'] },
     ]);
     expect(await ids('2026-06-01T00:00:00Z', '2026-06-15T00:00:00Z')).not.toContain('shot');
@@ -124,9 +218,9 @@ describe('ExpoMediaLibrary.photosBetween — window boundaries', () => {
 
   it('paginates until the OS runs out of pages', async () => {
     const pages = [
-      { assets: [photos[0]], hasNextPage: true, endCursor: 'c1' },
-      { assets: [photos[1]], hasNextPage: true, endCursor: 'c2' },
-      { assets: [photos[2]], hasNextPage: false, endCursor: 'c3' },
+      { assets: [windowPhotos[0]], hasNextPage: true, endCursor: 'c1' },
+      { assets: [windowPhotos[1]], hasNextPage: true, endCursor: 'c2' },
+      { assets: [windowPhotos[2]], hasNextPage: false, endCursor: 'c3' },
     ];
     let call = 0;
     getAssetsAsync.mockImplementation(() => Promise.resolve(pages[call++]));
@@ -148,6 +242,8 @@ describe('ExpoMediaLibrary.photosBetween — window boundaries', () => {
 });
 
 describe('ExpoMediaLibrary.recentPhotos', () => {
+  beforeEach(givenLibrary);
+
   it('is the now-anchored case of photosBetween', async () => {
     const before = Date.now();
     await new ExpoMediaLibrary().recentPhotos(7);
