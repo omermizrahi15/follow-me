@@ -3,7 +3,12 @@ name: CD · app (EAS OTA)
 # CD for the mobile app (the JS bundle), independent of the services. On merge
 # to main it ships an EAS Update (OTA) to the staging channel; installed staging
 # builds pick it up with no rebuild. Promote to production via "Run workflow".
-# Native/dependency changes still need a fresh `eas build` (see README).
+#
+# Native/dependency changes can't ride an OTA. The last step asks EAS whether any
+# installed build actually shares this update's fingerprint runtimeVersion — if
+# none does, the update reached nobody, so the job goes RED (GitHub emails you)
+# and, on staging, a fresh `eas build` is started automatically. Installing the
+# resulting .ipa is still manual.
 on:
   push:
     branches: [main]
@@ -41,6 +46,7 @@ jobs:
           ENV="${{ github.event.inputs.environment || 'staging' }}"
           PROFILE=$([ "$ENV" = "production" ] && echo production || echo preview)
           echo "CHANNEL=$ENV" >> "$GITHUB_ENV"
+          echo "PROFILE=$PROFILE" >> "$GITHUB_ENV"
           # The EXPO_PUBLIC_* vars are read at bundle time — load them from the
           # matching eas.json profile so there is no second copy to maintain.
           node -e "const e=require('./eas.json').build['$PROFILE'].env; for (const [k,v] of Object.entries(e)) console.log(k+'='+v)" >> "$GITHUB_ENV"
@@ -51,7 +57,18 @@ jobs:
           UPDATE_MSG: ${{ github.event.head_commit.message || format('manual → {0}', github.event.inputs.environment) }}
         # --platform ios: the app is iOS-only (app.json platforms) and the
         # default (all platforms) fails exporting the nonexistent android bundle.
-        run: eas update --branch "$CHANNEL" --message "$UPDATE_MSG" --platform ios --non-interactive
+        # --json (stdout only; progress goes to stderr) so the runtimeVersion the
+        # update was actually tagged with can be read back instead of recomputed.
+        # Written to RUNNER_TEMP, not the repo: the rebuild step below may run
+        # `eas build`, which refuses to package a dirty working tree.
+        run: |
+          eas update --branch "$CHANNEL" --message "$UPDATE_MSG" --platform ios --json --non-interactive > "$RUNNER_TEMP/update.json"
+          node -e "
+            const groups = require(process.env.RUNNER_TEMP + '/update.json');
+            const rv = (Array.isArray(groups) ? groups : [groups]).map((u) => u.runtimeVersion).find(Boolean);
+            if (!rv) throw new Error('no runtimeVersion in eas update output');
+            console.log('RUNTIME_VERSION=' + rv);
+          " >> "$GITHUB_ENV"
       - name: Upload source maps to Sentry
         # OTA bundles replace the JS that shipped in the binary, so crash stack
         # traces stay readable only if the maps for THIS update reach Sentry
@@ -67,3 +84,14 @@ jobs:
             exit 0
           fi
           npx sentry-expo-upload-sourcemaps dist
+      - name: Did this OTA reach any device?
+        # Last step on purpose: it can fail the job, and everything above (the
+        # update itself, source maps) is still worth doing when it does. Staging
+        # auto-starts the rebuild; production only reports, so a production build
+        # is never spent without asking.
+        # CHANNEL, PROFILE and RUNTIME_VERSION are already in the environment —
+        # the steps above wrote them to $GITHUB_ENV.
+        env:
+          MODE: cd
+          AUTO_BUILD: ${{ (github.event.inputs.environment || 'staging') == 'staging' && '1' || '0' }}
+        run: node .github/scripts/ota-rebuild-check.mjs
