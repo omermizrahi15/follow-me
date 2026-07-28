@@ -16,12 +16,14 @@ import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
 import { usePublisherId } from '../context/AuthContext';
 import { useHistoryBackfill } from '../hooks/useHistoryBackfill';
+import { PlaceField } from '../components/PlaceField';
 import type { ReviewablePosting } from '../hooks/useHistoryBackfill';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { planHistoryWindows } from '../../domain/services/historyWindows';
 import { FREQUENCY_DAYS } from '../../domain/entities/PublisherConfig';
 import type { Frequency } from '../../domain/entities/PublisherConfig';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
+import type { Coordinate } from '../../domain/interfaces';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /** Cadence choices, mirroring the auto-posting section plus a free-form option. */
@@ -207,7 +209,7 @@ function PostingCard({ posting, photos, onToggle, onPlace, onSwap }: {
   posting: ReviewablePosting;
   photos: Map<string, PhotoClassification>;
   onToggle: () => void;
-  onPlace: (place: string) => void;
+  onPlace: (place: string, coordinate?: Coordinate) => void;
   onSwap: (photoId: string) => void;
 }): React.JSX.Element {
   const { dropped } = posting;
@@ -256,23 +258,15 @@ function PostingCard({ posting, photos, onToggle, onPlace, onSwap }: {
         })}
       </ScrollView>
 
-      <View style={styles.placeRow}>
-        <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
-        {posting.placeLoading ? (
-          <ActivityIndicator color={colors.textMuted} style={styles.placeSpinner} />
-        ) : (
-          <TextInput
-            testID={`backfill-place-${posting.id}`}
-            style={styles.placeInput}
-            value={posting.place}
-            onChangeText={onPlace}
-            editable={!dropped}
-            placeholder="Add a place"
-            placeholderTextColor={colors.textMuted}
-            accessibilityLabel="Place for this post"
-          />
-        )}
-      </View>
+      {/* Same field the live review screen uses: with photo GPS it's just an
+          editable label, and without it the search is how this stretch of the
+          trip gets onto the globe at all (issue #78). */}
+      <PlaceField
+        value={posting.place}
+        onChange={onPlace}
+        loading={posting.placeLoading}
+        hasGps={posting.hasGps}
+      />
     </View>
   );
 }
@@ -281,7 +275,7 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
   postings: ReviewablePosting[];
   quotaExhausted: boolean;
   onToggle: (id: string) => void;
-  onPlace: (id: string, place: string) => void;
+  onPlace: (id: string, place: string, coordinate?: Coordinate) => void;
   onSwap: (id: string, photoId: string) => void;
   onPublish: () => void;
   publishing: boolean;
@@ -333,7 +327,7 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
             posting={p}
             photos={photoIndex.get(p.id) ?? new Map()}
             onToggle={() => onToggle(p.id)}
-            onPlace={place => onPlace(p.id, place)}
+            onPlace={(place, coordinate) => onPlace(p.id, place, coordinate)}
             onSwap={photoId => onSwap(p.id, photoId)}
           />
         ))}
@@ -561,9 +555,6 @@ const styles = StyleSheet.create({
   cardCount: { ...typography.caption, color: colors.textMuted },
   photoRow: { flexDirection: 'row', gap: spacing.sm },
   photo: { width: 84, height: 84, borderRadius: radius.sm, backgroundColor: colors.surfaceAlt },
-  placeRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs },
-  placeSpinner: { marginLeft: spacing.xs },
-  placeInput: { ...typography.caption, color: colors.text, flex: 1, paddingVertical: spacing.xs },
 
   footer: {
     padding: spacing.lg,

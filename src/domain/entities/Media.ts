@@ -1,9 +1,13 @@
+import type { Coordinate } from '../interfaces';
+
 export interface MediaProps {
   id: string;
   ownerId: string;
   url: string;
   createdAt: Date;
   location?: string;
+  /** Where the photo was taken — what the Me-page globe plots. */
+  coordinate?: Coordinate;
   /** Groups the items shared together in one send — the feed's "posting". */
   postingId?: string;
   /**
@@ -28,6 +32,7 @@ export class Media {
   get url(): string { return this.props.url; }
   get createdAt(): Date { return this.props.createdAt; }
   get location(): string | undefined { return this.props.location; }
+  get coordinate(): Coordinate | undefined { return this.props.coordinate; }
   get postingId(): string | undefined { return this.props.postingId; }
   get backfilled(): boolean { return this.props.backfilled ?? false; }
 }

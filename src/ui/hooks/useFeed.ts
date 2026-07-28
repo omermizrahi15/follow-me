@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { listFeed } from '../../composition/container';
-import type { FeedPosting } from '../components/PhotoFeed';
+import type { FeedPosting } from '../data/feed';
 import type { FeedPostingDto } from '../../application/dtos';
 
 interface FeedState {
@@ -22,8 +22,10 @@ function toFeedPosting(dto: FeedPostingDto): FeedPosting {
   return {
     id: dto.id,
     date: formatDate(dto.createdAt),
+    createdAt: dto.createdAt,
     media: dto.media.map(m => ({ id: m.id, uri: m.url })),
     ...(dto.location != null ? { place: dto.location } : {}),
+    ...(dto.coordinate != null ? { coordinate: dto.coordinate } : {}),
   };
 }
 

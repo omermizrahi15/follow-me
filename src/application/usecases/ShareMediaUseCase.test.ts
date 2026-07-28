@@ -110,6 +110,19 @@ describe('ShareMediaUseCase — posting location', () => {
     { mediaId: 'media-3', localUri: 'file:///local/c.jpg', filename: 'c.jpg' }, // no GPS
   ];
 
+  // The label alone can't be plotted — the Me-page globe needs the raw fix, so
+  // each item keeps its own coordinate rather than only the batch's place name.
+  it('persists each item’s own coordinate, not just the place label', async (): Promise<void> => {
+    const { useCase, mediaRepo, geocoder } = makeSut();
+    geocoder.returns('Lisbon, Portugal');
+    await useCase.share({ ownerId: 'user-1', items: lisbonItems });
+    expect(mediaRepo.all().map(m => m.coordinate)).toEqual([
+      { latitude: 38.71, longitude: -9.13 },
+      { latitude: 38.73, longitude: -9.15 },
+      undefined, // the item with no GPS stays unplotted
+    ]);
+  });
+
   it('stamps the geocoded place on every item of the posting', async (): Promise<void> => {
     const { useCase, mediaRepo, geocoder } = makeSut();
     geocoder.returns('Lisbon, Portugal');

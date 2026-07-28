@@ -2,7 +2,6 @@ import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   Image,
   ScrollView,
@@ -23,6 +22,7 @@ import { useSubscribers } from '../hooks/useSubscribers';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { usePublisherId } from '../context/AuthContext';
 import { InviteLinkCard } from '../components/InviteLinkCard';
+import { PlaceField } from '../components/PlaceField';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 type Props = {
@@ -53,6 +53,18 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const [place, setPlace] = useState('');
   const [placeLoading, setPlaceLoading] = useState(false);
   const placeEditedRef = useRef(false);
+  // Set when the publisher picks a suggestion — the coordinate that pins the
+  // posting when no photo carried GPS of its own.
+  const [pickedCoordinate, setPickedCoordinate] = useState<Coordinate | undefined>(undefined);
+  // Whether any selected photo carries GPS. Without it the posting can only be
+  // plotted from a place the publisher picks.
+  const [gpsCoordinate, setGpsCoordinate] = useState<Coordinate | undefined>(undefined);
+
+  // Every posting needs a point on the map: photo GPS, or a place the publisher
+  // picked (which carries its own coordinate). A typed label alone is not
+  // enough — it cannot be plotted without guessing at a city centre.
+  const hasLocation = gpsCoordinate != null || pickedCoordinate != null;
+  const canPost = pickedAssets.length > 0 && hasLocation;
 
   const showInvitePrompt =
     !promptDismissed && !subscribersLoading && subscribers.length < FEW_FOLLOWERS_THRESHOLD;
@@ -61,6 +73,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   useEffect(() => {
     if (pickedAssets.length === 0) {
       if (!placeEditedRef.current) setPlace('');
+      setGpsCoordinate(undefined);
       return;
     }
     const run = { cancelled: false };
@@ -74,6 +87,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
         ).filter((c): c is Coordinate => c != null);
         // Checked via a function call so lint doesn't flow-narrow across awaits.
         const isStale = (): boolean => run.cancelled || placeEditedRef.current;
+        if (!run.cancelled) setGpsCoordinate(coordinates[0]);
         if (isStale()) return;
         const resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
         if (!isStale()) setPlace(resolved ?? '');
@@ -125,7 +139,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           : placeLoading || place === ''
           ? undefined
           : place;
-        await share(items, publisherId, location);
+        await share(items, publisherId, location, pickedCoordinate);
         setDone(true);
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Upload failed');
@@ -252,44 +266,25 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
 
             <View style={[styles.footer, keyboardPadding > 0 && { paddingBottom: keyboardPadding }]}>
               {error != null && <Text style={styles.errorNote}>{error}</Text>}
-              <View style={styles.placeRow}>
-                <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
-                <TextInput
-                  style={styles.placeInput}
-                  value={place}
-                  onChangeText={text => {
-                    placeEditedRef.current = true;
-                    setPlace(text);
-                  }}
-                  placeholder={placeLoading ? 'Finding the place…' : 'Add a place (optional)'}
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  returnKeyType="done"
-                  accessibilityLabel="Posting place"
-                />
-                {placeLoading ? (
-                  <ActivityIndicator size="small" color={colors.accent} />
-                ) : place !== '' ? (
-                  <TouchableOpacity
-                    onPress={() => {
-                      placeEditedRef.current = true;
-                      setPlace('');
-                    }}
-                    hitSlop={8}
-                    accessibilityLabel="Clear place"
-                  >
-                    <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-                  </TouchableOpacity>
-                ) : null}
-              </View>
+              <PlaceField
+                value={place}
+                loading={placeLoading}
+                hasGps={gpsCoordinate != null}
+                onChange={(label, coordinate) => {
+                  placeEditedRef.current = true;
+                  setPlace(label);
+                  setPickedCoordinate(coordinate);
+                }}
+              />
               <Text style={styles.followerNote}>
-                Will be sent to all your active followers via WhatsApp
+                {pickedAssets.length > 0 && !hasLocation && !placeLoading
+                  ? 'These photos have no location — search for a place above to put this post on your map.'
+                  : 'Will be sent to all your active followers via WhatsApp'}
               </Text>
               <TouchableOpacity
-                style={[styles.shareButton, loading && styles.disabled]}
+                style={[styles.shareButton, (loading || !canPost) && styles.disabled]}
                 onPress={handleShare}
-                disabled={loading}
+                disabled={loading || !canPost}
               >
                 {loading ? (
                   <View style={styles.progressRow}>
@@ -389,21 +384,7 @@ const styles = StyleSheet.create({
   addTileText: { ...typography.caption, fontSize: 11, lineHeight: 14, color: colors.accent, fontWeight: '600', textAlign: 'center' },
   // Footer
   footer: { paddingVertical: spacing.md },
-  placeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  placeInput: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    fontSize: 14,
-    color: colors.text,
-  },
+  placeSpacer: { height: spacing.sm },
   errorNote: { color: colors.danger, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm },
   followerNote: { color: colors.textMuted, fontSize: 12, textAlign: 'center', marginBottom: spacing.md },
   shareButton: {

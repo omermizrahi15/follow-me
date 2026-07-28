@@ -40,6 +40,9 @@ export class ListFeedUseCase {
       id: postingId,
       createdAt: newest.createdAt.toISOString(),
       location: group.find(m => m.location != null)?.location ?? null,
+      // One point per posting — the batch is a single stop on the route, so the
+      // first item with a fix represents it. Items in a batch are metres apart.
+      coordinate: group.find(m => m.coordinate != null)?.coordinate ?? null,
       media: group.map(m => ({ id: m.id, url: m.url })),
     };
   }

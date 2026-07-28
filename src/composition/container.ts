@@ -30,6 +30,7 @@ import { SupabasePublisherProfileRepository } from '../infrastructure/repositori
 import { SupabaseApprovalBatchRepository, type ApprovalBatch } from '../infrastructure/repositories/SupabaseApprovalBatchRepository';
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
+import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
 import { monitored } from '../infrastructure/monitoring/sentry';
 import Constants from 'expo-constants';
 
@@ -96,6 +97,12 @@ const sentPhotoTracker: ISentPhotoTracker = {
 };
 // Names the posting's place ("Lisbon, Portugal") from the batch's EXIF GPS.
 const geocoder = new BigDataCloudGeocoder();
+// Place search for batches with no GPS. Shares the globe's MapTiler key: a
+// handful of calls per post, against a quota the map tiles dominate. Unset key
+// simply yields no suggestions (see MapTilerPlaceSearch).
+export const placeSearch = new MapTilerPlaceSearch(
+  (process.env.EXPO_PUBLIC_MAPTILER_KEY as string | undefined) ?? '',
+);
 
 /** Pre-resolves the posting's place so the review screen can show/edit it. */
 export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<string | null> =>

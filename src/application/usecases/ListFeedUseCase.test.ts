@@ -84,6 +84,42 @@ describe('ListFeedUseCase — grouping by postingId', () => {
   });
 });
 
+describe('ListFeedUseCase — coordinate for the globe', () => {
+  const lisbon = { latitude: 38.7223, longitude: -9.1393 };
+
+  it('exposes the coordinate of the first item that carries one', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await mediaRepo.save(makeMedia('m1', { postingId: 'post-a' }));
+    await mediaRepo.save(makeMedia('m2', { postingId: 'post-a', coordinate: lisbon }));
+
+    const feed = await useCase.list('user-1');
+
+    expect(feed[0]?.coordinate).toEqual(lisbon);
+  });
+
+  it('coordinate is null when no item in the posting has GPS', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await mediaRepo.save(makeMedia('m1', { postingId: 'post-a', location: 'Lisbon, Portugal' }));
+
+    const feed = await useCase.list('user-1');
+
+    // A place label is not a coordinate — such posts stay off the map until the
+    // backfill geocodes them.
+    expect(feed[0]?.coordinate).toBeNull();
+  });
+
+  it('keeps each posting on its own coordinate', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    const rio = { latitude: -22.9068, longitude: -43.1729 };
+    await mediaRepo.save(makeMedia('m1', { postingId: 'post-old', coordinate: lisbon, createdAt: new Date('2026-06-01T10:00:00Z') }));
+    await mediaRepo.save(makeMedia('m2', { postingId: 'post-new', coordinate: rio, createdAt: new Date('2026-06-18T10:00:00Z') }));
+
+    const feed = await useCase.list('user-1');
+
+    expect(feed.map(p => p.coordinate)).toEqual([rio, lisbon]);
+  });
+});
+
 describe('ListFeedUseCase — postingId invariant', () => {
   // ShareMediaUseCase stamps a postingId on every upload and the database
   // enforces NOT NULL; a row without one means some write bypassed the share

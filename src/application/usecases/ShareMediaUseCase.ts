@@ -30,6 +30,13 @@ export interface ShareMediaInput {
    */
   location?: string | null;
   /**
+   * Where the publisher said the posting happened, when they picked a place
+   * because their photos carried no GPS. Used only for items that have no fix
+   * of their own — a real EXIF coordinate is always more precise than a city
+   * centre, so it is never overridden.
+   */
+  coordinate?: Coordinate;
+  /**
    * When the posting happened. Defaults to now; the history backfill passes the
    * window's real date so reconstructed trips sort into the feed chronologically
    * instead of piling up at the top (issue #81).
@@ -93,6 +100,13 @@ export class ShareMediaUseCase {
         createdAt,
         postingId,
         ...(location != null ? { location } : {}),
+        // Keep the per-item fix, not just the reverse-geocoded label — the
+        // Me-page globe plots the posting at this coordinate (issue #78).
+        // Falls back to the place the publisher picked, so a batch of photos
+        // with no GPS still lands somewhere real instead of nowhere.
+        ...(item.coordinate ?? input.coordinate) != null
+          ? { coordinate: (item.coordinate ?? input.coordinate) as Coordinate }
+          : {},
         ...(input.backfilled === true ? { backfilled: true } : {}),
       }),
     );

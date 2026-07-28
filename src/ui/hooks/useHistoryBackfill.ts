@@ -8,6 +8,7 @@ import {
 import type { BackfillDraft } from '../../application/usecases/BackfillHistoryUseCase';
 import type { HistoryWindowPlan } from '../../domain/services/historyWindows';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
+import type { Coordinate } from '../../domain/interfaces';
 import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
 import { coordinateFor, coordinatesFor } from '../data/photoCoordinates';
 
@@ -23,6 +24,18 @@ export interface ReviewablePosting {
   /** Resolved or publisher-edited place. */
   place: string;
   placeLoading: boolean;
+  /**
+   * Whether this window's photos carry GPS. False is common in a backfill —
+   * older trips, imported photos, GPS-stripped exports — and it's exactly when
+   * the publisher has to pick a place for the posting to reach the globe.
+   */
+  hasGps: boolean;
+  /**
+   * The posting's point on the map: photo GPS when there is any, otherwise the
+   * coordinate that came with the place the publisher picked (issue #78). A
+   * label alone cannot be plotted.
+   */
+  coordinate?: Coordinate;
   /** Publisher unchecked it — scanned but not published. */
   dropped: boolean;
 }
@@ -80,7 +93,7 @@ function indexPhotos(draft: BackfillDraft): Map<string, PhotoClassification> {
 export function useHistoryBackfill(publisherId: string): State & {
   run: (startDate: Date, intervalDays: number) => void;
   toggleDropped: (id: string) => void;
-  setPlace: (id: string, place: string) => void;
+  setPlace: (id: string, place: string, coordinate?: Coordinate) => void;
   swapPhoto: (id: string, photoId: string) => void;
   publish: () => Promise<PublishOutcome>;
   reset: () => void;
@@ -119,6 +132,7 @@ export function useHistoryBackfill(publisherId: string): State & {
           slots: draft.batch.map(c => c.candidate.id),
           place: '',
           placeLoading: true,
+          hasGps: false, // corrected below, once the GPS probe has run
           dropped: false,
         }));
 
@@ -136,16 +150,21 @@ export function useHistoryBackfill(publisherId: string): State & {
         // straight away rather than waiting on every geocode.
         await Promise.all(
           postings.map(async posting => {
-            const place = await resolvePlaceFor(posting);
+            const { place, coordinate } = await resolvePlaceFor(posting);
             setState(s => ({
               ...s,
-              postings: s.postings.map(p =>
-                p.id === posting.id && !editedPlaces.current.has(p.id)
-                  ? { ...p, place: place ?? '', placeLoading: false }
-                  : p.id === posting.id
-                    ? { ...p, placeLoading: false }
-                    : p,
-              ),
+              postings: s.postings.map(p => {
+                if (p.id !== posting.id) return p;
+                // hasGps and the coordinate describe the photos, so they land
+                // even when the publisher has already typed over the label.
+                const base = {
+                  ...p,
+                  placeLoading: false,
+                  hasGps: coordinate != null,
+                  ...(coordinate != null ? { coordinate } : {}),
+                };
+                return editedPlaces.current.has(p.id) ? base : { ...base, place: place ?? '' };
+              }),
             }));
           }),
         );
@@ -163,11 +182,15 @@ export function useHistoryBackfill(publisherId: string): State & {
     }));
   }, []);
 
-  const setPlace = useCallback((id: string, place: string): void => {
+  const setPlace = useCallback((id: string, place: string, coordinate?: Coordinate): void => {
     editedPlaces.current.add(id);
     setState(s => ({
       ...s,
-      postings: s.postings.map(p => (p.id === id ? { ...p, place } : p)),
+      postings: s.postings.map(p =>
+        // A picked suggestion brings its own coordinate; plain typing leaves
+        // whatever fix the photos already gave us untouched.
+        p.id === id ? { ...p, place, ...(coordinate != null ? { coordinate } : {}) } : p,
+      ),
     }));
   }, []);
 
@@ -236,17 +259,26 @@ export function useHistoryBackfill(publisherId: string): State & {
   return { ...state, run, toggleDropped, setPlace, swapPhoto, publish, reset };
 }
 
-/** "City, Country" for a posting, from the GPS of the photos it will publish. */
-async function resolvePlaceFor(posting: ReviewablePosting): Promise<string | null> {
+/**
+ * "City, Country" for a posting, plus the point it will sit on. Returns no
+ * coordinate when none of the window's photos carry GPS — the review UI then
+ * asks the publisher to search for the place, which is the only way that
+ * posting reaches the globe.
+ */
+async function resolvePlaceFor(
+  posting: ReviewablePosting,
+): Promise<{ place: string | null; coordinate?: Coordinate }> {
   const photos = indexPhotos(posting.draft);
   const ids = posting.slots.filter(id => photos.get(id)?.candidate.uri.startsWith('http') !== true);
   const coordinates = await coordinatesFor(ids);
-  if (coordinates.length === 0) return null;
+  const first = coordinates[0];
+  if (first == null) return { place: null };
   try {
-    return await resolvePlaceForCoordinates(coordinates);
+    return { place: await resolvePlaceForCoordinates(coordinates), coordinate: first };
   } catch {
-    // Naming the place is a nicety — never block reconstructing the trip.
-    return null;
+    // Naming the place is a nicety — never block reconstructing the trip. The
+    // fix still stands on its own, so the posting can be plotted regardless.
+    return { place: null, coordinate: first };
   }
 }
 
@@ -284,6 +316,9 @@ async function publishPosting(publisherId: string, posting: ReviewablePosting): 
   await shareMedia.share({
     ownerId: publisherId,
     items,
+    // Fallback point for a window whose photos carry no GPS — without it the
+    // posting would have a place name but nothing to plot on the globe.
+    ...(posting.coordinate != null ? { coordinate: posting.coordinate } : {}),
     createdAt: newest,
     // History is feed-only. Ten reconstructed trips must never become ten
     // WhatsApp blasts at every follower.

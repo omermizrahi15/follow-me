@@ -1,6 +1,7 @@
 import { createClient } from '@supabase/supabase-js';
 import type { IMediaRepository } from '../../domain/interfaces';
 import { Media } from '../../domain/entities/Media';
+import { validCoordinate } from '../../domain/services/coordinate';
 
 interface Database {
   public: {
@@ -13,6 +14,8 @@ interface Database {
           created_at: string;
           posting_id: string | null;
           location: string | null;
+          latitude: number | null;
+          longitude: number | null;
           backfilled: boolean | null;
         };
         Insert: {
@@ -22,6 +25,8 @@ interface Database {
           created_at: string;
           posting_id?: string | null;
           location?: string | null;
+          latitude?: number | null;
+          longitude?: number | null;
           backfilled?: boolean | null;
         };
         Update: {
@@ -31,6 +36,8 @@ interface Database {
           created_at?: string;
           posting_id?: string | null;
           location?: string | null;
+          latitude?: number | null;
+          longitude?: number | null;
           backfilled?: boolean | null;
         };
         Relationships: [];
@@ -46,6 +53,15 @@ interface Database {
 type MediaRow = Database['public']['Tables']['media']['Row'];
 
 function rowToMedia(row: MediaRow): Media {
+  // Re-validate on read rather than trusting the column: rows predating
+  // 20240022 are null, and a defaulted/garbage pair (0,0 or out of range)
+  // would otherwise put a photo marker in the Gulf of Guinea.
+  // ("defaulted" here is about the coordinate columns — unrelated to the
+  // `backfilled` flag below, which marks reconstructed history.)
+  const coordinate =
+    row.latitude != null && row.longitude != null
+      ? validCoordinate(row.latitude, row.longitude)
+      : null;
   return Media.create({
     id: row.id,
     ownerId: row.owner_id,
@@ -53,6 +69,7 @@ function rowToMedia(row: MediaRow): Media {
     createdAt: new Date(row.created_at),
     ...(row.posting_id != null ? { postingId: row.posting_id } : {}),
     ...(row.location != null ? { location: row.location } : {}),
+    ...(coordinate != null ? { coordinate } : {}),
     ...(row.backfilled === true ? { backfilled: true } : {}),
   });
 }
@@ -72,7 +89,9 @@ export class SupabaseMediaRepository implements IMediaRepository {
       created_at: media.createdAt.toISOString(),
       posting_id: media.postingId ?? null,
       location: media.location ?? null,
-      // Only sent when true, so a live post never depends on migration 20240022
+      latitude: media.coordinate?.latitude ?? null,
+      longitude: media.coordinate?.longitude ?? null,
+      // Only sent when true, so a live post never depends on migration 20240023
       // having landed — the column defaults to false anyway. Keeps ordinary
       // sharing working on any environment the migration hasn't reached yet.
       ...(media.backfilled ? { backfilled: true } : {}),
