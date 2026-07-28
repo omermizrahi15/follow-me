@@ -1,14 +1,28 @@
 import * as MediaLibrary from 'expo-media-library';
-import * as FileSystem from 'expo-file-system/legacy';
+import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { IMediaLibrary } from '../../domain/interfaces';
 import type { ResolvePayload } from '../classifiers/GeminiPhotoClassifier';
 import type { ResolveLocalUri, ResolveAssetLocation } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
+import { imageWidth } from './imageSize';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 /** Assets fetched per pagination page. */
 const PAGE_SIZE = 100;
+
+/**
+ * Photos are downscaled before being base64-encoded for classification.
+ *
+ * Gemini re-samples vision input to ~768px tiles, so full resolution buys no
+ * accuracy — it only costs memory: base64 inflates the bytes by ~33%, then
+ * `JSON.stringify` on the request body holds a second copy, and the classifier
+ * keeps CONCURRENCY payloads in flight for the whole network round-trip. At
+ * full res that is hundreds of MB of JS strings, which is how the iOS watchdog
+ * ends up killing the app (issue #77). 1024px @ 0.7 lands around 100–200KB.
+ */
+const CLASSIFY_MAX_DIMENSION = 1024;
+const CLASSIFY_JPEG_QUALITY = 0.7;
 
 /**
  * Reads recent photos from the device library via expo-media-library. Returns
@@ -67,18 +81,35 @@ export class ExpoMediaLibrary implements IMediaLibrary {
 }
 
 /**
- * Reads a library photo's bytes as base64 so it can be classified without first
- * uploading it. iOS `ph://` uris aren't readable directly, so resolve a local
- * file uri via the media library first. Wired into GeminiPhotoClassifier in the
- * composition root.
+ * Reads a library photo as a downscaled base64 JPEG so it can be classified
+ * without first uploading it. iOS `ph://` uris aren't readable directly, so
+ * resolve a local file uri via the media library first. Wired into
+ * GeminiPhotoClassifier in the composition root.
+ *
+ * Returns null to skip the photo when it can't be prepared — the classifier
+ * just moves on to the next candidate. Falling back to the full-resolution
+ * bytes would reintroduce the memory spike this downscale exists to avoid.
  */
 export const expoResolvePayload: ResolvePayload = async candidate => {
   const uri = await expoResolveLocalUri(candidate);
   // ph:// URIs can't be read by FileSystem — only skip candidates that couldn't
   // be resolved to a local file:// path (e.g. iCloud-only photos not yet downloaded).
   if (!uri.startsWith('file://')) return null;
-  const base64 = await FileSystem.readAsStringAsync(uri, { encoding: FileSystem.EncodingType.Base64 });
-  return { id: candidate.id, base64, mimeType: 'image/jpeg' };
+  try {
+    const width = await imageWidth(uri);
+    const actions = width > CLASSIFY_MAX_DIMENSION ? [{ resize: { width: CLASSIFY_MAX_DIMENSION } }] : [];
+    // `base64: true` hands back the encoded string directly, so the downscaled
+    // copy never has to be read off disk a second time.
+    const out = await manipulateAsync(uri, actions, {
+      compress: CLASSIFY_JPEG_QUALITY,
+      format: SaveFormat.JPEG,
+      base64: true,
+    });
+    if (out.base64 == null) return null;
+    return { id: candidate.id, base64: out.base64, mimeType: 'image/jpeg' };
+  } catch {
+    return null;
+  }
 };
 
 /**

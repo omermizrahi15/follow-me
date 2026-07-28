@@ -23,7 +23,11 @@ export function useAutoSync(publisherId: string | null): void {
           if (!(await hasPhotoSyncConsent())) return;
           if (await isPhotoSyncPaused()) return;
           const config = await loadConfig.execute(publisherId);
-          await syncCandidatePhotos.execute(publisherId, config.lookbackDays);
+          // Re-checked between upload batches, not just here: a sync over a
+          // large library runs for a while, and if the user hits "Remove my
+          // photos from the cloud" partway through, the batches still in
+          // flight would otherwise commit their rows after the delete.
+          await syncCandidatePhotos.execute(publisherId, config.lookbackDays, isPhotoSyncPaused);
         } catch {
           /* best-effort background sync */
         }
