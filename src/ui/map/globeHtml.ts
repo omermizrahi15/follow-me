@@ -186,6 +186,16 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
   map.on('load', function () {
     map.setProjection({ type: 'globe' });
 
+    // MapLibre paints the compact attribution EXPANDED the first time, so the
+    // ⓘ panel greeted the publisher on every launch. Shut it once, here.
+    //
+    // Collapsing, not removing: crediting MapTiler and OpenStreetMap is a
+    // licence condition, so the ⓘ button stays and tapping it re-adds this
+    // class and opens the panel as normal. CSS can't do this — the same class
+    // marks "user opened it", so hiding it would break the button too.
+    var attrib = document.querySelector('.maplibregl-ctrl-attrib');
+    if (attrib) attrib.classList.remove('maplibregl-compact-show');
+
     // No setSky atmosphere here on purpose. MapLibre's atmosphere is lit from
     // the sun position, so it brightens ONE limb of the planet and leaves the
     // rest dark — not the even ring we want. The halo is drawn instead as a
