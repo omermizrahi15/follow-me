@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { listFeed } from '../../composition/container';
-import type { FeedPosting } from '../components/PhotoFeed';
+import type { FeedPosting } from '../data/feed';
 import type { FeedPostingDto } from '../../application/dtos';
 
 interface FeedState {

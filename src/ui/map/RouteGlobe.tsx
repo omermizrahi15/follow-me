@@ -1,7 +1,7 @@
 import React, { useMemo, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
-import type { FeedPosting } from '../components/PhotoFeed';
+import type { FeedPosting } from '../data/feed';
 import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
 import { buildTravelRoute, type TravelRouteInput } from '../../domain/services/travelRoute';
 import { buildGlobeHtml, type GlobeMessage } from './globeHtml';

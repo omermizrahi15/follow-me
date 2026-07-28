@@ -18,7 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
-import type { FeedMedia } from '../components/PhotoFeed';
+import type { FeedMedia } from '../data/feed';
 import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
 import { colors, radius, spacing } from '../theme/theme';
 

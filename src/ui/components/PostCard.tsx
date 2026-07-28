@@ -3,16 +3,13 @@ import { View, Text, Image, TouchableOpacity, Dimensions, StyleSheet } from 'rea
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
-import type { FeedPosting } from './PhotoFeed';
+import type { FeedPosting } from '../data/feed';
 import { colors, radius, spacing } from '../theme/theme';
 
-/**
- * Wide-and-short, the proportions a trip card has in the sheet — the opposite
- * of the old full-bleed feed, which was one tall portrait per screen.
- */
+/** Wide and short — the proportions a trip card has in the sheet. */
 const ASPECT = 16 / 9;
 const CARD_WIDTH = Dimensions.get('window').width - spacing.xl * 2;
-export const CARD_HEIGHT = Math.round(CARD_WIDTH / ASPECT);
+export const POST_CARD_HEIGHT = Math.round(CARD_WIDTH / ASPECT);
 /** Cards are half-width of the old full-bleed post; ask for half the pixels. */
 const COVER_WIDTH = 720;
 
@@ -22,12 +19,13 @@ interface Props {
 }
 
 /**
- * One post as it appears inside the Me sheet: a wide cover with the place and
- * date over a scrim. Exported as a single card (not a list) because the sheet
- * renders them inside its own FlatList — a scrollable list nested in the
- * sheet's scroll view would fight it for the gesture.
+ * One post as it appears in the feed inside the Me sheet: a wide cover with the
+ * place and date over a scrim.
+ *
+ * A card, not a list. The feed IS the sheet's own FlatList — nesting a second
+ * scrollable list inside it would fight it for the gesture.
  */
-export function CompactFeedCard({ posting, onPress }: Props): React.JSX.Element {
+export function PostCard({ posting, onPress }: Props): React.JSX.Element {
   const rawCover = posting.coverUri ?? posting.media.find(m => m.uri)?.uri;
   const cover = rawCover != null ? displaySizedUri(rawCover, COVER_WIDTH) : undefined;
   return (
@@ -36,7 +34,7 @@ export function CompactFeedCard({ posting, onPress }: Props): React.JSX.Element 
       activeOpacity={0.9}
       onPress={onPress}
       disabled={onPress == null}
-      testID={`compact-post-${posting.id}`}
+      testID={`post-card-${posting.id}`}
     >
       {cover != null ? (
         <Image source={{ uri: cover }} style={styles.image} resizeMode="cover" />
@@ -76,7 +74,7 @@ export function CompactFeedCard({ posting, onPress }: Props): React.JSX.Element 
 const styles = StyleSheet.create({
   card: {
     width: '100%',
-    height: CARD_HEIGHT,
+    height: POST_CARD_HEIGHT,
     borderRadius: radius.lg,
     overflow: 'hidden',
     backgroundColor: colors.surfaceAlt,

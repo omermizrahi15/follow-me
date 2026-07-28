@@ -18,7 +18,7 @@ import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { SectionNav, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
-import { CompactFeedCard, CARD_HEIGHT } from '../components/CompactFeed';
+import { PostCard, POST_CARD_HEIGHT } from '../components/PostCard';
 import { RouteGlobe } from '../map/RouteGlobe';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { ReviewSuggestionContent } from './ReviewSuggestionScreen';
@@ -201,7 +201,7 @@ export function HomeScreen(): React.JSX.Element {
               showsVerticalScrollIndicator={false}
               contentContainerStyle={[styles.meContent, { paddingBottom: bottomInset }]}
               renderItem={({ item }) => (
-                <CompactFeedCard
+                <PostCard
                   posting={item}
                   onPress={() => navigation.navigate('Posting', { posting: item })}
                 />
@@ -209,8 +209,8 @@ export function HomeScreen(): React.JSX.Element {
               // Fixed-height cards, so the list can skip measuring and mount
               // only what is near the viewport however long the feed gets.
               getItemLayout={(_, index) => ({
-                length: CARD_HEIGHT + spacing.md,
-                offset: (CARD_HEIGHT + spacing.md) * index,
+                length: POST_CARD_HEIGHT + spacing.md,
+                offset: (POST_CARD_HEIGHT + spacing.md) * index,
                 index,
               })}
               initialNumToRender={4}
