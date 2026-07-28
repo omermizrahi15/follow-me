@@ -88,9 +88,12 @@ Note: `workflow_run` only fires once this workflow is on the default branch, and
 | `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | optional | Same as above |
 | `EXPO_PUBLIC_CLASSIFY_FN_URL` | optional | Same as above (AI photo suggestions) |
 
-## Web E2E — the subscribe page
+## Web E2E — the follower-facing pages
 
-The follower-facing subscribe page (`docs/join/index.html`) is a static browser page, not part of the iOS app, so Maestro can't reach it. It's covered separately with **Playwright** ([`web-e2e/subscribe.spec.ts`](../web-e2e/subscribe.spec.ts)): render the form, successful subscribe → confirmation, the exact `{publisherId, contactHandle}` payload sent to the `subscribe` edge function, server-error and network-error handling. The `subscribe` call is intercepted, so tests are deterministic and create no real subscriptions.
+The subscribe page (`docs/join/index.html`) and the post gallery (`docs/gallery.html`) are static browser pages, not part of the iOS app, so Maestro can't reach them. They're covered separately with **Playwright**; every backend call is intercepted, so the tests are deterministic and touch no real data.
+
+- [`web-e2e/subscribe.spec.ts`](../web-e2e/subscribe.spec.ts) — render the form, successful subscribe → confirmation, the exact `{publisherId, contactHandle}` payload sent to the `subscribe` edge function, server-error and network-error handling.
+- [`web-e2e/gallery.spec.ts`](../web-e2e/gallery.spec.ts) — the two-view flow a follower gets from the WhatsApp link: `?id=` opens that post, back (browser button or in-page) lands on the publisher's whole feed, a card opens its post, and back out of a photo returns to the post rather than the feed.
 
 ```sh
 npm run e2e:web          # headless chromium, ~6s; serves docs/ on :8080

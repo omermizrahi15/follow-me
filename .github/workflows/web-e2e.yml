@@ -1,19 +1,20 @@
-name: CI · e2e web (join page)
+name: CI · e2e web (public pages)
 
-# The public subscribe page (docs/join/) is a static browser page the iOS app
-# can't cover. This runs headless on Ubuntu in ~1-2 min. Path-filtered like
-# every other pipeline: it only runs when the page or its tests change.
+# The subscribe page (docs/join/) and the post gallery (docs/gallery.html) are
+# static browser pages the iOS app can't cover — the two things a follower ever
+# sees. This runs headless on Ubuntu in ~1-2 min. Path-filtered like every
+# other pipeline: it only runs when a page or its tests change.
 on:
   push:
     branches: [main]
-    paths: ['docs/join/**', 'web-e2e/**', 'playwright.config.ts']
+    paths: ['docs/join/**', 'docs/gallery.html', 'web-e2e/**', 'playwright.config.ts']
   pull_request:
     branches: [main]
-    paths: ['docs/join/**', 'web-e2e/**', 'playwright.config.ts']
+    paths: ['docs/join/**', 'docs/gallery.html', 'web-e2e/**', 'playwright.config.ts']
 
 jobs:
   web-e2e:
-    name: Playwright (subscribe page)
+    name: Playwright (public pages)
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

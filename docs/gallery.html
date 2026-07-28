@@ -1,11 +1,21 @@
 <!DOCTYPE html>
 <!--
   Follow Me — public post gallery (GitHub Pages).
-  Opened from the WhatsApp message ("See all N photos: …?id=<postId>").
-  Fetches the post row + publisher name from Supabase REST with the anon key
-  (public by design; posts/publisher_profile have anon SELECT policies).
-  Hosted here because Supabase serves Edge Function & Storage HTML as
-  text/plain (anti-phishing), so it can't host pages itself.
+
+  Two views over one page, so a follower who opens the WhatsApp link lands on
+  the post it points at and can go back to everything else the publisher shared:
+
+    ?id=<postId>    one post — photo grid + story viewer (the link's target)
+    ?u=<publisher>  the feed — every post as a card, newest first
+
+  Entering on ?id seeds history as [feed, post], so the browser's own back
+  button (and the phone's back gesture) reaches the feed without a reload. The
+  feed cards mirror the app's PostCard: wide cover, place over date, count chip.
+
+  Reads Supabase REST with the anon key (public by design; posts and
+  publisher_profile have anon SELECT policies). Hosted here because Supabase
+  serves Edge Function & Storage HTML as text/plain (anti-phishing), so it
+  can't host pages itself.
 -->
 <html lang="en">
 <head>
@@ -14,22 +24,78 @@
   <meta name="robots" content="noindex">
   <title>Photos — Follow Me</title>
   <style>
-    :root { color-scheme: light; }
+    /* Tokens mirror the app's theme.ts so the web feed reads as the same product. */
+    :root {
+      color-scheme: light;
+      --bg: #F2F5F8;
+      --surface-alt: #EEF2F6;
+      --text: #13212B;
+      --text-secondary: #5A6672;
+      --text-muted: #9AA5AE;
+      --accent: #0E3A53;
+      --radius-lg: 16px;
+    }
     * { box-sizing: border-box; margin: 0; }
-    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: #F7F9FB; color: #1A222B; }
-    header { padding: 28px 20px 16px; text-align: center; }
-    header h1 { font-size: 22px; font-weight: 700; }
-    header p { margin-top: 4px; color: #6B7683; font-size: 14px; }
-    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 6px; padding: 0 6px 40px; max-width: 900px; margin: 0 auto; }
-    .grid button { display: block; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background: #E8EDF2; border: 0; padding: 0; cursor: pointer; }
+    body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
+    [hidden] { display: none !important; }
+    .page { max-width: 560px; margin: 0 auto; padding: 0 16px 40px; }
+    .status { text-align: center; padding: 60px 20px; color: var(--text-secondary); font-size: 15px; }
+    footer { text-align: center; padding-bottom: 32px; color: var(--text-muted); font-size: 12px; }
+
+    /* ---------- feed view ---------- */
+    /* The profile row is the app's Me-sheet header: avatar, name, post count. */
+    .profile { display: flex; align-items: center; gap: 14px; padding: 28px 0 20px; }
+    .profile-avatar {
+      flex: none; width: 62px; height: 62px; border-radius: 999px;
+      background: var(--surface-alt); overflow: hidden;
+      display: flex; align-items: center; justify-content: center;
+      color: var(--accent); font-size: 24px; font-weight: 700;
+    }
+    .profile-avatar img { width: 100%; height: 100%; object-fit: cover; }
+    .profile-text { min-width: 0; }
+    .profile-name { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .profile-meta { margin-top: 2px; color: var(--text-secondary); font-size: 14px; }
+
+    /* Card = PostCard.tsx: 16:9 cover, bottom scrim, place over date, count chip. */
+    .card {
+      display: block; position: relative; width: 100%; aspect-ratio: 16 / 9;
+      border: 0; padding: 0; margin-bottom: 12px; cursor: pointer;
+      border-radius: var(--radius-lg); overflow: hidden; background: var(--surface-alt);
+      -webkit-tap-highlight-color: transparent;
+    }
+    .card img { width: 100%; height: 100%; object-fit: cover; display: block; }
+    .card-scrim { position: absolute; left: 0; right: 0; bottom: 0; height: 60%; background: linear-gradient(transparent, rgba(0,0,0,0.7)); }
+    .card-caption { position: absolute; left: 16px; right: 16px; bottom: 12px; text-align: left; }
+    .card-place { color: #fff; font-size: 18px; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .card-date { color: rgba(255,255,255,0.85); font-size: 11px; font-weight: 600; letter-spacing: 1px; margin-top: 2px; }
+    .card-chip {
+      position: absolute; top: 8px; right: 8px;
+      display: flex; align-items: center; gap: 3px;
+      background: rgba(0,0,0,0.45); color: #fff;
+      border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 600;
+    }
+    .empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); font-size: 14px; }
+
+    /* ---------- post view ---------- */
+    .post-head { padding: 20px 0 16px; }
+    .back {
+      display: inline-flex; align-items: center; gap: 6px;
+      background: none; border: 0; padding: 4px 0; margin-bottom: 12px;
+      color: var(--accent); font-size: 15px; font-weight: 600; cursor: pointer;
+      font-family: inherit;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .post-head h1 { font-size: 22px; font-weight: 700; letter-spacing: -0.4px; }
+    .post-head p { margin-top: 4px; color: var(--text-secondary); font-size: 14px; }
+    .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 6px; }
+    .grid button { display: block; aspect-ratio: 1; overflow: hidden; border-radius: 10px; background: var(--surface-alt); border: 0; padding: 0; cursor: pointer; }
     .grid img { width: 100%; height: 100%; object-fit: cover; display: block; transition: transform .15s ease; }
     .grid button:hover img { transform: scale(1.03); }
-    .status { text-align: center; padding: 60px 20px; color: #6B7683; font-size: 15px; }
-    footer { text-align: center; padding-bottom: 32px; color: #9AA5AE; font-size: 12px; }
 
-    /* Story viewer (issue #67) — full-screen, one photo at a time. Mirrors the
-       app's PostingDetailScreen: progress segments, tap right/left to advance
-       or go back, place/date on a top scrim. */
+    /* ---------- story viewer (issue #67) ---------- */
+    /* Full-screen, one photo at a time. Mirrors the app's PostingDetailScreen:
+       progress segments, tap right/left to advance or go back, place/date on a
+       top scrim. */
     .story {
       position: fixed; inset: 0; z-index: 10;
       background: #000;
@@ -38,7 +104,6 @@
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
     }
-    .story[hidden] { display: none; }
     .story img {
       max-width: 100vw; max-height: 100dvh;
       object-fit: contain;
@@ -90,12 +155,32 @@
   </style>
 </head>
 <body>
-  <header>
-    <h1 id="title">Loading…</h1>
-    <p id="subtitle"></p>
-  </header>
-  <div class="grid" id="grid"></div>
-  <p class="status" id="status" hidden></p>
+  <div class="page">
+    <!-- Feed: every post by the publisher, newest first. -->
+    <section id="feedView" hidden>
+      <div class="profile">
+        <div class="profile-avatar" id="feedAvatar"></div>
+        <div class="profile-text">
+          <div class="profile-name" id="feedName"></div>
+          <div class="profile-meta" id="feedCount"></div>
+        </div>
+      </div>
+      <div id="feedList"></div>
+      <p class="empty" id="feedEmpty" hidden>No posts yet.</p>
+    </section>
+
+    <!-- One post: the grid the WhatsApp link opens. -->
+    <section id="postView" hidden>
+      <div class="post-head">
+        <button class="back" id="backToFeed" type="button">← All posts</button>
+        <h1 id="title">Loading…</h1>
+        <p id="subtitle"></p>
+      </div>
+      <div class="grid" id="grid"></div>
+    </section>
+
+    <p class="status" id="status" hidden></p>
+  </div>
   <footer>Shared with Follow Me</footer>
 
   <div class="story" id="story" hidden>
@@ -125,6 +210,33 @@
     }
     const thumbUrl = url => sizedUrl(url, 600);
     const fullUrl = url => sizedUrl(url, 2048);
+    /** Feed covers are one-per-row cards; the app's PostCard asks for the same width. */
+    const coverUrl = url => sizedUrl(url, 720);
+
+    /** The label the app's feed shows, e.g. "June 18, 2026". */
+    function formatDate(iso) {
+      return new Date(iso).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+    }
+
+    const feedView = document.getElementById('feedView');
+    const postView = document.getElementById('postView');
+    const statusEl = document.getElementById('status');
+
+    // Publisher + posts, filled by the loaders and reused across views, so
+    // going back to the feed (or into another post) costs no round trip.
+    let publisherId = null;
+    let publisherName = 'Your friend';
+    const postsById = new Map();
+    let feedRendered = false;
+    /** The post the post-view is showing — the story pushes history against it. */
+    let currentPostId = null;
+
+    function fail(message) {
+      feedView.hidden = true;
+      postView.hidden = true;
+      statusEl.textContent = message;
+      statusEl.hidden = false;
+    }
 
     // ---------- story viewer (issue #67) ----------
     // Same interaction model as the app's PostingDetailScreen: segmented
@@ -157,25 +269,17 @@
       }
     }
 
-    function openStory(index) {
+    function openStoryOverlay(index) {
       buildSegments();
       showPhoto(index);
       story.hidden = false;
       document.body.style.overflow = 'hidden';
     }
 
-    function closeStory() {
+    function closeStoryOverlay() {
       story.hidden = true;
       storyImage.src = '';
       document.body.style.overflow = '';
-    }
-
-    /** Advance by delta; stepping past the last photo closes the story. */
-    function step(delta) {
-      const next = storyIndex + delta;
-      if (next >= photoUrls.length) return closeStory();
-      if (next < 0) return;
-      showPhoto(next);
     }
 
     document.getElementById('storyClose').addEventListener('click', e => {
@@ -209,47 +313,26 @@
       }
     });
 
-    // ---------- page load ----------
-    function fail(message) {
-      document.getElementById('title').textContent = 'Follow Me';
-      const status = document.getElementById('status');
-      status.textContent = message;
-      status.hidden = false;
-    }
+    // ---------- views ----------
+    function renderPost(post) {
+      currentPostId = post.id;
+      feedView.hidden = true;
+      postView.hidden = false;
+      statusEl.hidden = true;
 
-    async function load() {
-      const id = new URLSearchParams(location.search).get('id');
-      if (!id) return fail('This link is invalid.');
-
-      const postRes = await fetch(
-        SUPABASE_URL + '/rest/v1/posts?id=eq.' + encodeURIComponent(id) + '&select=publisher_id,media_urls,created_at',
-        { headers: HEADERS },
-      );
-      const rows = postRes.ok ? await postRes.json() : [];
-      const post = rows[0];
-      if (!post) return fail('This post was not found or has expired.');
-
-      let name = 'Your friend';
-      try {
-        const profRes = await fetch(
-          SUPABASE_URL + '/rest/v1/publisher_profile?publisher_id=eq.' + encodeURIComponent(post.publisher_id) + '&select=display_name',
-          { headers: HEADERS },
-        );
-        const profiles = profRes.ok ? await profRes.json() : [];
-        if (profiles[0] && profiles[0].display_name) name = profiles[0].display_name;
-      } catch (_) { /* keep fallback name */ }
-
-      document.title = name + "'s photos — Follow Me";
-      document.getElementById('title').textContent = name + "'s photos \u{1F4F8}";
-      const date = new Date(post.created_at).toLocaleDateString('en-GB', { day: 'numeric', month: 'long', year: 'numeric' });
+      const date = formatDate(post.created_at);
       const count = post.media_urls.length;
-      document.getElementById('subtitle').textContent = count + ' photo' + (count === 1 ? '' : 's') + ' · ' + date;
-      // The story header mirrors the app's: who/when over the photo.
-      document.getElementById('storyPlace').textContent = name;
+      document.title = publisherName + "'s photos — Follow Me";
+      document.getElementById('title').textContent = post.place || publisherName + "'s photos \u{1F4F8}";
+      document.getElementById('subtitle').textContent =
+        count + ' photo' + (count === 1 ? '' : 's') + ' · ' + date;
+      // The story header mirrors the app's: where/when over the photo.
+      document.getElementById('storyPlace').textContent = post.place || publisherName;
       storyDate = date;
 
       photoUrls = post.media_urls;
       const grid = document.getElementById('grid');
+      grid.replaceChildren();
       photoUrls.forEach((url, index) => {
         const cell = document.createElement('button');
         cell.type = 'button';
@@ -262,6 +345,221 @@
         cell.addEventListener('click', () => openStory(index));
         grid.appendChild(cell);
       });
+    }
+
+    /** One feed card — the web twin of the app's PostCard. */
+    function postCard(post) {
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'card';
+      card.dataset.postId = post.id;
+
+      const cover = post.media_urls[0];
+      if (cover) {
+        const img = document.createElement('img');
+        img.src = coverUrl(cover);
+        img.loading = 'lazy';
+        img.alt = '';
+        card.appendChild(img);
+      }
+
+      const scrim = document.createElement('div');
+      scrim.className = 'card-scrim';
+      card.appendChild(scrim);
+
+      if (post.media_urls.length > 1) {
+        const chip = document.createElement('div');
+        chip.className = 'card-chip';
+        chip.textContent = '⧉ ' + post.media_urls.length;
+        card.appendChild(chip);
+      }
+
+      // Place over date, or the date alone when the batch had no location —
+      // the same fallback PostCard makes.
+      const caption = document.createElement('div');
+      caption.className = 'card-caption';
+      const date = formatDate(post.created_at);
+      const place = document.createElement('div');
+      place.className = 'card-place';
+      place.textContent = post.place || date;
+      caption.appendChild(place);
+      if (post.place) {
+        const dateEl = document.createElement('div');
+        dateEl.className = 'card-date';
+        dateEl.textContent = date.toUpperCase();
+        caption.appendChild(dateEl);
+      }
+      card.appendChild(caption);
+
+      card.addEventListener('click', () => openPost(post.id));
+      return card;
+    }
+
+    function renderFeed() {
+      feedView.hidden = false;
+      postView.hidden = true;
+      statusEl.hidden = true;
+      document.title = publisherName + ' — Follow Me';
+
+      const posts = [...postsById.values()];
+      document.getElementById('feedName').textContent = publisherName;
+      document.getElementById('feedCount').textContent =
+        posts.length + ' post' + (posts.length === 1 ? '' : 's');
+      document.getElementById('feedEmpty').hidden = posts.length > 0;
+
+      // Cards are rebuilt only when the post set changed; coming back from a
+      // post reuses the DOM that is already there.
+      if (feedRendered) return;
+      const list = document.getElementById('feedList');
+      list.replaceChildren();
+      posts.forEach(post => list.appendChild(postCard(post)));
+      feedRendered = true;
+    }
+
+    // ---------- routing ----------
+    // Three history entries — feed → post → story — so the browser back button
+    // (and the phone's back gesture) unwinds the way a follower expects: out of
+    // the photo, out of the post, onto the feed.
+    function feedUrl() { return '?u=' + encodeURIComponent(publisherId); }
+    function postUrl(id) { return '?id=' + encodeURIComponent(id); }
+
+    async function showPostById(id) {
+      let post = postsById.get(id);
+      if (post == null) {
+        const rows = await fetchJson('posts?id=eq.' + encodeURIComponent(id) + '&select=*');
+        post = rows[0];
+        if (post == null) return fail('This post was not found or has expired.');
+        postsById.set(post.id, post);
+        feedRendered = false;
+      }
+      renderPost(post);
+    }
+
+    async function render(state) {
+      if (state.v === 'story') {
+        await showPostById(state.id);
+        openStoryOverlay(state.i);
+        return;
+      }
+      closeStoryOverlay();
+      if (state.v === 'post') await showPostById(state.id);
+      else renderFeed();
+    }
+
+    function go(state, url) {
+      history.pushState(state, '', url);
+      void render(state);
+    }
+
+    function openPost(id) { go({ v: 'post', id }, postUrl(id)); }
+    function openStory(index) { go({ v: 'story', id: currentPostId, i: index }, postUrl(currentPostId)); }
+
+    /** Back to the feed — reuse the history entry rather than stacking a new one. */
+    function showFeed() {
+      if (history.state != null && history.state.v !== 'feed') history.back();
+      else go({ v: 'feed' }, feedUrl());
+    }
+    document.getElementById('backToFeed').addEventListener('click', showFeed);
+
+    /** Advance by delta; stepping past the last photo leaves the story. */
+    function step(delta) {
+      const next = storyIndex + delta;
+      if (next >= photoUrls.length) return closeStory();
+      if (next < 0) return;
+      showPhoto(next);
+      // Replace rather than push: a 30-photo story shouldn't cost 30 backs.
+      history.replaceState({ v: 'story', id: currentPostId, i: next }, '', postUrl(currentPostId));
+    }
+
+    /** Close the story by unwinding history, so back and ✕ agree. */
+    function closeStory() {
+      if (history.state != null && history.state.v === 'story') history.back();
+      else closeStoryOverlay();
+    }
+
+    window.addEventListener('popstate', e => {
+      void render(e.state || { v: 'feed' });
+    });
+
+    // ---------- loading ----------
+    async function fetchJson(path) {
+      const res = await fetch(SUPABASE_URL + '/rest/v1/' + path, { headers: HEADERS });
+      return res.ok ? await res.json() : [];
+    }
+
+    async function loadPublisher() {
+      try {
+        const profiles = await fetchJson(
+          'publisher_profile?publisher_id=eq.' + encodeURIComponent(publisherId) + '&select=display_name,avatar_url',
+        );
+        const profile = profiles[0];
+        if (profile == null || !profile.display_name) return;
+        publisherName = profile.display_name;
+        const avatar = document.getElementById('feedAvatar');
+        if (profile.avatar_url) {
+          const img = document.createElement('img');
+          img.src = sizedUrl(profile.avatar_url, 200);
+          img.alt = '';
+          avatar.replaceChildren(img);
+        } else {
+          avatar.textContent = publisherName.trim().charAt(0).toUpperCase();
+        }
+      } catch (_) { /* keep the fallback name */ }
+    }
+
+    /**
+     * Every post by this publisher, newest first. `select=*` rather than a
+     * column list on purpose: `place` only exists once migration 20240025 has
+     * run, and naming a column the table doesn't have 400s the whole feed.
+     */
+    async function loadPosts() {
+      const rows = await fetchJson(
+        'posts?publisher_id=eq.' + encodeURIComponent(publisherId) + '&select=*&order=created_at.desc&limit=200',
+      );
+      if (rows.length === 0) return; // keep whatever the deep link already put in the map
+      postsById.clear();
+      for (const row of rows) postsById.set(row.id, row);
+      // A follower can go back before this lands — they'd be looking at a feed
+      // holding only the deep-linked post. Redraw it now that the rest is in.
+      feedRendered = false;
+      if (!feedView.hidden) renderFeed();
+    }
+
+    async function load() {
+      const params = new URLSearchParams(location.search);
+      const id = params.get('id');
+      const user = params.get('u');
+      if (!id && !user) return fail('This link is invalid.');
+
+      if (id) {
+        // Land on the linked post first — it's what the follower tapped — then
+        // seed history so back reaches the feed, and fill the feed behind it.
+        const rows = await fetchJson('posts?id=eq.' + encodeURIComponent(id) + '&select=*');
+        const post = rows[0];
+        if (!post) return fail('This post was not found or has expired.');
+        publisherId = post.publisher_id;
+        postsById.set(post.id, post);
+
+        // Seed [feed, post] as early as the publisher is known, so back works
+        // even while the name and the rest of the feed are still loading.
+        history.replaceState({ v: 'feed' }, '', feedUrl());
+        history.pushState({ v: 'post', id: post.id }, '', postUrl(post.id));
+
+        await loadPublisher();
+        // Render whatever history says we're on: a follower who hit back
+        // during that fetch is on the feed now and must not be yanked back
+        // into the post.
+        await render(history.state || { v: 'post', id: post.id });
+
+        await loadPosts();
+        return;
+      }
+
+      publisherId = user;
+      await loadPublisher();
+      await loadPosts();
+      history.replaceState({ v: 'feed' }, '', feedUrl());
+      renderFeed();
     }
 
     load().catch(() => fail('Something went wrong loading this post.'));
