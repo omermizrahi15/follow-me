@@ -132,6 +132,48 @@ describe('BackfillHistoryUseCase — scanning', () => {
   });
 });
 
+describe('BackfillHistoryUseCase — explicit gap windows (issue #81)', () => {
+  it('scans only the windows it is given, skipping covered stretches', async () => {
+    const { useCase, library } = makeSut();
+    // Pretend only the middle week is uncovered.
+    const gap = { start: new Date('2026-06-08T00:00:00Z'), end: new Date('2026-06-15T00:00:00Z') };
+
+    const { drafts } = await useCase.execute({ ...input, windows: [gap] });
+
+    expect(library.requestedWindows).toHaveLength(1);
+    expect(library.requestedWindows[0]?.start).toEqual(gap.start);
+    expect(draftIds(drafts)).toEqual([['week2']]);
+  });
+
+  it('plans from the given windows without touching the date range', () => {
+    const { useCase, library } = makeSut();
+    const gaps = [
+      { start: new Date('2026-06-15T00:00:00Z'), end: new Date('2026-06-22T00:00:00Z') },
+      { start: new Date('2026-06-01T00:00:00Z'), end: new Date('2026-06-08T00:00:00Z') },
+    ];
+
+    const plan = useCase.plan({ ...input, windows: gaps });
+
+    expect(plan.total).toBe(2);
+    expect(plan.windows).toEqual(gaps);
+    expect(library.requestedWindows).toEqual([]);
+  });
+
+  it('still applies the run cap to a long list of gaps', () => {
+    const { useCase } = makeSut();
+    const many = Array.from({ length: 9 }, (_, i) => ({
+      start: new Date(2026, 0, i + 1),
+      end: new Date(2026, 0, i + 2),
+    }));
+
+    const plan = useCase.plan({ ...input, windows: many, maxWindows: 4 });
+
+    expect(plan.windows).toHaveLength(4);
+    expect(plan.total).toBe(9);
+    expect(plan.truncated).toBe(true);
+  });
+});
+
 describe('BackfillHistoryUseCase — progress', () => {
   it('reports the plan before scanning starts', async () => {
     const { useCase } = makeSut();

@@ -20,6 +20,7 @@ import { CalendarPicker } from '../components/CalendarPicker';
 import type { ReviewablePosting } from '../hooks/useHistoryBackfill';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { planHistoryWindows } from '../../domain/services/historyWindows';
+import type { HistoryWindow } from '../../domain/services/historyWindows';
 import { startOfDay } from '../../domain/services/calendarMonth';
 import { FREQUENCY_DAYS } from '../../domain/entities/PublisherConfig';
 import type { Frequency } from '../../domain/entities/PublisherConfig';
@@ -48,11 +49,17 @@ function fullDateLabel(d: Date): string {
 
 // ---------- step 1: setup ----------
 
-function SetupStep({ onStart }: {
+function SetupStep({ onStart, initialStartDate = null, gapCount = null, bottomInset = 0 }: {
   onStart: (startDate: Date, intervalDays: number) => void;
+  initialStartDate?: Date | null;
+  /** How many uncovered stretches were found, when the caller knows. */
+  gapCount?: number | null;
+  bottomInset?: number;
 }): React.JSX.Element {
   const [cadence, setCadence] = useState<Frequency>('weekly');
-  const [startDate, setStartDate] = useState<Date | null>(null);
+  // Prefilled from the trip start on the profile — the publisher already told
+  // us when they set off, so asking again would be busywork.
+  const [startDate, setStartDate] = useState<Date | null>(initialStartDate);
   const keyboardPadding = useKeyboardBottomPadding();
 
   // Pinned once per mount: "today" must not drift mid-session, or the plan
@@ -79,7 +86,7 @@ function SetupStep({ onStart }: {
 
   return (
     <ScrollView
-      contentContainerStyle={[styles.body, { paddingBottom: spacing.xxl + keyboardPadding }]}
+      contentContainerStyle={[styles.body, { paddingBottom: spacing.xxl + keyboardPadding + bottomInset }]}
       keyboardShouldPersistTaps="handled"
     >
       <Text style={styles.lead}>
@@ -127,9 +134,11 @@ function SetupStep({ onStart }: {
         <View style={styles.previewCard}>
           <Ionicons name="albums-outline" size={18} color={colors.accent} />
           <Text style={styles.previewText}>
-            {plan.windows.length === 0
-              ? 'That’s not far enough back to rebuild anything.'
-              : `We’ll look through ${plan.windows.length} ${plan.windows.length === 1 ? 'stretch' : 'stretches'} of your history and suggest a post for each.`}
+            {gapCount != null
+              ? `${gapCount} ${gapCount === 1 ? 'stretch' : 'stretches'} of your trip ${gapCount === 1 ? 'has' : 'have'} no post yet. We’ll suggest one for each — the rest is already covered.`
+              : plan.windows.length === 0
+                ? 'That’s not far enough back to rebuild anything.'
+                : `We’ll look through ${plan.windows.length} ${plan.windows.length === 1 ? 'stretch' : 'stretches'} of your history and suggest a post for each.`}
             {plan.truncated &&
               ` That’s as far as one run goes — the other ${plan.total - plan.windows.length} can follow in a second run.`}
           </Text>
@@ -341,16 +350,29 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
   );
 }
 
-// ---------- screen ----------
+// ---------- inner content (usable inline in the sheet OR as a full screen) ----------
+
+interface ContentProps {
+  /** Called when the flow finishes or the publisher backs out. */
+  onDone: () => void;
+  /** Prefills the start date, normally the trip start from the profile. */
+  initialStartDate?: Date | null;
+  /**
+   * The stretches with no posting yet. When given, only these are scanned —
+   * the rest of the trip is already covered and rescanning it would burn the
+   * day's AI budget for nothing.
+   */
+  gaps?: HistoryWindow[];
+  bottomInset?: number;
+}
 
 /**
  * History backfill (issue #81). Publishers who found the app mid-trip
- * reconstruct everything that came before: pick a cadence and a start month,
+ * reconstruct everything that came before: pick a cadence and a start date,
  * let the same AI pipeline suggest a post per stretch, review the timeline,
  * then publish it back-dated. Nothing here messages a follower.
  */
-export function HistoryBackfillScreen(): React.JSX.Element {
-  const navigation = useNavigation<RootNavigationProp>();
+export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, bottomInset = 0 }: ContentProps): React.JSX.Element {
   const publisherId = usePublisherId();
   const {
     phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error,
@@ -374,28 +396,22 @@ export function HistoryBackfillScreen(): React.JSX.Element {
           failed > 0
             ? `${added}\n\n${failed} couldn’t be uploaded — run this again to retry:\n${detail}${more}`
             : added,
-          [{ text: 'Done', onPress: () => navigation.goBack() }],
+          [{ text: 'Done', onPress: onDone }],
         );
       })
       .catch(() => undefined); // surfaced by the error phase below
   }
 
   return (
-    <SafeAreaView style={styles.screen}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          testID="backfill-close"
-          onPress={() => navigation.goBack()}
-          hitSlop={10}
-          accessibilityLabel="Close"
-        >
-          <Ionicons name="close" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Rebuild my history</Text>
-        <View style={styles.headerSpacer} />
-      </View>
-
-      {phase === 'setup' && <SetupStep onStart={run} />}
+    <View style={styles.content}>
+      {phase === 'setup' && (
+        <SetupStep
+          onStart={(startDate, intervalDays) => run(startDate, intervalDays, gaps)}
+          initialStartDate={initialStartDate}
+          gapCount={gaps?.length ?? null}
+          bottomInset={bottomInset}
+        />
+      )}
 
       {phase === 'scanning' && <ScanningStep current={scanningWindow} total={totalWindows} />}
 
@@ -428,12 +444,37 @@ export function HistoryBackfillScreen(): React.JSX.Element {
           </TouchableOpacity>
         </View>
       )}
+    </View>
+  );
+}
+
+// ---------- full-screen wrapper (modal route) ----------
+
+/** The same flow as its own page, for the `HistoryBackfill` modal route. */
+export function HistoryBackfillScreen(): React.JSX.Element {
+  const navigation = useNavigation<RootNavigationProp>();
+  return (
+    <SafeAreaView style={styles.screen}>
+      <View style={styles.header}>
+        <TouchableOpacity
+          testID="backfill-close"
+          onPress={() => navigation.goBack()}
+          hitSlop={10}
+          accessibilityLabel="Close"
+        >
+          <Ionicons name="close" size={24} color={colors.text} />
+        </TouchableOpacity>
+        <Text style={styles.headerTitle}>Rebuild my history</Text>
+        <View style={styles.headerSpacer} />
+      </View>
+      <HistoryBackfillContent onDone={() => navigation.goBack()} />
     </SafeAreaView>
   );
 }
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
+  content: { flex: 1 },
   header: {
     flexDirection: 'row',
     alignItems: 'center',

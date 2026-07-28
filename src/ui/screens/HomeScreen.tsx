@@ -22,10 +22,12 @@ import { PostCard, POST_CARD_HEIGHT } from '../components/PostCard';
 import { RouteGlobe } from '../map/RouteGlobe';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { ReviewSuggestionContent } from './ReviewSuggestionScreen';
+import { HistoryBackfillContent } from './HistoryBackfillScreen';
 import { FollowersSection } from './sections/FollowersSection';
 import { useInviteLink } from '../hooks/useInviteLink';
 import { useFeed } from '../hooks/useFeed';
 import { useProfile } from '../hooks/useProfile';
+import { useHistoryGaps } from '../hooks/useHistoryGaps';
 import { useSubscribers } from '../hooks/useSubscribers';
 import { usePublisherId } from '../context/AuthContext';
 import { colors, radius, spacing, shadow, typography } from '../theme/theme';
@@ -55,6 +57,9 @@ export function HomeScreen(): React.JSX.Element {
   const { profile, reload: reloadProfile } = useProfile(publisherId);
   const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
   const { postings, loading: feedLoading, reload: reloadFeed } = useFeed(publisherId);
+  // The History tab exists only when some stretch of the trip has no posting —
+  // including a hole in the middle, not just a missing beginning (issue #81).
+  const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings);
   const [section, setSection] = useState<HomeSection>('me');
   const [bioExpanded, setBioExpanded] = useState(false);
   const [showingSuggestions, setShowingSuggestions] = useState(false);
@@ -295,16 +300,23 @@ export function HomeScreen(): React.JSX.Element {
               bottomInset={bottomInset}
               onSaved={() => selectSection('me')}
               onPreview={handlePreview}
-              onBackfill={() => navigation.navigate('HistoryBackfill')}
             />
           )}
           {!showingSuggestions && section === 'followers' && <FollowersSection bottomInset={bottomInset} />}
+          {!showingSuggestions && section === 'history' && (
+            <HistoryBackfillContent
+              onDone={() => { selectSection('me'); void reloadFeed(); }}
+              initialStartDate={tripStartDate}
+              gaps={gaps}
+              bottomInset={bottomInset}
+            />
+          )}
         </View>
       </Animated.View>
 
       {/* Floating segmented nav (changes the sheet content only) */}
       <View style={[styles.navWrap, { bottom: insets.bottom + spacing.md }]} pointerEvents="box-none">
-        <SectionNav active={section} onChange={selectSection} />
+        <SectionNav active={section} onChange={selectSection} showHistory={hasGaps} />
       </View>
     </View>
   );

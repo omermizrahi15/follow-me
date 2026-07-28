@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { saveProfile, storage } from '../../../composition/container';
 import { PublisherProfile } from '../../../domain/entities/PublisherProfile';
 import { OnboardingHeader } from './OnboardingHeader';
+import { CalendarPicker } from '../../components/CalendarPicker';
+import { startOfDay } from '../../../domain/services/calendarMonth';
 import { colors, radius, spacing, typography } from '../../theme/theme';
 
 type Props = {
@@ -29,6 +31,8 @@ type Props = {
 };
 
 const BIO_MAX = 160;
+/** How far back the trip-start picker reaches. */
+const TRIP_YEARS_BACK = 5;
 
 /**
  * Onboarding profile setup: display name (required), an optional avatar
@@ -44,6 +48,14 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tripStart, setTripStart] = useState<Date | null>(null);
+
+  // Pinned per mount so the picker's bounds can't shift mid-onboarding.
+  const tripToday = useMemo(() => startOfDay(new Date()), []);
+  const tripEarliest = useMemo(
+    () => new Date(tripToday.getFullYear() - TRIP_YEARS_BACK, tripToday.getMonth(), tripToday.getDate()),
+    [tripToday],
+  );
 
   function handlePickAvatar(): void {
     void (async (): Promise<void> => {
@@ -82,6 +94,7 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
             displayName: trimmed,
             bio: bio.trim().length > 0 ? bio.trim() : null,
             avatarUrl,
+            tripStartDate: tripStart,
           }),
         );
         onDone();
@@ -150,6 +163,18 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
             maxLength={BIO_MAX}
           />
           <Text style={styles.counter}>{bio.length}/{BIO_MAX}</Text>
+
+          <Text style={styles.label}>When did your travels start? (optional)</Text>
+          <Text style={styles.tripHint}>
+            Already on the road? This lets us spot the stretches you haven’t posted yet
+            and offer to rebuild them.
+          </Text>
+          <CalendarPicker
+            value={tripStart}
+            onChange={setTripStart}
+            minDate={tripEarliest}
+            maxDate={tripToday}
+          />
 
           {error != null && <Text style={styles.error}>{error}</Text>}
         </ScrollView>
@@ -222,6 +247,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.lg,
   },
   bioInput: { minHeight: 72, textAlignVertical: 'top', marginBottom: spacing.xs },
+  tripHint: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginBottom: spacing.sm },
   counter: { ...typography.caption, fontSize: 11, color: colors.textMuted, textAlign: 'right', marginBottom: spacing.md },
   error: { color: colors.danger, fontSize: 13, marginBottom: spacing.md },
   footer: {

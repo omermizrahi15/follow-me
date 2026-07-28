@@ -15,6 +15,12 @@ export interface BackfillHistoryInput {
   intervalDays: number;
   /** Overrides the window cap — tests and the preview UI pass their own. */
   maxWindows?: number;
+  /**
+   * Scan exactly these windows instead of every one since `startDate`. The UI
+   * passes the gaps it found, so a partly-posted trip doesn't spend the day's
+   * AI budget re-suggesting stretches that already have a posting (issue #81).
+   */
+  windows?: HistoryWindow[];
 }
 
 /** One reconstructed posting, before the publisher reviews and publishes it. */
@@ -65,6 +71,15 @@ export class BackfillHistoryUseCase {
 
   /** The window plan for a range, without scanning — powers the setup preview. */
   plan(input: BackfillHistoryInput): HistoryWindowPlan {
+    // Explicit windows are already the answer; just apply the run cap to them.
+    if (input.windows != null) {
+      const cap = input.maxWindows ?? MAX_HISTORY_WINDOWS;
+      return {
+        windows: input.windows.slice(0, cap),
+        total: input.windows.length,
+        truncated: input.windows.length > cap,
+      };
+    }
     return planHistoryWindows(
       {
         startDate: input.startDate,

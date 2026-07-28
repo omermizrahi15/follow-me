@@ -34,4 +34,6 @@ export interface ProfileDto {
   displayName: string;
   bio: string | null;
   avatarUrl: string | null;
+  /** ISO date-only string ("2026-06-14"), or null when the publisher hasn't said. */
+  tripStartDate: string | null;
 }

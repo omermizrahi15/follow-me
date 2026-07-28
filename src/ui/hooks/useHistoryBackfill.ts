@@ -6,7 +6,7 @@ import {
   resolvePlaceForCoordinates,
 } from '../../composition/container';
 import type { BackfillDraft } from '../../application/usecases/BackfillHistoryUseCase';
-import type { HistoryWindowPlan } from '../../domain/services/historyWindows';
+import type { HistoryWindow, HistoryWindowPlan } from '../../domain/services/historyWindows';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { Coordinate } from '../../domain/interfaces';
 import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
@@ -110,7 +110,7 @@ function indexPhotos(draft: BackfillDraft): Map<string, PhotoClassification> {
  * follower with a decade of history.
  */
 export function useHistoryBackfill(publisherId: string): State & {
-  run: (startDate: Date, intervalDays: number) => void;
+  run: (startDate: Date, intervalDays: number, windows?: HistoryWindow[]) => void;
   toggleDropped: (id: string) => void;
   setPlace: (id: string, place: string, coordinate?: Coordinate) => void;
   swapPhoto: (id: string, photoId: string) => void;
@@ -121,7 +121,7 @@ export function useHistoryBackfill(publisherId: string): State & {
   // Places the publisher typed themselves — never overwritten by resolution.
   const editedPlaces = useRef<Set<string>>(new Set());
 
-  const run = useCallback((startDate: Date, intervalDays: number): void => {
+  const run = useCallback((startDate: Date, intervalDays: number, windows?: HistoryWindow[]): void => {
     setState({ ...INITIAL, phase: 'scanning' });
     editedPlaces.current = new Set();
 
@@ -134,7 +134,16 @@ export function useHistoryBackfill(publisherId: string): State & {
       try {
         const config = await loadConfig.execute(publisherId);
         const result = await backfillHistory.execute(
-          { config, startDate, endDate: new Date(), intervalDays },
+          {
+            config,
+            startDate,
+            endDate: new Date(),
+            intervalDays,
+            // Only the uncovered stretches when the caller knows them, so a
+            // partly-posted trip doesn't spend the day's AI budget rescanning
+            // windows that already have a posting.
+            ...(windows != null ? { windows } : {}),
+          },
           {
             onPlanned: plan => {
               setState(s => ({ ...s, plan, totalWindows: plan.windows.length }));
