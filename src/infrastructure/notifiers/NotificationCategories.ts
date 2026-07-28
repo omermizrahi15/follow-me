@@ -14,7 +14,11 @@ export async function registerNotificationCategories(): Promise<void> {
     {
       identifier: POST_NOW_ACTION,
       buttonTitle: 'Post now',
-      options: { opensAppToForeground: true },
+      // "Post now" means *now*, without a detour through the app. iOS launches
+      // us in the background to deliver the response; the handler fires one
+      // call to /post-batch and the server does the fan-out from the photos it
+      // already has in the cloud. A confirmation push follows when it lands.
+      options: { opensAppToForeground: false },
     },
     {
       identifier: REVIEW_ACTION,

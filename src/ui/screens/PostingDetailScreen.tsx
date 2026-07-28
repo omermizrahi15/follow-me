@@ -1,5 +1,6 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   Image,
@@ -18,7 +19,9 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
-import type { FeedMedia } from '../data/feed';
+import { toFeedPosting, type FeedMedia, type FeedPosting } from '../data/feed';
+import { usePublisherId } from '../context/AuthContext';
+import { listFeed } from '../../composition/container';
 import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
 import { colors, radius, spacing } from '../theme/theme';
 
@@ -34,11 +37,9 @@ const DISMISS_VELOCITY = 0.7;
  * to advance/go back, swipe between photos. The subscriber web gallery mirrors
  * the same interaction, so publisher and follower see the same thing.
  */
-export function PostingDetailScreen(): React.JSX.Element {
+function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
   const insets = useSafeAreaInsets();
   const navigation = useNavigation<RootNavigationProp>();
-  const route = useRoute<RouteProp<RootStackParamList, 'Posting'>>();
-  const { posting } = route.params;
   const { width, height } = useWindowDimensions();
   const count = posting.media.length;
   const [index, setIndex] = useState(0);
@@ -190,10 +191,85 @@ export function PostingDetailScreen(): React.JSX.Element {
   );
 }
 
+/**
+ * Resolves what the route gives us into a posting to show.
+ *
+ * The feed hands over the posting it already rendered. The "Posted ✅" push —
+ * sent by the server after a background "Post now" — only knows the id of the
+ * posting it just created, so that form is looked up in the feed. The lookup
+ * can miss briefly: the push races the `media` rows becoming readable, so an
+ * empty result retries once before giving up.
+ */
+function usePostingParam(
+  params: RootStackParamList['Posting'],
+): { posting: FeedPosting | null; loading: boolean } {
+  const publisherId = usePublisherId();
+  const postingId = 'postingId' in params ? params.postingId : null;
+  const [resolved, setResolved] = useState<FeedPosting | null>(null);
+  const [loading, setLoading] = useState(postingId != null);
+
+  useEffect(() => {
+    if (postingId == null) return;
+    // Object property (not a local) so eslint doesn't flow-narrow it — the
+    // cleanup closure flips it after this effect body has been analysed.
+    const run = { cancelled: false };
+    // Checked via a function call so lint doesn't flow-narrow across awaits.
+    const isStale = (): boolean => run.cancelled;
+    void (async (): Promise<void> => {
+      for (const delayMs of [0, 1500]) {
+        if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
+        if (isStale()) return;
+        try {
+          const dtos = await listFeed.list(publisherId);
+          const match = dtos.find(d => d.id === postingId);
+          if (isStale()) return;
+          if (match != null) {
+            setResolved(toFeedPosting(match));
+            setLoading(false);
+            return;
+          }
+        } catch {
+          /* retry, then fall through to the empty state */
+        }
+      }
+      if (!isStale()) setLoading(false);
+    })();
+    return () => { run.cancelled = true; };
+  }, [postingId, publisherId]);
+
+  if ('posting' in params) return { posting: params.posting, loading: false };
+  return { posting: resolved, loading };
+}
+
+export function PostingDetailScreen(): React.JSX.Element {
+  const navigation = useNavigation<RootNavigationProp>();
+  const route = useRoute<RouteProp<RootStackParamList, 'Posting'>>();
+  const { posting, loading } = usePostingParam(route.params);
+
+  if (posting != null) return <StoryViewer posting={posting} />;
+
+  return (
+    <View style={[styles.container, styles.placeholder]}>
+      <StatusBar barStyle="light-content" />
+      {loading ? (
+        <ActivityIndicator color="#FFFFFF" />
+      ) : (
+        <>
+          <Text style={styles.missing}>This post isn&apos;t available yet.</Text>
+          <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()} hitSlop={8}>
+            <Ionicons name="close" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        </>
+      )}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   photo: { width: '100%', height: '100%' },
-  placeholder: { alignItems: 'center', justifyContent: 'center' },
+  placeholder: { alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
+  missing: { color: '#FFFFFF', fontSize: 15 },
   scrim: { position: 'absolute', top: 0, left: 0, right: 0 },
   top: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: spacing.md },
   segments: { flexDirection: 'row', gap: 4 },

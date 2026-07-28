@@ -8,6 +8,8 @@ export interface ReviewNotificationData {
   batch?: unknown[];
   pool?: unknown[];
   batchId?: string;
+  /** Set only on the "Posted ✅" push — the posting to open, not a batch to review. */
+  postingId?: string;
 }
 
 /**

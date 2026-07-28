@@ -22,6 +22,7 @@ import {
   scheduleTestNotification,
   recentCandidateUrls,
   candidateUrlsByAssetIds,
+  saveTestApprovalBatch,
   deleteUploadedPhotos,
 } from '../../../composition/container';
 import { PublisherConfig, FREQUENCY_DAYS } from '../../../domain/entities/PublisherConfig';
@@ -323,6 +324,11 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       // because a test push quietly built from unrelated photos is worse than none.
       let usedChosenBatch = false;
       let missingFromBatch = 0;
+      // The photos behind `galleryUrls`, with their asset ids. Only the chosen
+      // batch supplies them, and only they can be persisted server-side — which
+      // is what makes the test push's "Post now" exercise the real background
+      // post instead of falling back to "open the app".
+      let postablePhotos: { id: string; url: string }[] = [];
       log.push(`want: ${want} photos`);
 
       // 1. Show the photos the review screen actually chose. A device-scanned batch
@@ -349,6 +355,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         usedChosenBatch = resolved.urls.length > 0;
         missingFromBatch = resolved.missing.length;
         galleryUrls.push(...resolved.urls);
+        postablePhotos = resolved.photos;
         const dir = FileSystem.cacheDirectory ?? FileSystem.documentDirectory ?? '';
         const downloads = await Promise.allSettled(
           resolved.urls.map(async (url, i) => {
@@ -432,7 +439,22 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       log.push(`total attached: ${localUris.length}, gallery urls: ${galleryUrls.length}`);
       if (localUris[0]) log.push(`first URI: ${localUris[0].slice(0, 60)}`);
 
-      await scheduleTestNotification(seconds, localUris, galleryUrls, place);
+      // Persist the batch so "Post now" on this test push publishes for real,
+      // in the background, exactly as it will from the server's approval push.
+      // Best-effort: a failure just means the button asks for the app instead.
+      let batchId: string | undefined;
+      if (postablePhotos.length > 0) {
+        try {
+          batchId = await saveTestApprovalBatch(publisherId, postablePhotos);
+          log.push(`postable batch saved: ${batchId}`);
+        } catch (e) {
+          log.push(`batch save failed: ${e instanceof Error ? e.message : String(e)}`);
+        }
+      } else {
+        log.push('no postable batch — "Post now" will ask to open the app');
+      }
+
+      await scheduleTestNotification(seconds, localUris, galleryUrls, place, batchId);
       setTestScheduledAt(seconds >= 60 ? new Date(Date.now() + seconds * 1000) : null);
       console.log(`[DEV] ⚡ ${seconds}s notification\n${log.join('\n')}`);
 

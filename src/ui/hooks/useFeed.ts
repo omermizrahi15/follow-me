@@ -1,8 +1,7 @@
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { listFeed } from '../../composition/container';
-import type { FeedPosting } from '../data/feed';
-import type { FeedPostingDto } from '../../application/dtos';
+import { toFeedPosting, type FeedPosting } from '../data/feed';
 
 interface FeedState {
   postings: FeedPosting[];
@@ -12,21 +11,6 @@ interface FeedState {
 
 interface UseFeed extends FeedState {
   reload: () => Promise<void>;
-}
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
-}
-
-function toFeedPosting(dto: FeedPostingDto): FeedPosting {
-  return {
-    id: dto.id,
-    date: formatDate(dto.createdAt),
-    createdAt: dto.createdAt,
-    media: dto.media.map(m => ({ id: m.id, uri: m.url })),
-    ...(dto.location != null ? { place: dto.location } : {}),
-    ...(dto.coordinate != null ? { coordinate: dto.coordinate } : {}),
-  };
 }
 
 /** The publisher's real feed — uploaded media grouped into postings, newest first. */
