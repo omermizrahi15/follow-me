@@ -32,6 +32,5 @@ export interface SubscriberDto {
 export interface ProfileDto {
   publisherId: string;
   displayName: string;
-  bio: string | null;
   avatarUrl: string | null;
 }

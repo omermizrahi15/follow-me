@@ -1,8 +1,6 @@
 export interface PublisherProfileProps {
   publisherId: string;
   displayName: string;
-  /** Optional self-description; null when the publisher hasn't written one. */
-  bio: string | null;
   /** Optional avatar URL (e.g. Cloudinary); null when no photo was chosen. */
   avatarUrl: string | null;
 }
@@ -16,14 +14,12 @@ export class PublisherProfile {
     return new PublisherProfile({
       ...props,
       displayName: props.displayName.trim(),
-      bio: normalizeOptional(props.bio),
       avatarUrl: normalizeOptional(props.avatarUrl),
     });
   }
 
   get publisherId(): string { return this.props.publisherId; }
   get displayName(): string { return this.props.displayName; }
-  get bio(): string | null { return this.props.bio; }
   get avatarUrl(): string | null { return this.props.avatarUrl; }
 }
 

@@ -23,10 +23,8 @@ import { usePublisherId } from '../context/AuthContext';
 import { useProfile } from '../hooks/useProfile';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
-const BIO_MAX = 160;
-
 /**
- * Edit the full publisher profile — name, photo, bio — opened from Settings.
+ * Edit the full publisher profile — name and photo — opened from Settings.
  * Pre-filled with the saved profile; the same fields onboarding sets up.
  */
 export function EditProfileScreen(): React.JSX.Element {
@@ -35,7 +33,6 @@ export function EditProfileScreen(): React.JSX.Element {
   const { profile, loading } = useProfile(publisherId);
 
   const [name, setName] = useState('');
-  const [bio, setBio] = useState('');
   /** Either the saved https avatar or a freshly picked local file uri. */
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
@@ -46,7 +43,6 @@ export function EditProfileScreen(): React.JSX.Element {
   useEffect(() => {
     if (loading || hydrated) return;
     setName(profile?.displayName ?? '');
-    setBio(profile?.bio ?? '');
     setAvatarUri(profile?.avatarUrl ?? null);
     setHydrated(true);
   }, [loading, hydrated, profile]);
@@ -88,7 +84,6 @@ export function EditProfileScreen(): React.JSX.Element {
           PublisherProfile.create({
             publisherId,
             displayName: trimmed,
-            bio: bio.trim().length > 0 ? bio.trim() : null,
             avatarUrl,
           }),
         );
@@ -151,21 +146,8 @@ export function EditProfileScreen(): React.JSX.Element {
             value={name}
             onChangeText={setName}
             autoCorrect={false}
-            returnKeyType="next"
+            returnKeyType="done"
           />
-
-          <Text style={styles.label}>About you (optional)</Text>
-          <TextInput
-            testID="edit-profile-bio"
-            style={[styles.input, styles.bioInput]}
-            placeholder="A short line about what you share"
-            placeholderTextColor={colors.textMuted}
-            value={bio}
-            onChangeText={t => setBio(t.slice(0, BIO_MAX))}
-            multiline
-            maxLength={BIO_MAX}
-          />
-          <Text style={styles.counter}>{bio.length}/{BIO_MAX}</Text>
 
           {error != null && <Text style={styles.error}>{error}</Text>}
         </ScrollView>
@@ -234,8 +216,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: spacing.lg,
   },
-  bioInput: { minHeight: 72, textAlignVertical: 'top', marginBottom: spacing.xs },
-  counter: { ...typography.caption, fontSize: 11, color: colors.textMuted, textAlign: 'right', marginBottom: spacing.md },
   error: { color: colors.danger, fontSize: 13, marginBottom: spacing.md },
   footer: {
     paddingHorizontal: spacing.xl,
