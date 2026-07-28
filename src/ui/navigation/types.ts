@@ -1,6 +1,6 @@
 import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import type { HomeSection } from './SectionNav';
-import type { FeedPosting } from '../components/PhotoFeed';
+import type { FeedPosting } from '../data/feed';
 
 /** Top-level stack: auth gate, the main Me page, and pushed pages. */
 export type RootStackParamList = {

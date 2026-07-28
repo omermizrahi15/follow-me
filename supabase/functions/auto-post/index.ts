@@ -433,13 +433,30 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     }
   }
 
+  // Carry the candidate's GPS onto the published row (issue #78) so the
+  // Me-page globe can plot autonomously posted batches too — until now the
+  // coordinate was used to name the place and then dropped. `place` is stored
+  // alongside it so the feed shows the same label the message did.
+  // One posting_id for the whole batch, like ShareMediaUseCase stamps on the
+  // manual path. Without it every photo falls back to the column default and
+  // becomes its own single-item posting — which on the globe means N markers
+  // stacked on one spot joined by zero-length route segments.
+  const candidateById = new Map(rows.map(r => [r.asset_id, r]));
+  const postingId = `posting-auto-${config.publisher_id}-${now.getTime().toString(36)}`;
   await supabase.from('media').upsert(
-    batch.map(b => ({
-      id: b.assetId,
-      owner_id: config.publisher_id,
-      url: b.url,
-      created_at: new Date(b.createdAt).toISOString(),
-    })),
+    batch.map(b => {
+      const candidate = candidateById.get(b.assetId);
+      return {
+        id: b.assetId,
+        owner_id: config.publisher_id,
+        url: b.url,
+        created_at: new Date(b.createdAt).toISOString(),
+        posting_id: postingId,
+        location: place,
+        latitude: candidate?.latitude ?? null,
+        longitude: candidate?.longitude ?? null,
+      };
+    }),
   );
   await stamp();
   return `posted ${batch.length} to ${(subs ?? []).length} subscribers`;

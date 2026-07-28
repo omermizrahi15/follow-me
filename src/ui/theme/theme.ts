@@ -64,6 +64,8 @@ export const radius = {
   md: 12,
   lg: 16,
   xl: 20,
+  /** Sheet corners — deep enough that the map reads as continuing behind it. */
+  sheet: 32,
   pill: 999,
 } as const;
 

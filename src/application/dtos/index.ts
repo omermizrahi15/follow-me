@@ -1,3 +1,5 @@
+import type { Coordinate } from '../../domain/interfaces';
+
 export interface MediaDto {
   id: string;
   ownerId: string;
@@ -15,6 +17,8 @@ export interface FeedPostingDto {
   id: string;
   createdAt: string; // ISO string of the newest item in the posting
   location: string | null;
+  /** Where the posting is plotted on the Me-page globe; null when no item has GPS. */
+  coordinate: Coordinate | null;
   media: FeedMediaDto[];
 }
 

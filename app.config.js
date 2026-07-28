@@ -16,10 +16,21 @@ const VARIANTS = {
     bundleIdentifier: 'com.urishiber.followme.staging',
     scheme: 'followmestaging',
   },
+  // Local development builds. Its own bundle id so a dev build never lands on
+  // top of the production or staging app — before this existed the
+  // `development` EAS profile set no APP_VARIANT and silently built the
+  // PRODUCTION bundle id, so installing a dev client replaced the real app.
+  // Local points at local infrastructure; it must never borrow staging's.
+  local: {
+    name: 'Follow Me (Local)',
+    bundleIdentifier: 'com.urishiber.followme.local',
+    scheme: 'followmelocal',
+  },
 };
 
 module.exports = ({ config }) => {
-  const variant = process.env.APP_VARIANT === 'staging' ? 'staging' : 'production';
+  const requested = process.env.APP_VARIANT;
+  const variant = requested != null && requested in VARIANTS ? requested : 'production';
   const v = VARIANTS[variant];
   return {
     ...config,

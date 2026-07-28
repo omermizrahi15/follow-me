@@ -4,7 +4,7 @@ import {
   Text,
   TouchableOpacity,
   StyleSheet,
-  ScrollView,
+  FlatList,
   Image,
   Dimensions,
   Animated,
@@ -12,12 +12,14 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { SectionNav, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
-import { PhotoFeed } from '../components/PhotoFeed';
+import { PostCard, POST_CARD_HEIGHT } from '../components/PostCard';
+import { RouteGlobe } from '../map/RouteGlobe';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { ReviewSuggestionContent } from './ReviewSuggestionScreen';
 import { FollowersSection } from './sections/FollowersSection';
@@ -140,54 +142,26 @@ export function HomeScreen(): React.JSX.Element {
   const glassBand = insets.bottom + NAV_BAR_H;
   const bottomInset = glassBand + spacing.md;
 
-  // The header floats over full-bleed photos when there are posts (white text
-  // on a dark scrim) but over the plain light background when there are none.
-  const overPhotos = postings.length > 0;
-  const headerTint = overPhotos ? '#fff' : colors.ink;
+  // The header always floats over the dark globe now, so it is always white.
+  const headerTint = '#fff';
 
   return (
     <View style={styles.container}>
-      {/* Feed = full-screen virtualized background; only posts near the viewport are mounted */}
-      {postings.length > 0 ? (
-        <PhotoFeed
-          postings={postings}
-          onPressPosting={p => navigation.navigate('Posting', { posting: p })}
-          bottomPadding={MEDIUM_H + spacing.lg}
-          footer={
-            <TouchableOpacity
-              style={styles.feedEndButton}
-              activeOpacity={0.85}
-              onPress={() => navigation.navigate('Upload')}
-            >
-              <Ionicons name="add" size={18} color={colors.onAccent} />
-              <Text style={styles.feedEndButtonText}>Add post</Text>
-            </TouchableOpacity>
-          }
-        />
-      ) : !feedLoading ? (
-        <View style={styles.emptyFeed}>
-          <Ionicons name="images-outline" size={44} color={colors.textMuted} />
-          <Text style={styles.emptyTitle}>No posts yet</Text>
-          <Text style={styles.emptyHint}>Photos you share with “Add post” will show up here.</Text>
-          <TouchableOpacity
-            style={[styles.feedEndButton, { marginTop: spacing.md }]}
-            activeOpacity={0.85}
-            onPress={() => navigation.navigate('Upload')}
-          >
-            <Ionicons name="add" size={18} color={colors.onAccent} />
-            <Text style={styles.feedEndButtonText}>Add post</Text>
-          </TouchableOpacity>
-        </View>
-      ) : null}
+      {/* The travel map is the background: every posting pinned where it was
+          taken, joined in chronological order. The feed itself now lives in
+          the Me sheet below. */}
+      <RouteGlobe
+        postings={postings}
+        onPressPosting={p => navigation.navigate('Posting', { posting: p })}
+        bottomPadding={MEDIUM_H}
+      />
 
       {/* Top scrim (only over photos) + floating logo/gear */}
-      {overPhotos && (
-        <LinearGradient
-          colors={['rgba(8,12,18,0.55)', 'transparent']}
-          style={[styles.topScrim, { height: insets.top + 64 }]}
-          pointerEvents="none"
-        />
-      )}
+      <LinearGradient
+        colors={['rgba(8,12,18,0.55)', 'transparent']}
+        style={[styles.topScrim, { height: insets.top + 64 }]}
+        pointerEvents="none"
+      />
       <View style={[styles.appHeader, { top: insets.top + spacing.sm }]} pointerEvents="box-none">
         <View style={styles.logoRow}>
           <Image source={logoSource} style={[styles.logoImg, { tintColor: headerTint }]} resizeMode="contain" />
@@ -195,10 +169,14 @@ export function HomeScreen(): React.JSX.Element {
         </View>
         <TouchableOpacity
           testID="home-settings-button"
-          style={[styles.gearButton, !overPhotos && styles.gearButtonLight]}
+          style={styles.gearButton}
           accessibilityLabel="Settings"
           onPress={() => navigation.navigate('Settings')}
         >
+          {/* Frosted glass rather than a flat scrim: over satellite imagery a
+              translucent black square reads as a smudge, while a blur keeps the
+              icon legible over both bright coastline and dark ocean. */}
+          <BlurView intensity={28} tint="light" style={StyleSheet.absoluteFill} />
           <Ionicons name="settings-sharp" size={20} color={headerTint} />
         </TouchableOpacity>
       </View>
@@ -217,67 +195,100 @@ export function HomeScreen(): React.JSX.Element {
             />
           )}
           {!showingSuggestions && section === 'me' && (
-            <ScrollView
+            <FlatList
+              data={postings}
+              keyExtractor={p => p.id}
               showsVerticalScrollIndicator={false}
               contentContainerStyle={[styles.meContent, { paddingBottom: bottomInset }]}
-            >
-              <View style={styles.profile}>
-                <View style={styles.avatar}>
-                  {avatarUrl != null ? (
-                    <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
-                  ) : (
-                    <Ionicons name="camera" size={26} color={colors.accent} />
-                  )}
-                </View>
-                <View style={styles.profileText}>
-                  <Text testID="home-profile-name" style={styles.name} numberOfLines={1}>{displayName}</Text>
-                  {bio != null && (
-                    <Text style={styles.bio} numberOfLines={bioExpanded ? undefined : 2}>
-                      {bio}
+              renderItem={({ item }) => (
+                <PostCard
+                  posting={item}
+                  onPress={() => navigation.navigate('Posting', { posting: item })}
+                />
+              )}
+              // Fixed-height cards, so the list can skip measuring and mount
+              // only what is near the viewport however long the feed gets.
+              getItemLayout={(_, index) => ({
+                length: POST_CARD_HEIGHT + spacing.md,
+                offset: (POST_CARD_HEIGHT + spacing.md) * index,
+                index,
+              })}
+              initialNumToRender={4}
+              windowSize={5}
+              removeClippedSubviews
+              ListEmptyComponent={
+                feedLoading ? null : (
+                  <View style={styles.emptyFeed}>
+                    <Ionicons name="images-outline" size={32} color={colors.textMuted} />
+                    <Text style={styles.emptyTitle}>No posts yet</Text>
+                    <Text style={styles.emptyHint}>
+                      Photos you share with “Add post” show up here and on the map.
                     </Text>
-                  )}
-                  {bio != null && bioIsLong && (
+                  </View>
+                )
+              }
+              ListHeaderComponent={
+                <>
+                  <View style={styles.profile}>
+                    <View style={styles.avatar}>
+                      {avatarUrl != null ? (
+                        <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                      ) : (
+                        <Ionicons name="camera" size={26} color={colors.accent} />
+                      )}
+                    </View>
+                    <View style={styles.profileText}>
+                      <Text testID="home-profile-name" style={styles.name} numberOfLines={1}>{displayName}</Text>
+                      {bio != null && (
+                        <Text style={styles.bio} numberOfLines={bioExpanded ? undefined : 2}>
+                          {bio}
+                        </Text>
+                      )}
+                      {bio != null && bioIsLong && (
+                        <TouchableOpacity
+                          style={styles.seeMore}
+                          onPress={() => setBioExpanded(v => !v)}
+                          hitSlop={6}
+                        >
+                          <Text style={styles.seeMoreText}>{bioExpanded ? 'See less' : 'See more'}</Text>
+                          <Ionicons
+                            name={bioExpanded ? 'chevron-up' : 'chevron-down'}
+                            size={14}
+                            color={colors.accent}
+                          />
+                        </TouchableOpacity>
+                      )}
+                    </View>
+                  </View>
+
+                  <View style={styles.stats}>
+                    <View style={styles.statCol}>
+                      <Text style={styles.statNumber}>{followersLoading ? '—' : subscribers.length}</Text>
+                      <Text style={styles.statLabel}>
+                        {subscribers.length === 1 ? 'Follower' : 'Followers'}
+                      </Text>
+                    </View>
+                  </View>
+
+                  <View style={styles.actions}>
                     <TouchableOpacity
-                      style={styles.seeMore}
-                      onPress={() => setBioExpanded(v => !v)}
-                      hitSlop={6}
+                      testID="home-add-post"
+                      style={styles.addButton}
+                      activeOpacity={0.85}
+                      onPress={() => navigation.navigate('Upload')}
                     >
-                      <Text style={styles.seeMoreText}>{bioExpanded ? 'See less' : 'See more'}</Text>
-                      <Ionicons
-                        name={bioExpanded ? 'chevron-up' : 'chevron-down'}
-                        size={14}
-                        color={colors.accent}
-                      />
+                      <Ionicons name="add" size={16} color="#fff" />
+                      <Text style={styles.addButtonText}>Add post</Text>
                     </TouchableOpacity>
-                  )}
-                </View>
-              </View>
+                    <TouchableOpacity testID="home-invite" style={styles.inviteButton} activeOpacity={0.85} onPress={shareInvite}>
+                      <Ionicons name="person-add-outline" size={15} color={colors.ink} />
+                      <Text style={styles.inviteButtonText}>Invite</Text>
+                    </TouchableOpacity>
+                  </View>
 
-              <View style={styles.stats}>
-                <View style={styles.statCol}>
-                  <Text style={styles.statNumber}>{followersLoading ? '—' : subscribers.length}</Text>
-                  <Text style={styles.statLabel}>
-                    {subscribers.length === 1 ? 'Follower' : 'Followers'}
-                  </Text>
-                </View>
-              </View>
-
-              <View style={styles.actions}>
-                <TouchableOpacity
-                  testID="home-add-post"
-                  style={styles.addButton}
-                  activeOpacity={0.85}
-                  onPress={() => navigation.navigate('Upload')}
-                >
-                  <Ionicons name="add" size={16} color="#fff" />
-                  <Text style={styles.addButtonText}>Add post</Text>
-                </TouchableOpacity>
-                <TouchableOpacity testID="home-invite" style={styles.inviteButton} activeOpacity={0.85} onPress={shareInvite}>
-                  <Ionicons name="person-add-outline" size={15} color={colors.ink} />
-                  <Text style={styles.inviteButtonText}>Invite</Text>
-                </TouchableOpacity>
-              </View>
-            </ScrollView>
+                </>
+              }
+            />
           )}
           {!showingSuggestions && section === 'auto' && (
             <AutoPostingSection
@@ -301,26 +312,14 @@ export function HomeScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   emptyFeed: {
-    height: SCREEN_H - MEDIUM_H,
     alignItems: 'center',
     justifyContent: 'center',
     gap: spacing.sm,
-    paddingHorizontal: spacing.xxl,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.xl,
   },
   emptyTitle: { color: colors.text, fontSize: 17, fontWeight: '700' },
   emptyHint: { color: colors.textSecondary, fontSize: 13, textAlign: 'center' },
-  feedEndButton: {
-    alignSelf: 'center',
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.xs,
-    backgroundColor: colors.accent,
-    paddingVertical: spacing.md,
-    paddingHorizontal: spacing.xl,
-    borderRadius: radius.pill,
-    marginVertical: spacing.xl,
-  },
-  feedEndButtonText: { color: colors.onAccent, fontWeight: '600', fontSize: 14 },
   topScrim: { position: 'absolute', top: 0, left: 0, right: 0 },
   appHeader: {
     position: 'absolute',
@@ -336,20 +335,24 @@ const styles = StyleSheet.create({
   gearButton: {
     width: 40,
     height: 40,
-    borderRadius: radius.md,
-    backgroundColor: 'rgba(0,0,0,0.35)',
+    borderRadius: radius.pill,
+    // The blur fills this; overflow clips it to the circle, and the hairline
+    // gives the glass an edge so it doesn't dissolve into pale terrain.
+    overflow: 'hidden',
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.45)',
+    backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-  gearButtonLight: { backgroundColor: colors.surfaceAlt },
   sheet: {
     position: 'absolute',
     left: 0,
     right: 0,
     bottom: 0,
     backgroundColor: colors.surface,
-    borderTopLeftRadius: radius.xl,
-    borderTopRightRadius: radius.xl,
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
     overflow: 'hidden',
     ...shadow.raised,
   },
@@ -379,7 +382,14 @@ const styles = StyleSheet.create({
   statCol: { flex: 1 },
   statNumber: { ...typography.heading, fontSize: 19, color: colors.text },
   statLabel: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 1 },
-  actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.md },
+  actions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    // Separates the actions from the post cards below, which are a
+    // different kind of thing — without it they read as one block.
+    marginBottom: spacing.xxl,
+  },
   addButton: {
     flex: 1,
     flexDirection: 'row',

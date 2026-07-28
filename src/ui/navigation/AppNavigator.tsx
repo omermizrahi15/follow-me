@@ -92,7 +92,19 @@ function RootNavigator(): React.JSX.Element {
               component={ReviewSuggestionScreen}
               options={{ presentation: 'modal' }}
             />
-            <Stack.Screen name="Posting" component={PostingDetailScreen} />
+            <Stack.Screen
+              name="Posting"
+              component={PostingDetailScreen}
+              options={{
+                // The story viewer is black edge to edge and can be dismissed by
+                // dragging it down. Two defaults fought that: the card's white
+                // background showed through as the content moved, and popping a
+                // pushed screen slides it sideways — so a drag DOWN ended with a
+                // white panel sliding off to the side. Black card, fade out.
+                contentStyle: { backgroundColor: '#000000' },
+                animation: 'fade',
+              }}
+            />
           </>
         )}
       </Stack.Navigator>
