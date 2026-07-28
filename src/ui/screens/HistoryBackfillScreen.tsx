@@ -404,12 +404,24 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
   }, [postings]);
 
   if (postings.length === 0) {
+    // Why it is empty matters. A spent AI budget and a genuinely quiet library
+    // look identical from here — every window yields nothing either way — and
+    // this used to report the second no matter which it was, sending people off
+    // to change a start date that was never the problem.
     return (
       <View style={styles.centered}>
-        <Ionicons name="images-outline" size={40} color={colors.textMuted} />
-        <Text style={styles.scanTitle}>Nothing to rebuild</Text>
+        <Ionicons
+          name={quotaExhausted ? 'hourglass-outline' : 'images-outline'}
+          size={40}
+          color={quotaExhausted ? colors.accent : colors.textMuted}
+        />
+        <Text style={styles.scanTitle}>
+          {quotaExhausted ? 'Out of photo analysis for today' : 'Nothing to rebuild'}
+        </Text>
         <Text style={styles.scanSub}>
-          We found no photos in that stretch of your library. Try an earlier start date.
+          {quotaExhausted
+            ? 'There’s a daily limit on how many photos we can analyse. Your travels are still there — try again tomorrow and it will pick up where it stopped.'
+            : 'We found no photos in that stretch of your library. Try an earlier start date.'}
         </Text>
       </View>
     );

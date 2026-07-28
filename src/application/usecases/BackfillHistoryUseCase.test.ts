@@ -63,11 +63,36 @@ describe('BackfillHistoryUseCase — planning', () => {
     expect(library.requestedWindows).toEqual([]);
   });
 
-  it('applies a caller-supplied window cap', () => {
+  it('plans every window — the cap is on posts produced, not windows walked', () => {
     const { useCase } = makeSut();
+    // An empty window costs a library query and no AI, so walking it is nearly
+    // free; capping the walk would spend the allowance on quiet months and
+    // never reach the ones holding photos.
     const plan = useCase.plan({ ...input, maxWindows: 2 });
-    expect(plan.windows).toHaveLength(2);
-    expect(plan.truncated).toBe(true);
+    expect(plan.windows).toHaveLength(3);
+    expect(plan.truncated).toBe(false);
+  });
+
+  it('stops once it has reconstructed the requested number of posts', async () => {
+    const { useCase, library } = makeSut();
+
+    const { drafts } = await useCase.execute({ ...input, maxWindows: 2 });
+
+    expect(drafts).toHaveLength(2);
+    // Stopped after the second post, rather than walking the third window.
+    expect(library.requestedWindows).toHaveLength(2);
+  });
+
+  it('walks past empty windows without spending the post allowance', async () => {
+    // Photos only in the NEWEST week; the two older windows are quiet.
+    const { useCase, library } = makeSut([weeklyPhotos[0] as PhotoCandidate]);
+
+    const { drafts } = await useCase.execute({ ...input, maxWindows: 1 });
+
+    // It kept going through the quiet months and still found the post — this is
+    // the case that used to report "nothing to rebuild".
+    expect(library.requestedWindows).toHaveLength(3);
+    expect(draftIds(drafts)).toEqual([['week3']]);
   });
 });
 
@@ -163,7 +188,7 @@ describe('BackfillHistoryUseCase — explicit gap windows (issue #81)', () => {
     expect(library.requestedWindows).toEqual([]);
   });
 
-  it('still applies the run cap to a long list of gaps', () => {
+  it('keeps every supplied gap in the plan, chronologically', () => {
     const { useCase } = makeSut();
     const many = Array.from({ length: 9 }, (_, i) => ({
       start: new Date(2026, 0, i + 1),
@@ -172,9 +197,8 @@ describe('BackfillHistoryUseCase — explicit gap windows (issue #81)', () => {
 
     const plan = useCase.plan({ ...input, windows: many, maxWindows: 4 });
 
-    expect(plan.windows).toHaveLength(4);
-    expect(plan.total).toBe(9);
-    expect(plan.truncated).toBe(true);
+    expect(plan.windows).toHaveLength(9);
+    expect(plan.windows[0]?.start).toEqual(new Date(2026, 0, 1));
   });
 });
 

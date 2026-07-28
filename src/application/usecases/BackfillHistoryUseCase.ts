@@ -2,6 +2,13 @@ import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { IPhotoClassifier } from '../../domain/interfaces';
 import { planHistoryWindows, MAX_HISTORY_WINDOWS } from '../../domain/services/historyWindows';
+
+/**
+ * Hard ceiling on windows walked in one run, so a nonsense start date can't
+ * spin forever. Well above any real trip: five years at a three-day cadence is
+ * about 610.
+ */
+const MAX_WINDOWS_WALKED = 2000;
 import type { HistoryWindow, HistoryWindowPlan } from '../../domain/services/historyWindows';
 import type { SuggestPhotosUseCase } from './SuggestPhotosUseCase';
 
@@ -13,7 +20,12 @@ export interface BackfillHistoryInput {
   endDate?: Date;
   /** Posting cadence in days: a FREQUENCY_DAYS value or a custom "other" count. */
   intervalDays: number;
-  /** Overrides the window cap — tests and the preview UI pass their own. */
+  /**
+   * How many reconstructed POSTS to stop at. Counting posts rather than
+   * windows is deliberate: an empty window costs a library query and no AI at
+   * all, so capping scanned windows would spend the whole allowance walking
+   * quiet months and never reach the ones with photos in them.
+   */
   maxWindows?: number;
   /**
    * Scan exactly these windows instead of every one since `startDate`. The UI
@@ -96,8 +108,6 @@ export class BackfillHistoryUseCase {
    * where this one stopped.
    */
   plan(input: BackfillHistoryInput): HistoryWindowPlan {
-    const cap = input.maxWindows ?? MAX_HISTORY_WINDOWS;
-
     // Explicit windows (the gaps the UI found) are already the answer.
     const all = input.windows ?? planHistoryWindows(
       {
@@ -105,16 +115,15 @@ export class BackfillHistoryUseCase {
         endDate: input.endDate ?? new Date(),
         intervalDays: input.intervalDays,
       },
-      // Uncapped here so the cap is applied to the chronological order below,
-      // not to the newest-first order it arrives in.
-      Number.MAX_SAFE_INTEGER,
+      MAX_WINDOWS_WALKED,
     ).windows;
 
+    // Every window is walked; the run stops on POSTS produced, in execute().
     const chronological = [...all].sort((a, b) => a.start.getTime() - b.start.getTime());
     return {
-      windows: chronological.slice(0, cap),
+      windows: chronological,
       total: chronological.length,
-      truncated: chronological.length > cap,
+      truncated: false,
     };
   }
 
@@ -127,6 +136,7 @@ export class BackfillHistoryUseCase {
 
     const drafts: BackfillDraft[] = [];
     const total = plan.windows.length;
+    const maxPosts = input.maxWindows ?? MAX_HISTORY_WINDOWS;
     let scannedWindows = 0;
     let quotaExhausted = false;
 
@@ -151,6 +161,10 @@ export class BackfillHistoryUseCase {
       const draft = batch.length > 0 ? { window, batch, pool } : null;
       if (draft != null) drafts.push(draft);
       progress?.onWindowDone?.(i + 1, total, draft);
+
+      // Enough reconstructed for one sitting. Quiet windows walked along the
+      // way cost nothing and do not count towards it.
+      if (drafts.length >= maxPosts) break;
 
       // Stop the moment the day's budget is gone. Everything reconstructed so
       // far is kept and returned — the publisher can review and publish it now
