@@ -124,12 +124,26 @@ export interface IPhotoClassifier {
     onEach?: (result: PhotoClassification, index: number, total: number) => void,
     shouldStop?: () => boolean,
   ): Promise<PhotoClassification[]>;
+  /**
+   * Whether the *most recent* classify() call was cut short because the day's
+   * classification budget is spent. A single classification failing is normal
+   * and fails soft (fewer photos); a spent budget means every further call will
+   * fail too, so the history backfill must stop rather than grind through its
+   * remaining windows producing empty posts (issue #81).
+   */
+  quotaExhausted?(): boolean;
 }
 
-/** Reads photos from the device library within a recency window. */
+/** Reads photos from the device library within a date window. */
 export interface IMediaLibrary {
   /** Photos created within the last `lookbackDays`, newest first. */
   recentPhotos(lookbackDays: number): Promise<PhotoCandidate[]>;
+  /**
+   * Photos created in `[start, end)`, newest first. The history backfill walks
+   * arbitrary past windows (issue #81), which `recentPhotos` — always anchored
+   * to now — can't express.
+   */
+  photosBetween(start: Date, end: Date): Promise<PhotoCandidate[]>;
 }
 
 /**

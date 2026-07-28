@@ -37,6 +37,8 @@ interface Props {
   bottomInset: number;
   onSaved: () => void;
   onPreview: () => void;
+  /** Opens the history backfill flow (issue #81). */
+  onBackfill: () => void;
 }
 
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -85,7 +87,7 @@ function buildOrderedList(enabledInOrder: PhotoCategory[]): OrderedCategory[] {
   ];
 }
 
-export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): React.JSX.Element {
+export function AutoPostingSection({ bottomInset, onSaved, onPreview, onBackfill }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const [frequency, setFrequency] = useState<Frequency>('weekly');
   const [photoCount, setPhotoCount] = useState<PhotoCount>(10);
@@ -651,6 +653,22 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         <Text style={styles.previewText}>{previewing ? 'Saving…' : 'Preview suggestion now'}</Text>
       </TouchableOpacity>
 
+      {/* Everything above shapes posts from here on; this reaches backwards to
+          the trips that happened before the app existed (issue #81). */}
+      <TouchableOpacity
+        testID="auto-backfill"
+        style={styles.backfillButton}
+        onPress={onBackfill}
+        activeOpacity={0.85}
+      >
+        <Ionicons name="time-outline" size={18} color={colors.accent} />
+        <View style={styles.backfillCopy}>
+          <Text style={styles.backfillTitle}>Rebuild my history</Text>
+          <Text style={styles.backfillSub}>Add the travels you had before Follow Me</Text>
+        </View>
+        <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+      </TouchableOpacity>
+
       {showDevTools && (
         <View style={styles.devRow}>
           <TouchableOpacity
@@ -683,6 +701,17 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
 
 const styles = StyleSheet.create({
   content: { paddingHorizontal: spacing.xl, gap: spacing.md },
+  backfillButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    padding: spacing.md,
+  },
+  backfillCopy: { flex: 1, gap: 2 },
+  backfillTitle: { ...typography.body, fontWeight: '600', color: colors.text },
+  backfillSub: { ...typography.caption, fontSize: 12, color: colors.textSecondary },
   loading: { ...typography.caption, color: colors.textSecondary, padding: spacing.xl },
   title: { ...typography.heading, fontSize: 16, color: colors.text, marginBottom: spacing.xs },
   group: {

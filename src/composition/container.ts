@@ -6,6 +6,7 @@ import { RemoveSubscriberUseCase } from '../application/usecases/RemoveSubscribe
 import { SaveConfigUseCase } from '../application/usecases/SaveConfigUseCase';
 import { LoadConfigUseCase } from '../application/usecases/LoadConfigUseCase';
 import { SuggestPhotosUseCase } from '../application/usecases/SuggestPhotosUseCase';
+import { BackfillHistoryUseCase } from '../application/usecases/BackfillHistoryUseCase';
 import { ScheduleReminderUseCase } from '../application/usecases/ScheduleReminderUseCase';
 import { SyncCandidatePhotosUseCase } from '../application/usecases/SyncCandidatePhotosUseCase';
 import { SaveProfileUseCase } from '../application/usecases/SaveProfileUseCase';
@@ -111,7 +112,15 @@ export const removeSubscriber = monitored('remove_subscriber', new RemoveSubscri
 export const authService = new SupabaseAuthService(supabaseUrl, supabaseKey);
 export const saveConfig = monitored('save_config', new SaveConfigUseCase(configRepo));
 export const loadConfig = monitored('load_config', new LoadConfigUseCase(configRepo));
-export const suggestPhotos = monitored('suggest_photos', new SuggestPhotosUseCase(mediaLibrary, photoClassifier, sentPhotoTracker));
+const suggestPhotosUseCase = new SuggestPhotosUseCase(mediaLibrary, photoClassifier, sentPhotoTracker);
+export const suggestPhotos = monitored('suggest_photos', suggestPhotosUseCase);
+// Reconstructs pre-app travel history one cadence-window at a time (issue #81).
+// Takes the unwrapped suggest use case so a window's failure is tagged
+// `backfill_history` rather than double-reported as a live suggestion.
+export const backfillHistory = monitored(
+  'backfill_history',
+  new BackfillHistoryUseCase(suggestPhotosUseCase, photoClassifier),
+);
 export const scheduleReminder = monitored('schedule_reminder', new ScheduleReminderUseCase(notificationScheduler));
 export const syncCandidatePhotos = monitored('sync_candidate_photos', new SyncCandidatePhotosUseCase(
   mediaLibrary,

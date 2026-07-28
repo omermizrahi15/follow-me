@@ -284,6 +284,7 @@ export function HomeScreen(): React.JSX.Element {
               bottomInset={bottomInset}
               onSaved={() => selectSection('me')}
               onPreview={handlePreview}
+              onBackfill={() => navigation.navigate('HistoryBackfill')}
             />
           )}
           {!showingSuggestions && section === 'followers' && <FollowersSection bottomInset={bottomInset} />}

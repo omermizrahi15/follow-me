@@ -13,6 +13,8 @@ export type RootStackParamList = {
   Upload: undefined;
   /** `autoConfirm` — set by the "Post now" notification action; auto-posts on load. */
   ReviewSuggestion: { autoConfirm?: boolean } | undefined;
+  /** Reconstruct travels from before the publisher installed the app (issue #81). */
+  HistoryBackfill: undefined;
   /** All media of one feed posting, opened by tapping the post. */
   Posting: { posting: FeedPosting };
 };

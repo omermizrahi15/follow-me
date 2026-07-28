@@ -13,6 +13,7 @@ interface Database {
           created_at: string;
           posting_id: string | null;
           location: string | null;
+          backfilled: boolean | null;
         };
         Insert: {
           id: string;
@@ -21,6 +22,7 @@ interface Database {
           created_at: string;
           posting_id?: string | null;
           location?: string | null;
+          backfilled?: boolean | null;
         };
         Update: {
           id?: string;
@@ -29,6 +31,7 @@ interface Database {
           created_at?: string;
           posting_id?: string | null;
           location?: string | null;
+          backfilled?: boolean | null;
         };
         Relationships: [];
       };
@@ -50,6 +53,7 @@ function rowToMedia(row: MediaRow): Media {
     createdAt: new Date(row.created_at),
     ...(row.posting_id != null ? { postingId: row.posting_id } : {}),
     ...(row.location != null ? { location: row.location } : {}),
+    ...(row.backfilled === true ? { backfilled: true } : {}),
   });
 }
 
@@ -68,6 +72,10 @@ export class SupabaseMediaRepository implements IMediaRepository {
       created_at: media.createdAt.toISOString(),
       posting_id: media.postingId ?? null,
       location: media.location ?? null,
+      // Only sent when true, so a live post never depends on migration 20240022
+      // having landed — the column defaults to false anyway. Keeps ordinary
+      // sharing working on any environment the migration hasn't reached yet.
+      ...(media.backfilled ? { backfilled: true } : {}),
     });
     if (error != null) throw new Error(error.message);
   }

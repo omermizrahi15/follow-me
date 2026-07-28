@@ -29,6 +29,20 @@ export interface ShareMediaInput {
    * from the items' GPS coordinates.
    */
   location?: string | null;
+  /**
+   * When the posting happened. Defaults to now; the history backfill passes the
+   * window's real date so reconstructed trips sort into the feed chronologically
+   * instead of piling up at the top (issue #81).
+   */
+  createdAt?: Date;
+  /**
+   * Whether to message subscribers. Defaults to true. The history backfill sets
+   * it false: reconstructing ten past trips must not fire ten WhatsApp blasts at
+   * every follower — those postings are feed-only and discovered in the gallery.
+   */
+  notify?: boolean;
+  /** Marks the posting as reconstructed history rather than a live send. */
+  backfilled?: boolean;
 }
 
 export interface ShareProgress {
@@ -70,18 +84,28 @@ export class ShareMediaUseCase {
       ),
     ]);
 
+    const createdAt = input.createdAt ?? new Date();
     const mediaItems = uploads.map(({ item, url }) =>
       Media.create({
         id: item.mediaId,
         ownerId: input.ownerId,
         url,
-        createdAt: new Date(),
+        createdAt,
         postingId,
         ...(location != null ? { location } : {}),
+        ...(input.backfilled === true ? { backfilled: true } : {}),
       }),
     );
 
     await Promise.all(mediaItems.map(m => this.mediaRepo.save(m)));
+
+    // Silent postings stop here: no subscriber lookup, no notifier, no delivery
+    // rows. Suppressing the send later would still leave 'pending' deliveries
+    // that look like failures in the audit trail.
+    if (input.notify === false) {
+      onProgress?.({ stage: 'notifying', done: 0, total: 0 });
+      return mediaItems.map(m => MediaMapper.toDto(m));
+    }
 
     const subscribers = await this.subscriberRepo.findActiveByPublisher(input.ownerId);
     onProgress?.({ stage: 'notifying', done: 0, total: subscribers.length });

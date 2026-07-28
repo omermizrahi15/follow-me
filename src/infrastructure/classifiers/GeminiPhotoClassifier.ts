@@ -66,11 +66,22 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     private readonly getAccessToken?: () => Promise<string | null>,
   ) {}
 
+  /**
+   * Set when the function answers 429 (per-user daily quota, migration
+   * 20240015). Reset per classify() call so it always describes the latest run.
+   */
+  private hitQuota = false;
+
+  quotaExhausted(): boolean {
+    return this.hitQuota;
+  }
+
   async classify(
     candidates: PhotoCandidate[],
     onEach?: (result: PhotoClassification, index: number, total: number) => void,
     shouldStop?: () => boolean,
   ): Promise<PhotoClassification[]> {
+    this.hitQuota = false;
     if (candidates.length === 0) return [];
 
     const total = candidates.length;
@@ -151,6 +162,10 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         });
 
         if (!res.ok) {
+          // 429 is the daily quota, not a per-photo failure: every remaining
+          // photo would fail identically, so record it for the caller instead
+          // of letting a whole backfill quietly come back empty.
+          if (res.status === 429) this.hitQuota = true;
           console.warn(`classify-photos failed for ${c.id} (${res.status}): ${await res.text()}`);
           return null;
         }

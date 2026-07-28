@@ -16,16 +16,25 @@ const PAGE_SIZE = 100;
  * logic stays device-agnostic. Bytes are loaded later, only for the photos we
  * actually classify.
  *
- * Uses `createdAfter` for OS-level date filtering and paginates through every
- * matching page, so the full lookback window is always scanned regardless of
- * how large the photo library is.
+ * Uses `createdAfter`/`createdBefore` for OS-level date filtering and paginates
+ * through every matching page, so the full window is always scanned regardless
+ * of how large the photo library is. `recentPhotos` is just the now-anchored
+ * case of `photosBetween`.
  */
 export class ExpoMediaLibrary implements IMediaLibrary {
   async recentPhotos(lookbackDays: number): Promise<PhotoCandidate[]> {
+    const now = Date.now();
+    return this.photosBetween(new Date(now - lookbackDays * MS_PER_DAY), new Date(now));
+  }
+
+  async photosBetween(start: Date, end: Date): Promise<PhotoCandidate[]> {
     const granted = await this.ensurePermission();
     if (!granted) throw new Error('Photo library permission not granted');
 
-    const cutoff = Date.now() - lookbackDays * MS_PER_DAY;
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    if (endMs <= startMs) return [];
+
     const results: PhotoCandidate[] = [];
     let cursor: string | undefined = undefined;
 
@@ -35,7 +44,8 @@ export class ExpoMediaLibrary implements IMediaLibrary {
         // Descending so we process newest photos first (matters when early-stop
         // kicks in during classification — we prefer recent over old).
         sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-        createdAfter: cutoff,
+        createdAfter: startMs,
+        createdBefore: endMs,
         first: PAGE_SIZE,
         ...(cursor != null ? { after: cursor } : {}),
       });
@@ -44,6 +54,9 @@ export class ExpoMediaLibrary implements IMediaLibrary {
         // Screenshots are never post-worthy — drop them at the source so they
         // don't reach classification, suggestions, or the cloud sync.
         if (asset.mediaSubtypes?.includes('screenshot')) continue;
+        // The OS filters are inclusive on some platforms; re-check here so
+        // adjacent backfill windows can never both claim a boundary photo.
+        if (asset.creationTime < startMs || asset.creationTime >= endMs) continue;
         results.push({
           id: asset.id,
           uri: asset.uri,

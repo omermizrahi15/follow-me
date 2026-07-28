@@ -11,6 +11,7 @@ import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { UploadScreen } from '../screens/UploadScreen';
 import { ReviewSuggestionScreen } from '../screens/ReviewSuggestionScreen';
+import { HistoryBackfillScreen } from '../screens/HistoryBackfillScreen';
 import { PostingDetailScreen } from '../screens/PostingDetailScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
@@ -90,6 +91,11 @@ function RootNavigator(): React.JSX.Element {
             <Stack.Screen
               name="ReviewSuggestion"
               component={ReviewSuggestionScreen}
+              options={{ presentation: 'modal' }}
+            />
+            <Stack.Screen
+              name="HistoryBackfill"
+              component={HistoryBackfillScreen}
               options={{ presentation: 'modal' }}
             />
             <Stack.Screen name="Posting" component={PostingDetailScreen} />
