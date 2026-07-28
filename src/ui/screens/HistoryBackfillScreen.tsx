@@ -2,8 +2,6 @@ import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
-  Keyboard,
-  TextInput,
   TouchableOpacity,
   Image,
   ScrollView,
@@ -47,20 +45,13 @@ function fullDateLabel(d: Date): string {
   return `${d.getDate()} ${MONTH_NAMES[d.getMonth()]} ${d.getFullYear()}`;
 }
 
-/** Jump-to shortcuts, for the common "roughly N months ago" case. */
-const QUICK_STARTS: { label: string; monthsAgo: number }[] = [
-  { label: '3 months', monthsAgo: 3 },
-  { label: '6 months', monthsAgo: 6 },
-  { label: '1 year', monthsAgo: 12 },
-];
 
 // ---------- step 1: setup ----------
 
 function SetupStep({ onStart }: {
   onStart: (startDate: Date, intervalDays: number) => void;
 }): React.JSX.Element {
-  const [cadence, setCadence] = useState<Frequency | 'other'>('weekly');
-  const [customDays, setCustomDays] = useState('10');
+  const [cadence, setCadence] = useState<Frequency>('weekly');
   const [startDate, setStartDate] = useState<Date | null>(null);
   const keyboardPadding = useKeyboardBottomPadding();
 
@@ -72,11 +63,7 @@ function SetupStep({ onStart }: {
     [today],
   );
 
-  const intervalDays = useMemo(() => {
-    if (cadence !== 'other') return FREQUENCY_DAYS[cadence];
-    const parsed = Number.parseInt(customDays, 10);
-    return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
-  }, [cadence, customDays]);
+  const intervalDays = FREQUENCY_DAYS[cadence];
 
   // Planning is pure arithmetic — the count updates live as the publisher taps
   // around, with no scan and no AI spend behind it.
@@ -116,41 +103,8 @@ function SetupStep({ onStart }: {
             <Text style={[styles.chipText, cadence === value && styles.chipTextActive]}>{label}</Text>
           </TouchableOpacity>
         ))}
-        <TouchableOpacity
-          testID="backfill-cadence-other"
-          style={[styles.chip, cadence === 'other' && styles.chipActive]}
-          onPress={() => setCadence('other')}
-          activeOpacity={0.7}
-          accessibilityRole="radio"
-          accessibilityState={{ selected: cadence === 'other' }}
-          accessibilityLabel="Other posting frequency"
-          accessibilityHint="Lets you type your own number of days between posts"
-        >
-          <Text style={[styles.chipText, cadence === 'other' && styles.chipTextActive]}>Other</Text>
-        </TouchableOpacity>
       </View>
 
-      {cadence === 'other' && (
-        <View style={styles.customRow}>
-          <Text style={styles.customLabel}>Every</Text>
-          <TextInput
-            testID="backfill-custom-days"
-            style={styles.customInput}
-            value={customDays}
-            onChangeText={t => setCustomDays(t.replace(/[^0-9]/g, '').slice(0, 3))}
-            keyboardType="number-pad"
-            maxLength={3}
-            returnKeyType="done"
-            // The number pad has no return key on iOS; submitting via the
-            // keyboard's Done is how a switch-control or keyboard user leaves
-            // this field without hunting for a tap target.
-            onSubmitEditing={Keyboard.dismiss}
-            accessibilityLabel="Days between posts"
-            accessibilityHint={`Currently every ${customDays === '' ? 'unset' : customDays} days`}
-          />
-          <Text style={styles.customLabel}>days</Text>
-        </View>
-      )}
 
       <View style={styles.startHeader}>
         <Text style={styles.label}>When did your travels start?</Text>
@@ -161,29 +115,6 @@ function SetupStep({ onStart }: {
         )}
       </View>
 
-      {/* Shortcuts for the vague case; the calendar below is there for the
-          publisher who knows they flew out on the 14th. */}
-      <View style={styles.chipRow}>
-        {QUICK_STARTS.map(({ label, monthsAgo }) => {
-          const target = new Date(today.getFullYear(), today.getMonth() - monthsAgo, today.getDate());
-          const selected = startDate != null && startDate.getTime() === target.getTime();
-          return (
-            <TouchableOpacity
-              key={label}
-              testID={`backfill-quick-${monthsAgo}`}
-              style={[styles.chip, selected && styles.chipActive]}
-              onPress={() => setStartDate(target)}
-              activeOpacity={0.7}
-              accessibilityRole="button"
-              accessibilityState={{ selected }}
-              accessibilityLabel={`${label} ago`}
-              accessibilityHint={`Starts your history on ${fullDateLabel(target)}`}
-            >
-              <Text style={[styles.chipText, selected && styles.chipTextActive]}>{label}</Text>
-            </TouchableOpacity>
-          );
-        })}
-      </View>
 
       <CalendarPicker
         value={startDate}
@@ -540,20 +471,6 @@ const styles = StyleSheet.create({
   chipText: { ...typography.caption, color: colors.text, fontWeight: '600' },
   chipTextActive: { color: colors.onAccent },
 
-  customRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
-  customLabel: { ...typography.body, color: colors.textSecondary },
-  customInput: {
-    ...typography.body,
-    color: colors.text,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.border,
-    borderRadius: radius.sm,
-    paddingHorizontal: spacing.md,
-    paddingVertical: spacing.sm,
-    minWidth: 60,
-    textAlign: 'center',
-  },
 
   previewCard: {
     flexDirection: 'row',
