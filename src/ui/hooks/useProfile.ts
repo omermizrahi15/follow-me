@@ -36,7 +36,6 @@ export function useProfile(publisherId: string | null): UseProfile {
             : {
                 publisherId: profile.publisherId,
                 displayName: profile.displayName,
-                bio: profile.bio,
                 avatarUrl: profile.avatarUrl,
                 tripStartDate:
                   profile.tripStartDate != null ? isoDateOnly(profile.tripStartDate) : null,

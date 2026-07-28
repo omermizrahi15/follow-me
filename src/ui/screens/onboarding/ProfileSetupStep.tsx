@@ -30,21 +30,20 @@ type Props = {
   onDone: () => void;
 };
 
-const BIO_MAX = 160;
 /** How far back the trip-start picker reaches. */
 const TRIP_YEARS_BACK = 5;
 
 /**
- * Onboarding profile setup: display name (required), an optional avatar
- * (uploaded to Cloudinary), and an optional short bio. Skippable — the name
- * can be added later, and the Me page renders fine with no photo or bio.
+ * Onboarding profile setup: display name and travel start date (both
+ * required) plus an optional avatar (uploaded to Cloudinary). Not skippable —
+ * the start date is the baseline the History feature measures against. The
+ * Me page renders fine with no photo.
  *
  * Self-contained screen: the action buttons sit in a footer outside the
  * ScrollView so the keyboard-avoiding view lifts them above the keyboard.
  */
 export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Props): React.JSX.Element {
   const [name, setName] = useState('');
-  const [bio, setBio] = useState('');
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -100,7 +99,6 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
           PublisherProfile.create({
             publisherId,
             displayName: trimmed,
-            bio: bio.trim().length > 0 ? bio.trim() : null,
             avatarUrl,
             tripStartDate: tripStart,
           }),
@@ -158,20 +156,8 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
             value={name}
             onChangeText={setName}
             autoCorrect={false}
-            returnKeyType="next"
+            returnKeyType="done"
           />
-
-          <Text style={styles.label}>About you (optional)</Text>
-          <TextInput
-            style={[styles.input, styles.bioInput]}
-            placeholder="A short line about what you share"
-            placeholderTextColor={colors.textMuted}
-            value={bio}
-            onChangeText={t => setBio(t.slice(0, BIO_MAX))}
-            multiline
-            maxLength={BIO_MAX}
-          />
-          <Text style={styles.counter}>{bio.length}/{BIO_MAX}</Text>
 
           <Text style={styles.label}>When did your travels start?</Text>
           <Text style={styles.tripHint}>
@@ -252,9 +238,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: spacing.lg,
   },
-  bioInput: { minHeight: 72, textAlignVertical: 'top', marginBottom: spacing.xs },
   tripHint: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginBottom: spacing.sm },
-  counter: { ...typography.caption, fontSize: 11, color: colors.textMuted, textAlign: 'right', marginBottom: spacing.md },
   error: { color: colors.danger, fontSize: 13, marginBottom: spacing.md },
   footer: {
     paddingHorizontal: spacing.xl,

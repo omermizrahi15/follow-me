@@ -3,8 +3,8 @@ name: edit-profile
 tags:
   - auth
 ---
-# Settings -> Edit profile -> change name + bio -> Save -> the new name shows on
-# the Me page. Reuses the session persisted by sign-in.
+# Settings -> Edit profile -> change name -> Save -> the new name shows on the
+# Me page. Reuses the session persisted by sign-in.
 - launchApp
 - extendedWaitUntil:
     visible:
@@ -19,10 +19,6 @@ tags:
     id: "edit-profile-name"
 - eraseText
 - inputText: "E2E Tester"
-- tapOn:
-    id: "edit-profile-bio"
-- eraseText
-- inputText: "Automated end-to-end test profile"
 - hideKeyboard
 - tapOn:
     id: "edit-profile-save"

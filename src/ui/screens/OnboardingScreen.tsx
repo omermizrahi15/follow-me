@@ -29,7 +29,7 @@ const TOTAL_STEPS = 5;
  * First-launch onboarding. Four steps:
  *   1. What Follow Me does (with a Skip escape hatch).
  *   2. Sign in (reuses the phone OTP screen).
- *   3. Set up your profile — name, optional photo, optional bio.
+ *   3. Set up your profile — name and an optional photo.
  *   4. Copy & share the invite link, in-place.
  * Ends on the Me page once the user taps through, or immediately on Skip.
  */

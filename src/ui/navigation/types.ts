@@ -8,7 +8,7 @@ export type RootStackParamList = {
   /** Optional `section` deep-links the Me page straight to a sheet section. */
   Home: { section?: HomeSection } | undefined;
   Settings: undefined;
-  /** Edit the full publisher profile (name, photo, bio), from Settings. */
+  /** Edit the full publisher profile (name, photo), from Settings. */
   EditProfile: undefined;
   Upload: undefined;
   ReviewSuggestion: undefined;
