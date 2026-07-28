@@ -19,7 +19,14 @@ interface ShareMediaState {
   progress: ShareProgress | null;
 }
 
-export function useShareMedia(): ShareMediaState & { share: (items: MediaItem[], ownerId: string, location?: string | null) => Promise<void> } {
+export function useShareMedia(): ShareMediaState & {
+  share: (
+    items: MediaItem[],
+    ownerId: string,
+    location?: string | null,
+    coordinate?: Coordinate,
+  ) => Promise<void>;
+} {
   const [state, setState] = useState<ShareMediaState>({
     loading: false,
     error: null,
@@ -27,11 +34,23 @@ export function useShareMedia(): ShareMediaState & { share: (items: MediaItem[],
     progress: null,
   });
 
-  async function share(items: MediaItem[], ownerId: string, location?: string | null): Promise<void> {
+  async function share(
+    items: MediaItem[],
+    ownerId: string,
+    location?: string | null,
+    coordinate?: Coordinate,
+  ): Promise<void> {
     setState({ loading: true, error: null, result: null, progress: null });
     try {
       const dtos = await shareMedia.share(
-        { ownerId, items, ...(location !== undefined ? { location } : {}) },
+        {
+          ownerId,
+          items,
+          ...(location !== undefined ? { location } : {}),
+          // Only set when the publisher picked a place because the batch had
+          // no GPS; per-photo fixes still win inside the use case.
+          ...(coordinate != null ? { coordinate } : {}),
+        },
         progress => {
           setState(s => ({ ...s, progress }));
         },

@@ -2,7 +2,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   Image,
   ScrollView,
@@ -24,6 +23,7 @@ import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
+import { PlaceField } from '../components/PlaceField';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 const CATEGORY_LABEL: Record<PhotoCategory, string> = {
@@ -144,6 +144,14 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
   const [place, setPlace] = useState('');
   const [placeLoading, setPlaceLoading] = useState(false);
   const placeEditedRef = useRef(false);
+  // The coordinate a picked suggestion carries, for batches with no photo GPS.
+  const [pickedCoordinate, setPickedCoordinate] = useState<Coordinate | undefined>(undefined);
+  // Any GPS at all in the batch — decides whether a picked place is required.
+  const [gpsCoordinate, setGpsCoordinate] = useState<Coordinate | undefined>(undefined);
+  // A posting has to land somewhere real on the map: a GPS fix from the batch
+  // (or the surrounding scan), or a place the publisher picked. A typed label
+  // alone cannot be plotted without guessing at a city centre.
+  const canPost = gpsCoordinate != null || pickedCoordinate != null;
   // Which GPS source produced the place — surfaced under the
   // field so an empty suggestion is explained, never silent (issue #63).
   const [placeSource, setPlaceSource] = useState<'photos' | 'scan' | 'none' | null>(null);
@@ -226,6 +234,11 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           source = 'scan';
         }
 
+        // Keep the coordinate, not just the name it resolved to. When the
+        // selection had no GPS this is borrowed from the rest of the scan —
+        // the same trip, minutes apart — which is a far better pin than
+        // geocoding the label back to a city centre later.
+        if (!run.cancelled) setGpsCoordinate(coordinates[0]);
         const resolved = coordinates.length > 0 ? await resolvePlaceForCoordinates(coordinates) : null;
         if (isStale()) return;
 
@@ -334,7 +347,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
         : place;
       if (__DEV__) console.log(`[share] place: ${JSON.stringify(location)} (edited: ${placeEditedRef.current}, loading: ${placeLoading})`);
       try {
-        await share(items, publisherId, location);
+        await share(items, publisherId, location, pickedCoordinate ?? gpsCoordinate);
         // Posted — this batch is spent; next visit should compute a fresh one.
         void SuggestionCache.clear(publisherId).catch(() => undefined);
         setDone(true);
@@ -508,39 +521,17 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
           {phase === 'done' && kept.length > 0 && (
             <View style={[innerStyles.footer, keyboardPadding > 0 && { paddingBottom: keyboardPadding }]}>
               {shareError != null && <Text style={innerStyles.errorNote}>{shareError}</Text>}
-              <View style={innerStyles.placeRow}>
-                <Ionicons name="location-outline" size={16} color={colors.textSecondary} />
-                <TextInput
-                  style={innerStyles.placeInput}
-                  value={place}
-                  onChangeText={text => {
-                    placeEditedRef.current = true;
-                    setPlaceSource(null);
-                    setPlace(text);
-                  }}
-                  placeholder={placeLoading ? 'Finding the place…' : 'Add a place (optional)'}
-                  placeholderTextColor={colors.textMuted}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  returnKeyType="done"
-                  accessibilityLabel="Posting place"
-                />
-                {placeLoading ? (
-                  <ActivityIndicator size="small" color={colors.accent} />
-                ) : place !== '' ? (
-                  <TouchableOpacity
-                    onPress={() => {
-                      placeEditedRef.current = true;
-                      setPlaceSource(null);
-                      setPlace('');
-                    }}
-                    hitSlop={8}
-                    accessibilityLabel="Clear place"
-                  >
-                    <Ionicons name="close-circle" size={18} color={colors.textMuted} />
-                  </TouchableOpacity>
-                ) : null}
-              </View>
+              <PlaceField
+                value={place}
+                loading={placeLoading}
+                hasGps={gpsCoordinate != null}
+                onChange={(label, coordinate) => {
+                  placeEditedRef.current = true;
+                  setPlaceSource(null);
+                  setPlace(label);
+                  setPickedCoordinate(coordinate);
+                }}
+              />
               {placeSource != null && (
                 <Text
                   style={[
@@ -558,7 +549,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0, autoConfirm =
               <TouchableOpacity
                 style={[innerStyles.confirmButton, sharing && innerStyles.disabled]}
                 onPress={handleConfirm}
-                disabled={sharing}
+                disabled={sharing || !canPost}
                 activeOpacity={0.85}
               >
                 {sharing ? (
@@ -630,21 +621,6 @@ const innerStyles = StyleSheet.create({
   scanningRow: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: spacing.md, minHeight: 160, width: '100%' },
   hint: { ...typography.caption, color: colors.textSecondary },
   footer: { paddingVertical: spacing.md },
-  placeRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: spacing.sm,
-    backgroundColor: colors.surfaceAlt,
-    borderRadius: radius.md,
-    paddingHorizontal: spacing.md,
-    marginBottom: spacing.sm,
-  },
-  placeInput: {
-    flex: 1,
-    paddingVertical: spacing.md,
-    fontSize: 14,
-    color: colors.text,
-  },
   placeSourceNote: {
     ...typography.caption,
     fontSize: 11,
