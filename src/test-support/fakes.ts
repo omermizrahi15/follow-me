@@ -449,6 +449,14 @@ export class InMemoryCandidatePhotoRepository implements ICandidatePhotoReposito
     return Promise.resolve(urls);
   }
 
+  urlsByAssetIds(publisherId: string, assetIds: string[]): Promise<Map<string, string>> {
+    const wanted = new Set(assetIds);
+    const found = [...this.store.values()]
+      .filter(p => p.publisherId === publisherId && wanted.has(p.assetId))
+      .map((p): [string, string] => [p.assetId, p.url]);
+    return Promise.resolve(new Map(found));
+  }
+
   all(): CandidatePhoto[] {
     return [...this.store.values()];
   }
