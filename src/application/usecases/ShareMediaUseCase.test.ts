@@ -81,6 +81,70 @@ describe('ShareMediaUseCase — multiple items', () => {
   });
 });
 
+describe('ShareMediaUseCase — upload fan-out', () => {
+  const manyItems = Array.from({ length: 12 }, (_, i) => ({
+    mediaId: `media-${i}`,
+    localUri: `file:///local/${i}.jpg`,
+    filename: `${i}.jpg`,
+  }));
+
+  /** Storage that reports how many uploads overlapped at their peak. */
+  class CountingStorageService extends InMemoryStorageService {
+    inFlight = 0;
+    peak = 0;
+    override async upload(localUri: string, filename: string): Promise<string> {
+      this.inFlight += 1;
+      this.peak = Math.max(this.peak, this.inFlight);
+      // Yield so overlapping uploads actually accumulate before any resolves.
+      await Promise.resolve();
+      const url = await super.upload(localUri, filename);
+      this.inFlight -= 1;
+      return url;
+    }
+  }
+
+  function makeCountingSut(): { useCase: ShareMediaUseCase; storage: CountingStorageService } {
+    const storage = new CountingStorageService();
+    const useCase = new ShareMediaUseCase(
+      new InMemoryMediaRepository(),
+      new InMemorySubscriberRepository(),
+      new InMemoryNotifier(),
+      storage,
+    );
+    return { useCase, storage };
+  }
+
+  // The picker has no selection limit and each upload decodes a full-resolution
+  // bitmap, so uploading a whole selection at once is what the iOS watchdog
+  // kills the app for (issue #77).
+  it('never runs more than a bounded number of uploads at once (watchdog OOM guard)', async (): Promise<void> => {
+    const { useCase, storage } = makeCountingSut();
+
+    const dtos = await useCase.share({ ownerId: 'user-1', items: manyItems });
+
+    expect(dtos).toHaveLength(12);
+    expect(storage.peak).toBeLessThanOrEqual(3);
+  });
+
+  it('keeps the items in the order they were picked', async (): Promise<void> => {
+    const { useCase } = makeCountingSut();
+    const dtos = await useCase.share({ ownerId: 'user-1', items: manyItems });
+    expect(dtos.map(d => d.id)).toEqual(manyItems.map(i => i.mediaId));
+  });
+
+  it('reports upload progress up to the full total', async (): Promise<void> => {
+    const { useCase } = makeCountingSut();
+    const seen: number[] = [];
+
+    await useCase.share({ ownerId: 'user-1', items: manyItems }, p => {
+      if (p.stage === 'uploading') seen.push(p.done);
+    });
+
+    expect(seen[0]).toBe(0);
+    expect(seen[seen.length - 1]).toBe(12);
+  });
+});
+
 describe('ShareMediaUseCase — posting grouping', () => {
   it('stamps every item of one share with the same postingId', async (): Promise<void> => {
     const { useCase, mediaRepo } = makeSut();
