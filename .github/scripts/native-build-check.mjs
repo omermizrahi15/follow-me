@@ -82,8 +82,8 @@ if (changed.includes('app.json')) {
   const va = versionAt(head);
   if (vb !== va) {
     rebuild.push({
-      title: `App version bump (${vb} → ${va}) changes runtimeVersion`,
-      detail: 'runtimeVersion policy is `appVersion`, so bumping `expo.version` creates a NEW runtime — existing installs will not receive the OTA for it. You must `eas build` and reinstall.',
+      title: `App version bump (${vb} → ${va})`,
+      detail: 'A new user-facing version belongs in a binary: existing installs keep reporting the old version no matter what the OTA carries. Ship it with an `eas build`.',
     });
   } else {
     rebuild.push({
