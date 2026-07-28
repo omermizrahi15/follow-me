@@ -1,7 +1,6 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { IPhotoClassifier } from '../../domain/interfaces';
-import { reportMessage } from '../monitoring/sentry';
 
 /** Wire shape sent to the classify-photos Edge Function for one photo. */
 export interface PhotoPayload {
@@ -65,6 +64,13 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
      * when absent (tests / integration harness).
      */
     private readonly getAccessToken?: () => Promise<string | null>,
+    /**
+     * Called once per run when the daily quota rejects a request. Injected
+     * rather than imported: hard-wiring the monitoring SDK in here would drag
+     * @sentry/react-native — which ships ESM — into every test that touches
+     * this class, and the composition root is where implementations get chosen.
+     */
+    private readonly onQuotaExhausted?: (photosInRun: number) => void,
   ) {}
 
   /**
@@ -176,9 +182,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
             // every in-flight request, and N identical events per scan would
             // drown the signal we actually want — how often real publishers
             // hit the ceiling, which nothing throws and no stack trace shows.
-            reportMessage('classify-photos daily quota exhausted', 'classify_photos', {
-              photosInRun: this.runSize,
-            });
+            this.onQuotaExhausted?.(this.runSize);
           }
           console.warn(`classify-photos failed for ${c.id} (${res.status}): ${await res.text()}`);
           return null;

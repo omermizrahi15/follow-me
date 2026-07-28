@@ -31,7 +31,7 @@ import { SupabaseApprovalBatchRepository, type ApprovalBatch } from '../infrastr
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
-import { monitored } from '../infrastructure/monitoring/sentry';
+import { monitored, reportMessage } from '../infrastructure/monitoring/sentry';
 import Constants from 'expo-constants';
 
 /**
@@ -88,6 +88,11 @@ const photoClassifier = new GeminiPhotoClassifier(
   // The classify function requires a signed-in user's JWT (anon key rejected).
   // authService is declared below — the closure runs long after module init.
   async () => (await authService.getSession())?.access_token ?? null,
+  // The daily AI budget running out is expected and handled, so nothing ever
+  // throws — without an explicit event we'd have no idea how often real
+  // publishers hit it mid-backfill (issue #81).
+  photosInRun =>
+    reportMessage('classify-photos daily quota exhausted', 'classify_photos', { photosInRun }),
 );
 const notificationScheduler = new ExpoNotificationScheduler();
 // Already-sent = anything recorded in `media` for this publisher (id == asset id).

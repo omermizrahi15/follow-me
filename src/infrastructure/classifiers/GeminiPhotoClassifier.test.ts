@@ -1,10 +1,7 @@
 import { GeminiPhotoClassifier } from './GeminiPhotoClassifier';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
-import { reportMessage } from '../monitoring/sentry';
-
-jest.mock('../monitoring/sentry', () => ({ reportMessage: jest.fn() }));
-
-const reportedMessage = reportMessage as jest.Mock;
+/** Stands in for the monitoring hook the composition root injects. */
+const reportedQuota = jest.fn();
 
 /**
  * Concurrency/finish-condition tests: whatever mix of fast, slow, and failing
@@ -40,12 +37,14 @@ function respondWithDelay(delayMs: (id: string) => number): void {
 }
 
 function makeSut(): GeminiPhotoClassifier {
-  return new GeminiPhotoClassifier('https://fn.test/classify', 'anon-key');
+  return new GeminiPhotoClassifier(
+    'https://fn.test/classify', 'anon-key', undefined, undefined, reportedQuota,
+  );
 }
 
 beforeEach(() => {
   mockFetch.mockReset();
-  reportedMessage.mockClear();
+  reportedQuota.mockClear();
 });
 
 /** Every request answers 429, as the Edge Function does once the day's budget is spent. */
@@ -141,12 +140,9 @@ describe('GeminiPhotoClassifier — daily quota (issue #81)', () => {
 
     await makeSut().classify(Array.from({ length: 6 }, (_, i) => candidate(`p${i}`)));
 
-    expect(reportedMessage).toHaveBeenCalledTimes(1);
-    expect(reportedMessage).toHaveBeenCalledWith(
-      expect.stringContaining('quota'),
-      'classify_photos',
-      expect.objectContaining({ photosInRun: 6 }),
-    );
+    // Once for the whole run, with the run's size — not once per rejected photo.
+    expect(reportedQuota).toHaveBeenCalledTimes(1);
+    expect(reportedQuota).toHaveBeenCalledWith(6);
   });
 
   it('clears the flag on the next run, so tomorrow’s scan is not poisoned', async () => {
@@ -168,6 +164,6 @@ describe('GeminiPhotoClassifier — daily quota (issue #81)', () => {
     await sut.classify([candidate('p1'), candidate('p2')]);
 
     expect(sut.quotaExhausted()).toBe(false);
-    expect(reportedMessage).not.toHaveBeenCalled();
+    expect(reportedQuota).not.toHaveBeenCalled();
   });
 });
