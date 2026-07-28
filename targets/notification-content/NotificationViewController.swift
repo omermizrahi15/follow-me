@@ -24,7 +24,10 @@ import ImageIO
 class NotificationViewController: UIViewController, UNNotificationContentExtension {
   private let columns = 3
   private let spacing: CGFloat = 3
-  private let maxPhotos = 6
+  // Must match PUSH_GALLERY_LIMIT in supabase/functions/_shared/approvalBatch.ts and
+  // cover the largest "photos per post" setting (15) — a lower cap here silently drops
+  // photos the publisher chose. 15 downsampled thumbnails fit the ~24MB budget.
+  private let maxPhotos = 15
   private let thumbnailPixels: CGFloat = 400
 
   private let grid = UIStackView()

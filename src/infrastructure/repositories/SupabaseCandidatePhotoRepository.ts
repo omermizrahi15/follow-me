@@ -63,6 +63,17 @@ export class SupabaseCandidatePhotoRepository implements ICandidatePhotoReposito
     return new Set(data.map(r => r.asset_id));
   }
 
+  async urlsByAssetIds(publisherId: string, assetIds: string[]): Promise<Map<string, string>> {
+    if (assetIds.length === 0) return new Map();
+    const { data, error } = await this.client
+      .from('candidate_photos')
+      .select('asset_id, url')
+      .eq('publisher_id', publisherId)
+      .in('asset_id', assetIds);
+    if (error != null) throw new Error(error.message);
+    return new Map(data.map(r => [r.asset_id, r.url]));
+  }
+
   async recentUrls(publisherId: string, limit: number): Promise<string[]> {
     const { data, error } = await this.client
       .from('candidate_photos')
