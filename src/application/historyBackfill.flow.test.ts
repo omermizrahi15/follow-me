@@ -5,6 +5,8 @@ import { PublisherConfig } from '../domain/entities/PublisherConfig';
 import { Subscriber } from '../domain/entities/Subscriber';
 import type { PhotoCandidate } from '../domain/entities/PhotoCandidate';
 import type { PhotoClassification } from '../domain/entities/PhotoClassification';
+import { suggestPlaceSplit } from '../domain/services/splitSuggestion';
+import type { Coordinate } from '../domain/interfaces';
 import {
   FakeMediaLibrary,
   FakePhotoClassifier,
@@ -49,7 +51,7 @@ const photos = [
   candidate('w1-b', '2026-06-04T09:00:00Z'),
 ];
 
-function makeSut(): {
+function makeSut(inLibrary: PhotoCandidate[] = photos): {
   backfill: BackfillHistoryUseCase;
   share: ShareMediaUseCase;
   mediaRepo: InMemoryMediaRepository;
@@ -58,8 +60,8 @@ function makeSut(): {
   subscriberRepo: InMemorySubscriberRepository;
   config: PublisherConfig;
 } {
-  const library = new FakeMediaLibrary(photos);
-  const classifier = new FakePhotoClassifier(new Map(photos.map(p => [p.id, classification(p)])));
+  const library = new FakeMediaLibrary(inLibrary);
+  const classifier = new FakePhotoClassifier(new Map(inLibrary.map(p => [p.id, classification(p)])));
   const suggest = new SuggestPhotosUseCase(library, classifier, new FakeSentPhotoTracker());
   const backfill = new BackfillHistoryUseCase(suggest, classifier);
 
@@ -108,6 +110,160 @@ async function runBackfill(sut: ReturnType<typeof makeSut>): Promise<void> {
     });
   }
 }
+
+// ── one stretch that covers two cities ───────────────────────────────────────
+
+const MADRID: Coordinate = { latitude: 40.4168, longitude: -3.7038 };
+const LISBON: Coordinate = { latitude: 38.7223, longitude: -9.1393 };
+
+/**
+ * Week 2 is a travel week: three days in Madrid, then three in Lisbon. Weeks 1
+ * and 3 stay put. Each city needs three located photos to count as a stay.
+ */
+const twoCityPhotos = [
+  candidate('w1-a', '2026-06-02T09:00:00Z'),
+  candidate('w1-b', '2026-06-03T09:00:00Z'),
+  candidate('w1-c', '2026-06-04T09:00:00Z'),
+  candidate('mad-1', '2026-06-08T09:00:00Z'),
+  candidate('mad-2', '2026-06-09T09:00:00Z'),
+  candidate('mad-3', '2026-06-10T09:00:00Z'),
+  candidate('lis-1', '2026-06-12T09:00:00Z'),
+  candidate('lis-2', '2026-06-13T09:00:00Z'),
+  candidate('lis-3', '2026-06-14T09:00:00Z'),
+  candidate('w3-a', '2026-06-16T09:00:00Z'),
+  candidate('w3-b', '2026-06-17T09:00:00Z'),
+  candidate('w3-c', '2026-06-18T09:00:00Z'),
+];
+
+/** Where each photo was taken; the first and last weeks carry no GPS at all. */
+function whereTaken(id: string): Coordinate | undefined {
+  if (id.startsWith('mad')) return MADRID;
+  if (id.startsWith('lis')) return LISBON;
+  return undefined;
+}
+
+/**
+ * The screen's publish loop WITH the split applied: every reconstructed
+ * stretch is offered to the splitter first, and a stretch covering two cities
+ * is published as one posting per city instead of one for the week.
+ */
+async function runBackfillWithSplit(sut: ReturnType<typeof makeSut>): Promise<void> {
+  const { drafts } = await sut.backfill.execute({
+    config: sut.config,
+    startDate: START,
+    endDate: END,
+    intervalDays: 7,
+  });
+
+  for (const draft of drafts) {
+    const segments = suggestPlaceSplit(
+      [...draft.batch, ...draft.pool],
+      whereTaken,
+      sut.config,
+    );
+    // No split offered means the stretch is one place: post it as it is.
+    const posts = segments.length >= 2
+      ? segments.map(seg => seg.batch)
+      : [draft.batch];
+
+    for (const batch of posts) {
+      if (batch.length === 0) continue;
+      const newest = batch.reduce(
+        (latest, c) => (c.candidate.createdAt > latest ? c.candidate.createdAt : latest),
+        batch[0]?.candidate.createdAt ?? draft.window.end,
+      );
+      await sut.share.share({
+        ownerId: 'pub-1',
+        items: batch.map(c => ({
+          mediaId: c.candidate.id,
+          localUri: c.candidate.uri,
+          filename: `${c.candidate.id}.jpg`,
+          ...(whereTaken(c.candidate.id) != null
+            ? { coordinate: whereTaken(c.candidate.id) as Coordinate }
+            : {}),
+        })),
+        createdAt: newest,
+        notify: false,
+        backfilled: true,
+      });
+    }
+  }
+}
+
+/** Published postings, grouped by postingId, oldest first. */
+function postings(sut: ReturnType<typeof makeSut>): { ids: string[]; createdAt: Date }[] {
+  const groups = new Map<string, { ids: string[]; createdAt: Date }>();
+  for (const m of sut.mediaRepo.all()) {
+    const key = m.postingId ?? '';
+    const group = groups.get(key);
+    if (group != null) group.ids.push(m.id);
+    else groups.set(key, { ids: [m.id], createdAt: m.createdAt });
+  }
+  return [...groups.values()].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+}
+
+describe('history backfill flow — a stretch covering two cities', () => {
+  it('publishes the travel week as one posting per city', async () => {
+    const sut = makeSut(twoCityPhotos);
+
+    await runBackfillWithSplit(sut);
+
+    // Three stretches in, four postings out: the middle one became two.
+    const result = postings(sut);
+    expect(result).toHaveLength(4);
+    expect(result.map(p => p.ids.sort())).toEqual([
+      ['w1-a', 'w1-b', 'w1-c'],
+      ['mad-1', 'mad-2', 'mad-3'],
+      ['lis-1', 'lis-2', 'lis-3'],
+      ['w3-a', 'w3-b', 'w3-c'],
+    ]);
+  });
+
+  it('dates each half of the split from its own photos, not the window', async () => {
+    const sut = makeSut(twoCityPhotos);
+
+    await runBackfillWithSplit(sut);
+
+    const [, madrid, lisbon] = postings(sut);
+    // Both fell inside 8–15 June; back-dating to the window would have given
+    // them the same date and collapsed the order of the trip.
+    expect(madrid?.createdAt).toEqual(new Date('2026-06-10T09:00:00Z'));
+    expect(lisbon?.createdAt).toEqual(new Date('2026-06-14T09:00:00Z'));
+  });
+
+  it('plots each half at its own city', async () => {
+    const sut = makeSut(twoCityPhotos);
+
+    await runBackfillWithSplit(sut);
+
+    const byId = new Map(sut.mediaRepo.all().map(m => [m.id, m.coordinate]));
+    expect(byId.get('mad-1')?.latitude).toBeCloseTo(MADRID.latitude, 2);
+    expect(byId.get('lis-1')?.latitude).toBeCloseTo(LISBON.latitude, 2);
+  });
+
+  it('leaves the single-city weeks as one posting each', async () => {
+    const sut = makeSut(twoCityPhotos);
+
+    await runBackfillWithSplit(sut);
+
+    const result = postings(sut);
+    expect(result[0]?.ids).toHaveLength(3);
+    expect(result[3]?.ids).toHaveLength(3);
+  });
+
+  it('INVARIANT: splitting a stretch still messages nobody', async () => {
+    const sut = makeSut(twoCityPhotos);
+    await sut.subscriberRepo.save(
+      Subscriber.create({ id: 'sub-1', publisherId: 'pub-1', contactHandle: '+972501234567', status: 'active' }),
+    );
+
+    await runBackfillWithSplit(sut);
+
+    // The split doubles the number of postings, which is exactly the shape of
+    // mistake that would double a WhatsApp blast. It must stay at zero.
+    expect(sut.notifier.sent).toEqual([]);
+  });
+});
 
 describe('history backfill flow', () => {
   it('INVARIANT: never messages a subscriber, however many postings it writes', async () => {
