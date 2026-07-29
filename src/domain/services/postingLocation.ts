@@ -22,10 +22,10 @@ export function representativeCoordinate(coordinates: Coordinate[]): Coordinate 
 }
 
 /** Two photo spots further apart than this are different "places" (different city). */
-const CLUSTER_RADIUS_KM = 50;
+export const CLUSTER_RADIUS_KM = 50;
 const EARTH_RADIUS_KM = 6371;
 
-function distanceKm(a: Coordinate, b: Coordinate): number {
+export function distanceKm(a: Coordinate, b: Coordinate): number {
   const toRad = (deg: number): number => (deg * Math.PI) / 180;
   const dLat = toRad(b.latitude - a.latitude);
   const dLon = toRad(b.longitude - a.longitude);

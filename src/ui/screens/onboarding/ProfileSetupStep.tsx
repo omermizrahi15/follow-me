@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -17,6 +17,8 @@ import * as ImagePicker from 'expo-image-picker';
 import { saveProfile, storage } from '../../../composition/container';
 import { PublisherProfile } from '../../../domain/entities/PublisherProfile';
 import { OnboardingHeader } from './OnboardingHeader';
+import { CalendarPicker } from '../../components/CalendarPicker';
+import { startOfDay } from '../../../domain/services/calendarMonth';
 import { colors, radius, spacing, typography } from '../../theme/theme';
 
 type Props = {
@@ -28,9 +30,13 @@ type Props = {
   onDone: () => void;
 };
 
+/** How far back the trip-start picker reaches. */
+const TRIP_YEARS_BACK = 5;
+
 /**
- * Onboarding profile setup: display name (required) and an optional avatar
- * (uploaded to Cloudinary). Skippable — the name can be added later, and the
+ * Onboarding profile setup: display name and travel start date (both
+ * required) plus an optional avatar (uploaded to Cloudinary). Not skippable —
+ * the start date is the baseline the History feature measures against. The
  * Me page renders fine with no photo.
  *
  * Self-contained screen: the action buttons sit in a footer outside the
@@ -41,6 +47,14 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tripStart, setTripStart] = useState<Date | null>(null);
+
+  // Pinned per mount so the picker's bounds can't shift mid-onboarding.
+  const tripToday = useMemo(() => startOfDay(new Date()), []);
+  const tripEarliest = useMemo(
+    () => new Date(tripToday.getFullYear() - TRIP_YEARS_BACK, tripToday.getMonth(), tripToday.getDate()),
+    [tripToday],
+  );
 
   function handlePickAvatar(): void {
     void (async (): Promise<void> => {
@@ -65,6 +79,14 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
         setError('Please enter your name so followers recognise you.');
         return;
       }
+      // Required, not a nicety: this date is the baseline the app measures
+      // posting coverage against. Without it there is no way to tell a trip
+      // that is fully posted from one with months missing, so the History
+      // feature simply cannot be offered (issue #81).
+      if (tripStart == null) {
+        setError('Pick the day your travels started — we use it to spot the stretches you haven’t posted yet.');
+        return;
+      }
       setSaving(true);
       setError(null);
       try {
@@ -78,6 +100,7 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
             publisherId,
             displayName: trimmed,
             avatarUrl,
+            tripStartDate: tripStart,
           }),
         );
         onDone();
@@ -105,7 +128,8 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
         >
           <Text style={styles.title}>Set up your profile</Text>
           <Text style={styles.body}>
-            This is what your followers see. You can change it anytime.
+            This is what your followers see. Your name and travel start date are
+            needed to get going — everything here can be changed anytime.
           </Text>
 
           <View style={styles.avatarRow}>
@@ -135,6 +159,18 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
             returnKeyType="done"
           />
 
+          <Text style={styles.label}>When did your travels start?</Text>
+          <Text style={styles.tripHint}>
+            Already on the road? We’ll spot the stretches you haven’t posted yet and
+            offer to rebuild them.
+          </Text>
+          <CalendarPicker
+            value={tripStart}
+            onChange={setTripStart}
+            minDate={tripEarliest}
+            maxDate={tripToday}
+          />
+
           {error != null && <Text style={styles.error}>{error}</Text>}
         </ScrollView>
 
@@ -150,9 +186,6 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
             ) : (
               <Text style={styles.primaryText}>Continue</Text>
             )}
-          </TouchableOpacity>
-          <TouchableOpacity onPress={onDone} hitSlop={8} disabled={saving}>
-            <Text style={styles.skip}>Skip for now</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -205,6 +238,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: spacing.lg,
   },
+  tripHint: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginBottom: spacing.sm },
   error: { color: colors.danger, fontSize: 13, marginBottom: spacing.md },
   footer: {
     paddingHorizontal: spacing.xl,
@@ -225,5 +259,4 @@ const styles = StyleSheet.create({
   },
   primaryText: { color: colors.onAccent, fontWeight: '600', fontSize: 15 },
   disabled: { opacity: 0.5 },
-  skip: { color: colors.textSecondary, fontSize: 14, textDecorationLine: 'underline' },
 });

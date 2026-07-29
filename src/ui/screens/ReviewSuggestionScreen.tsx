@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Image,
   ScrollView,
   ActivityIndicator,
   StyleSheet,
@@ -17,25 +16,17 @@ import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { usePublisherId } from '../context/AuthContext';
 import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
 import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
-import { resolvePlaceForCoordinates } from '../../composition/container';
+import { resolvePlaceForCoordinates, loadConfig } from '../../composition/container';
 import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
-import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
+import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
+import { suggestPlaceSplit } from '../../domain/services/splitSuggestion';
+import type { PlaceSplitSegment } from '../../domain/services/splitSuggestion';
 import { PlaceField } from '../components/PlaceField';
+import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
-const CATEGORY_LABEL: Record<PhotoCategory, string> = {
-  selfie_with_view: 'People + view',
-  sunset_sunrise: 'Sunset / sunrise',
-  architecture: 'Architecture',
-  selfie_with_people: 'People',
-  food: 'Food',
-  nature: 'Nature',
-  night_scene: 'Night scene',
-  cultural: 'Cultural',
-  other: 'Other',
-};
 
 // ---------- step indicator ----------
 
@@ -88,34 +79,6 @@ function StepBar({ phase, classified, total }: {
   );
 }
 
-// ---------- photo grid ----------
-
-function PhotoCard({ c, onSwap }: {
-  c: PhotoClassification;
-  onSwap: (() => void) | null;
-}): React.JSX.Element {
-  return (
-    <View style={gridStyles.card}>
-      <Image source={{ uri: c.candidate.uri }} style={gridStyles.photo} />
-      <TouchableOpacity
-        style={gridStyles.chip}
-        onPress={onSwap ?? undefined}
-        disabled={onSwap == null}
-        activeOpacity={onSwap != null ? 0.7 : 1}
-        accessibilityLabel="Suggest a different photo"
-        hitSlop={4}
-      >
-        <Text style={gridStyles.chipText}>{CATEGORY_LABEL[c.category]}</Text>
-        {onSwap != null && (
-          <Ionicons name="refresh" size={10} color={colors.ink} style={{ marginLeft: 3 }} />
-        )}
-      </TouchableOpacity>
-      {c.caption !== '' && (
-        <Text style={gridStyles.caption} numberOfLines={1}>{c.caption}</Text>
-      )}
-    </View>
-  );
-}
 
 // ---------- inner content (usable inline in the sheet OR as a full screen) ----------
 
@@ -155,6 +118,15 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
   // GPS per asset id (undefined = probed, no GPS), fetched once for the
   // place preview and reused on post.
   const coordsRef = useRef<Map<string, Coordinate | undefined>>(new Map());
+  /**
+   * Split-by-place. `offered` is only a suggestion — segmentation is a
+   * heuristic over GPS, so a wrong guess costs one dismissal rather than an
+   * unwanted post. `split` is set once the publisher accepts, and walks the
+   * places one post at a time.
+   */
+  const [offered, setOffered] = useState<PlaceSplitSegment[] | null>(null);
+  const [splitDismissed, setSplitDismissed] = useState(false);
+  const [split, setSplit] = useState<{ segments: PlaceSplitSegment[]; index: number } | null>(null);
 
   // Initialise slots from batch when done; reset if the user re-scans.
   useEffect(() => {
@@ -251,6 +223,43 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
     return () => { run.cancelled = true; };
   }, [phase, slots, batch, pool]);
 
+  // Look for separate stays only once the place probe has run — before that
+  // coordsRef is empty and every photo looks un-located, so no split could be
+  // found however far apart the photos actually were.
+  useEffect(() => {
+    if (phase !== 'done' || placeLoading || split != null || splitDismissed) return;
+    // Object property, not a local: eslint flow-narrows a `let` here and the
+    // cleanup closure flips it only after this body has been analysed (same
+    // reason as the place-resolution effect above).
+    const run = { cancelled: false };
+    // Read through a call so lint doesn't flow-narrow it across the awaits,
+    // exactly as the place-resolution effect above does.
+    const isStale = (): boolean => run.cancelled;
+    void (async (): Promise<void> => {
+      const config = await loadConfig.execute(publisherId).catch(() => null);
+      if (config == null || isStale()) return;
+      const segments = suggestPlaceSplit(
+        [...batch, ...pool],
+        (id: string) => coordsRef.current.get(id),
+        config,
+      );
+      if (!isStale()) setOffered(segments.length >= 2 ? segments : null);
+    })();
+    return () => { run.cancelled = true; };
+  }, [phase, placeLoading, batch, pool, publisherId, split, splitDismissed]);
+
+  /** Show one place's photos and let the normal post flow handle it. */
+  const showLeg = useCallback((segments: PlaceSplitSegment[], index: number): void => {
+    const segment = segments[index];
+    if (segment == null) return;
+    setSlots(segment.batch.map((c: PhotoClassification) => c.candidate.id));
+    setExcluded(new Set());
+    // Each place names itself; the previous leg's place must not carry over.
+    placeEditedRef.current = false;
+    setPlace('');
+    setPlaceSource(null);
+  }, []);
+
   const photoById = useMemo(() => {
     const map = new Map<string, PhotoClassification>();
     [...batch, ...pool].forEach(c => map.set(c.candidate.id, c));
@@ -267,14 +276,20 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
 
   // Next unused, unexcluded photo — powers both swap and the "add photo" slot.
   const nextAvailable = useMemo(() => {
+    // Only once the scan is done: while classifying, the grid shows the
+    // running `partial` batch rather than `slots`, so a swap would change
+    // state nothing is rendering from — a button that looks live and isn't.
     if (phase !== 'done') return null;
     const usedIds = new Set(slots);
+    // Mid-split, a replacement must come from the place being posted —
+    // otherwise swapping a Lisbon photo could pull in a Madrid one.
+    const source = split != null ? (split.segments[split.index]?.pool ?? []) : [...batch, ...pool];
     return (
-      [...batch, ...pool].find(
+      source.find(
         c => !excluded.has(c.candidate.id) && !usedIds.has(c.candidate.id),
       ) ?? null
     );
-  }, [phase, slots, excluded, batch, pool]);
+  }, [phase, slots, excluded, batch, pool, split]);
   const hasPool = nextAvailable != null;
 
   const shortfall = phase === 'done' && batch.length > 0 && photosPerPost > 0 && batch.length < photosPerPost;
@@ -347,12 +362,21 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
         await share(items, publisherId, location, pickedCoordinate ?? gpsCoordinate);
         // Posted — this batch is spent; next visit should compute a fresh one.
         void SuggestionCache.clear(publisherId).catch(() => undefined);
+
+        // Mid-split: move to the next place rather than finishing, so the
+        // week's second city gets its own post instead of being dropped.
+        if (split != null && split.index + 1 < split.segments.length) {
+          const next = split.index + 1;
+          setSplit({ segments: split.segments, index: next });
+          showLeg(split.segments, next);
+          return;
+        }
         setDone(true);
       } catch {
         /* surfaced via shareError */
       }
     })();
-  }, [kept, share, publisherId, place, placeLoading]);
+  }, [kept, share, publisherId, place, placeLoading, split, showLeg]);
 
   if (done) {
     return (
@@ -425,6 +449,51 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
             <Text style={innerStyles.rescanLink}>Rescan library instead</Text>
           </TouchableOpacity>
         )}
+        {offered != null && split == null && (
+          <View style={splitStyles.card}>
+            <Ionicons name="git-branch-outline" size={18} color={colors.accent} />
+            <View style={splitStyles.copy}>
+              <Text style={splitStyles.title}>You were in {offered.length} places</Text>
+              <Text style={splitStyles.body}>
+                Splitting keeps each place its own story instead of burying the first one.
+              </Text>
+            </View>
+            <View style={splitStyles.actions}>
+              <TouchableOpacity
+                testID="review-split-accept"
+                style={splitStyles.primary}
+                onPress={() => { setSplit({ segments: offered, index: 0 }); setOffered(null); showLeg(offered, 0); }}
+                activeOpacity={0.8}
+                accessibilityRole="button"
+                accessibilityLabel={`Split into ${offered.length} posts`}
+              >
+                <Text style={splitStyles.primaryText}>Split</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                testID="review-split-dismiss"
+                onPress={() => { setOffered(null); setSplitDismissed(true); }}
+                hitSlop={8}
+                accessibilityRole="button"
+                accessibilityLabel="Keep as one post"
+              >
+                <Text style={splitStyles.secondaryText}>Keep as one</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        )}
+
+        {split != null && (
+          <View style={splitStyles.legRow}>
+            <Ionicons name="location" size={14} color={colors.accent} />
+            <Text style={splitStyles.legText}>
+              Place {split.index + 1} of {split.segments.length}
+              {split.index + 1 < split.segments.length
+                ? ' — the next follows once you post this'
+                : ' — last one'}
+            </Text>
+          </View>
+        )}
+
         {shortfall && (
           <Text style={innerStyles.shortfallNote}>
             Only {batch.length} of {photosPerPost} photos found — try expanding the lookback window in settings.
@@ -454,9 +523,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
         <>
           <ScrollView contentContainerStyle={gridStyles.grid} showsVerticalScrollIndicator={false}>
             {kept.map(c => (
-              <PhotoCard
+              <SuggestionPhotoCard
                 key={c.candidate.id}
-                c={c}
+                photo={c}
                 onSwap={hasPool ? () => handleSwap(c.candidate.id) : null}
               />
             ))}
@@ -697,6 +766,32 @@ const stepStyles = StyleSheet.create({
     width: 34,
     textAlign: 'right',
   },
+});
+
+const splitStyles = StyleSheet.create({
+  card: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: spacing.sm,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    padding: spacing.md,
+    marginTop: spacing.sm,
+  },
+  copy: { flex: 1, gap: 2 },
+  title: { ...typography.body, fontWeight: '700', color: colors.text },
+  body: { ...typography.caption, fontSize: 12, color: colors.textSecondary, lineHeight: 17 },
+  actions: { alignItems: 'flex-end', gap: spacing.xs },
+  primary: {
+    backgroundColor: colors.accent,
+    borderRadius: radius.pill,
+    paddingHorizontal: spacing.md,
+    paddingVertical: 6,
+  },
+  primaryText: { ...typography.caption, fontWeight: '700', color: colors.onAccent },
+  secondaryText: { ...typography.caption, fontSize: 12, color: colors.textSecondary },
+  legRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, marginTop: spacing.sm },
+  legText: { ...typography.caption, fontSize: 12, color: colors.textSecondary, flex: 1 },
 });
 
 const gridStyles = StyleSheet.create({
