@@ -42,8 +42,15 @@ if (!CHANNEL || !PROFILE) {
 // --non-interactive is redundant here — and `build:view` rejects that flag
 // outright, which would break the wait below. maxBuffer is raised because a
 // fingerprint carries the full contents of every source it hashed.
-const eas = (args) =>
-  JSON.parse(execSync(`eas ${args} --json`, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 }));
+const eas = (args) => {
+  const raw = execSync(`eas ${args} --json`, { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
+  // Not every line on stdout is JSON: with a resolved environment, eas-cli
+  // prints its "Environment variables ... loaded" notice there even under
+  // --json. Start at the first JSON delimiter rather than trusting the stream.
+  const at = raw.search(/[[{]/);
+  if (at < 0) throw new Error(`no JSON in \`eas ${args}\` output: ${raw.slice(0, 200)}`);
+  return JSON.parse(raw.slice(at));
+};
 
 // Builds that could still become compatible — no point starting a second one.
 const PENDING = new Set(['NEW', 'IN_QUEUE', 'IN_PROGRESS']);
@@ -203,16 +210,28 @@ if (reachable.length) {
     push(`### 🏗 A matching build is already running`, '');
     push(`[Build \`${inFlight.id.slice(0, 8)}\`](${buildUrl(inFlight)}) is already on this runtimeVersion (${inFlight.status}) — no second one started.`, '');
   } else if (AUTO_BUILD && MODE === 'cd') {
-    push(`### 🏗 Rebuild started automatically`, '');
     try {
       const started = eas(`build --platform ios --profile ${PROFILE} --message "auto: runtimeVersion ${runtimeVersion.slice(0, 12)} has no installed build"`);
       inFlight = Array.isArray(started) ? started[0] : started;
+      push(`### 🏗 Rebuild started automatically`, '');
       push(`[Build \`${inFlight.id.slice(0, 8)}\`](${buildUrl(inFlight)}) is queued on profile \`${PROFILE}\`.`, '');
     } catch (err) {
       failed = true; // nothing is coming unless you start it
-      push(`Could not start the build automatically — run it yourself:`, '');
-      push('```bash', `eas build --profile ${PROFILE} --platform ios`, '```', '');
-      push(`<details><summary>error</summary>\n\n\`\`\`\n${err.message}\n\`\`\`\n\n</details>`, '');
+      push(`### 🚫 The rebuild could not be started`, '');
+      // The build quota is the one failure worth naming: EAS reports it several
+      // hundred lines into the log, long after it has printed credentials and
+      // uploaded the project, so it reads as a crash rather than a plan limit.
+      const quota = /used its .* builds from the Free plan|Upgrade your plan/i.test(err.message);
+      const reset = /reset in [^.(]*\(on ([^)]+)\)/.exec(err.message)?.[1];
+      if (quota) {
+        push(`This account's EAS build quota for the month is used up${reset ? `; it resets on **${reset}**` : ''}. Nothing can be built on EAS until then, so this update stays undeliverable.`, '');
+        push(`Wait for the reset, upgrade the plan, or build on your own machine — a local build doesn't draw on the quota:`, '');
+        push('```bash', `eas build --profile ${PROFILE} --platform ios --local`, '```', '');
+      } else {
+        push(`Could not start the build automatically — run it yourself:`, '');
+        push('```bash', `eas build --profile ${PROFILE} --platform ios`, '```', '');
+      }
+      push(`<details><summary>full error</summary>\n\n\`\`\`\n${err.message.slice(-2000)}\n\`\`\`\n\n</details>`, '');
     }
   } else {
     failed = true; // production, or preflight: only you can start this one
