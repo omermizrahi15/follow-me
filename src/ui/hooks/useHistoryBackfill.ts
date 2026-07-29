@@ -68,6 +68,8 @@ interface State {
   postings: ReviewablePosting[];
   /** 1-based index of the window being scanned. */
   scanningWindow: number;
+  /** Its dates, so the stretch can be named while it is still being built. */
+  scanWindow: HistoryWindow | null;
   totalWindows: number;
   /** Photos classified so far in the current stretch, and how many there are. */
   scanClassified: number;
@@ -91,6 +93,7 @@ const INITIAL: State = {
   plan: null,
   postings: [],
   scanningWindow: 0,
+  scanWindow: null,
   totalWindows: 0,
   scanClassified: 0,
   scanOf: 0,
@@ -203,11 +206,13 @@ export function useHistoryBackfill(publisherId: string): State & {
             onPlanned: plan => {
               setState(s => ({ ...s, plan, totalWindows: plan.windows.length }));
             },
-            onWindowStart: index => {
+            onWindowStart: (index, _total, window) => {
               // Reset the inner counters so the new stretch doesn't inherit
-              // the previous one's progress bar.
+              // the previous one's progress bar. The window is kept so the
+              // stretch can be named from the moment it starts, rather than
+              // only once its photos have been chosen.
               setState(s => ({
-                ...s, scanningWindow: index, scanClassified: 0, scanOf: 0, scanBatch: [],
+                ...s, scanningWindow: index, scanWindow: window, scanClassified: 0, scanOf: 0, scanBatch: [],
               }));
             },
             onWindowProgress: (_index, _total, p) => {

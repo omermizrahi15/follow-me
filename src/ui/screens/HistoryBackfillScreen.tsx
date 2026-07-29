@@ -201,9 +201,11 @@ function PublishOne({ posting, onPublish }: {
 
 // ---------- step 2: scanning ----------
 
-function ScanningStep({ current, total, classified, of, batch, done, onSwap, onPublishOne, paused, onTogglePause, bottomInset }: {
+function ScanningStep({ current, total, window, classified, of, batch, done, onSwap, onPublishOne, paused, onTogglePause, bottomInset }: {
   current: number;
   total: number;
+  /** Dates of the stretch being scanned, known before any photo is picked. */
+  window: HistoryWindow | null;
   classified: number;
   of: number;
   batch: PhotoClassification[];
@@ -237,6 +239,12 @@ function ScanningStep({ current, total, classified, of, batch, done, onSwap, onP
         <Text style={styles.scanSub}>
           {total > 0 ? `Stretch ${Math.max(current, 1)} of ${total}` : 'Planning the timeline'}
         </Text>
+        {/* Named from the start: which dates are being looked at is knowable
+            the moment the stretch begins, and waiting until its photos are
+            chosen to say so leaves the publisher watching an unlabelled scan. */}
+        {window != null && (
+          <Text style={styles.scanDates}>{describeWindow(window.start, window.end)}</Text>
+        )}
       </View>
 
       <View style={styles.progressRow}>
@@ -575,7 +583,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
   const publisherId = usePublisherId();
   const {
     phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error,
-    scanClassified, scanOf, scanBatch, paused, togglePause, publishOne,
+    scanClassified, scanOf, scanBatch, scanWindow, paused, togglePause, publishOne,
     run, toggleDropped, setPlace, swapPhoto, publish, reset,
   } = useHistoryBackfill(publisherId);
 
@@ -619,6 +627,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
           onTogglePause={togglePause}
           current={scanningWindow}
           total={totalWindows}
+          window={scanWindow}
           classified={scanClassified}
           of={scanOf}
           batch={scanBatch}
@@ -793,6 +802,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   fill: { height: '100%', backgroundColor: colors.accent, borderRadius: radius.pill },
+  scanDates: { ...typography.heading, fontSize: 15, color: colors.accent, marginTop: 2 },
   scanDetail: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
   scanQuiet: { ...typography.caption, color: colors.textMuted, marginTop: spacing.sm, lineHeight: 18 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md },
