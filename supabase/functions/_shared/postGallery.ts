@@ -26,17 +26,22 @@ async function postId(publisherId: string, mediaUrls: string[]): Promise<string>
  * must never block the send. The id is a deterministic hash of publisher +
  * urls, so per-subscriber calls (or retries) upsert the same row instead of
  * duplicating it.
+ *
+ * `place` is stored so the gallery's post list can label each card the way the
+ * app's feed does; it is the same label the message names, and null when the
+ * batch had no location.
  */
 export async function savePostGallery(
   supabase: SupabaseClient,
   publisherId: string,
   mediaUrls: string[],
+  place: string | null = null,
 ): Promise<string | null> {
   try {
     const id = await postId(publisherId, mediaUrls);
     const { error } = await supabase
       .from('posts')
-      .upsert({ id, publisher_id: publisherId, media_urls: mediaUrls });
+      .upsert({ id, publisher_id: publisherId, media_urls: mediaUrls, place });
     if (error != null) throw new Error(error.message);
     return `${GALLERY_BASE_URL}?id=${id}`;
   } catch (err) {
