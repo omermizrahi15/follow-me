@@ -25,6 +25,12 @@ jobs:
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     env:
       LANG: en_US.UTF-8 # CocoaPods unicode-normalize guard
+      # The Xcode build runs @sentry/react-native's source-map upload script,
+      # which hard-fails the build ("An organization ID or slug is required",
+      # xcodebuild error 65) because SENTRY_ORG/SENTRY_PROJECT/SENTRY_AUTH_TOKEN
+      # only exist in EAS, not here. Nothing consumes source maps from a
+      # throwaway simulator build, so skip the upload rather than wire up creds.
+      SENTRY_DISABLE_AUTO_UPLOAD: 'true'
 
     steps:
       - uses: actions/checkout@v4
