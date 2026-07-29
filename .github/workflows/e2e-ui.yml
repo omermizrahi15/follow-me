@@ -103,6 +103,12 @@ jobs:
       - name: Build & install app on simulator
         run: npx expo run:ios --configuration Release --no-bundler
 
+      # add-post-photos drives the real iOS photo picker, which has nothing to
+      # select on a fresh simulator. Runs after the build so a simulator is
+      # already booted.
+      - name: Seed the simulator photo library
+        run: bash scripts/seed-simulator-photos.sh
+
       - name: Run smoke flows (no backend)
         run: npm run e2e:ui:smoke
 

@@ -1,0 +1,74 @@
+appId: com.urishiber.followme
+name: add-post-photos
+tags:
+  - auth
+---
+# The manual-post journey *past* the system photo picker, which `add-post` stops
+# short of. The point of this flow is the "Change photos" control: it replaces
+# the whole selection rather than adding to it, so the count must go 2 -> 1 and
+# never 2 -> 3.
+#
+# Needs at least two images in the simulator's photo library —
+# `scripts/seed-simulator-photos.sh` puts them there. It does NOT care which
+# photos come back: every assertion is on what the app reports.
+#
+# `permissions: all: allow` pre-grants the media-library permission so
+# requestMediaLibraryPermissionsAsync() never raises a system dialog mid-flow.
+# Reuses the session from sign-in.
+- launchApp:
+    permissions:
+      all: allow
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000
+- tapOn:
+    id: "home-add-post"
+- extendedWaitUntil:
+    visible:
+      id: "upload-pick-photos"
+    timeout: 10000
+
+# --- Pick two photos in the system picker.
+- tapOn:
+    id: "upload-pick-photos"
+- extendedWaitUntil:
+    visible: "Photos"
+    timeout: 15000
+- runFlow: ../subflows/pick-two-photos.yaml
+
+# --- Back in the app: the selection bar replaces the old in-grid "+" tile.
+- extendedWaitUntil:
+    visible:
+      id: "upload-change-photos"
+    timeout: 20000
+- assertVisible: "2 photos selected"
+- assertVisible: "Change photos"
+- assertVisible: "Send 2 photos"
+- assertVisible:
+    id: "place-input"
+
+# --- "Change photos" REPLACES the selection: two in, one out.
+- tapOn:
+    id: "upload-change-photos"
+- extendedWaitUntil:
+    visible: "Photos"
+    timeout: 15000
+- runFlow: ../subflows/pick-one-photo.yaml
+- extendedWaitUntil:
+    visible: "1 photo selected"
+    timeout: 20000
+- assertVisible: "Send 1 photo"
+# Appending instead of replacing would read "3 photos selected". Maestro text
+# selectors are full-match regexes, so the wildcard is what makes this catch any
+# plural count.
+- assertNotVisible: ".*photos selected"
+
+# Deliberately never taps Send: a real post fans out to the account's followers
+# over WhatsApp. Coverage stops at the composed, ready-to-send state.
+- tapOn:
+    id: "upload-close"
+- extendedWaitUntil:
+    visible:
+      id: "home-add-post"
+    timeout: 10000
