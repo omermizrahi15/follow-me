@@ -18,6 +18,8 @@ type ConfigColumns = {
   timezone: string;
   expo_push_token: string | null;
   last_auto_post_at: string | null;
+  /** Device heartbeat for the auto-post grace window — see migration 20240026. */
+  last_candidate_sync_at: string | null;
 };
 
 interface Database {
@@ -25,10 +27,13 @@ interface Database {
     Tables: {
       publisher_config: {
         Row: ConfigColumns;
-        // last_auto_post_at is server-managed (the cron owns it); the app never writes it.
-        Insert: Omit<ConfigColumns, 'expo_push_token' | 'last_auto_post_at'> & {
+        // last_auto_post_at is server-managed (the cron owns it); the app never
+        // writes it. last_candidate_sync_at is the mirror image — device-written,
+        // server-read — and never part of a config save.
+        Insert: Omit<ConfigColumns, 'expo_push_token' | 'last_auto_post_at' | 'last_candidate_sync_at'> & {
           expo_push_token?: string | null;
           last_auto_post_at?: string | null;
+          last_candidate_sync_at?: string | null;
         };
         Update: Partial<ConfigColumns>;
         Relationships: [];
@@ -108,5 +113,18 @@ export class SupabasePublisherConfigRepository implements IPublisherConfigReposi
       .single();
     if (error != null) return null;
     return rowToConfig(data);
+  }
+
+  /**
+   * Updates only the heartbeat column, and only for an existing row — an upsert
+   * here could resurrect a config the user deleted, or write a half-populated
+   * row for a publisher who never finished setup.
+   */
+  async recordCandidateSync(publisherId: string, at: Date): Promise<void> {
+    const { error } = await this.client
+      .from('publisher_config')
+      .update({ last_candidate_sync_at: at.toISOString() })
+      .eq('publisher_id', publisherId);
+    if (error != null) throw new Error(error.message);
   }
 }

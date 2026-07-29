@@ -30,6 +30,7 @@ import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherCo
 import { isWeekdayCadence } from '../../../domain/services/autoPostSchedule';
 import { assetIdsNeedingLookup, resolveChosenGalleryUrls } from '../../../domain/services/notificationGallery';
 import { confirmPhotoSync, pausePhotoSync, resumePhotoSync } from '../../data/photoSyncConsent';
+import { runCandidateSyncQuietly } from '../../data/candidateSync';
 import { showDevTools } from '../../data/devTools';
 import { SELECTABLE_CATEGORIES } from '../../../domain/entities/PhotoClassification';
 import type { PhotoCategory } from '../../../domain/entities/PhotoClassification';
@@ -277,7 +278,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           // Saving is the explicit re-opt-in after a cloud-photo wipe — lift the
           // pause so this sync (and future foreground syncs) run again.
           await resumePhotoSync();
-          await syncCandidatePhotos.execute(publisherId, config.lookbackDays).catch(() => undefined);
+          await runCandidateSyncQuietly(publisherId, 'settings_sync_candidates', config.lookbackDays);
           // Re-uploading may have re-populated the cloud — refresh the removal affordance.
           void refreshHasCloudPhotos();
         }
@@ -388,8 +389,9 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           let urls = await recentCandidateUrls(publisherId, want);
           log.push(`candidate urls: ${urls.length}`);
           if (urls.length === 0) {
-            // Nothing synced yet — run the sync now and surface any error
-            // (the Save flow swallows sync failures silently).
+            // Nothing synced yet — run the sync now. Uses the use case directly
+            // rather than runCandidateSync: this diagnostic wants the upload
+            // count and the error text in its own log, not a Sentry report.
             log.push('running photo sync…');
             try {
               const synced = await syncCandidatePhotos.execute(publisherId, config.lookbackDays);

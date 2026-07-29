@@ -127,6 +127,15 @@ export const syncCandidatePhotos = monitored('sync_candidate_photos', new SyncCa
   expoResolveLocalUri,
   expoResolveAssetLocation,
 ));
+/**
+ * Device heartbeat for the server's posting job (issue #97): "this phone synced
+ * its photos just now". Written after every successful sync, including one that
+ * uploaded nothing — the absence of a recent heartbeat is the signal.
+ */
+export const recordCandidateSync = monitored(
+  'record_candidate_sync',
+  (publisherId: string): Promise<void> => configRepo.recordCandidateSync(publisherId, new Date()),
+);
 export const saveProfile = monitored('save_profile', new SaveProfileUseCase(profileRepo));
 export const loadProfile = monitored('load_profile', new LoadProfileUseCase(profileRepo));
 

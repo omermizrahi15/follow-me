@@ -5,6 +5,7 @@ import { AppNavigator } from './src/ui/navigation/AppNavigator';
 import { registerNotificationCategories } from './src/infrastructure/notifiers/NotificationCategories';
 import { cacheBatchFromNotification } from './src/ui/notifications/cacheApprovalBatch';
 import { handlePostNowResponse } from './src/ui/notifications/postNow';
+import { registerBackgroundSyncTask } from './src/ui/notifications/backgroundSync';
 
 // Crash reporting first, before the root component mounts — everything that
 // fails past this line (JS exceptions, native crashes) is captured. No-op in
@@ -23,6 +24,13 @@ Notifications.setNotificationHandler({
 
 // Register "Post now" / "Review" action buttons (must run before first notification).
 void registerNotificationCategories();
+
+// The server's silent "sync your photos" push (issue #97) wakes the app here,
+// with no UI, so the cloud photo set is fresh when the posting job runs even if
+// the app hasn't been opened in days. Registered at module scope for the same
+// reason as the "Post now" handler below: iOS may launch us in the background
+// purely to deliver it, long before React mounts.
+registerBackgroundSyncTask();
 
 // When a server push arrives (foreground), resolve the batch into the cache
 // (by batchId — see issue #71) so the review screen can skip scanning when the
