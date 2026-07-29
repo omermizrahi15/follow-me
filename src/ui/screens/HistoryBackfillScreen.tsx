@@ -5,6 +5,7 @@ import {
   TouchableOpacity,
   Image,
   ScrollView,
+  ActivityIndicator,
   StyleSheet,
   SafeAreaView,
   Alert,
@@ -155,9 +156,52 @@ function SetupStep({ onStart, initialStartDate = null, gapCount = null, bottomIn
   );
 }
 
+/** Publish-this-one control, with whatever state that posting is in. */
+function PublishOne({ posting, onPublish }: {
+  posting: ReviewablePosting;
+  onPublish: () => void;
+}): React.JSX.Element {
+  if (posting.status === 'published') {
+    return (
+      <View style={styles.publishedRow}>
+        <Ionicons name="checkmark-circle" size={16} color={colors.success} />
+        <Text style={styles.publishedText}>Added to your story</Text>
+      </View>
+    );
+  }
+  if (posting.status === 'publishing') {
+    return (
+      <View style={styles.publishedRow}>
+        <ActivityIndicator color={colors.accent} size="small" />
+        <Text style={styles.publishingText}>Uploading…</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.publishOneRow}>
+      <TouchableOpacity
+        testID={`backfill-publish-one-${posting.id}`}
+        style={styles.publishOneButton}
+        onPress={onPublish}
+        disabled={posting.dropped || posting.slots.length === 0}
+        activeOpacity={0.8}
+        accessibilityRole="button"
+        accessibilityLabel="Publish this post now"
+        accessibilityHint="Adds this stretch to your story while the rest keep loading"
+      >
+        <Ionicons name="cloud-upload-outline" size={14} color={colors.onAccent} />
+        <Text style={styles.publishOneText}>Publish this one</Text>
+      </TouchableOpacity>
+      {posting.status === 'failed' && (
+        <Text style={styles.publishFailed} numberOfLines={2}>{posting.error ?? 'Failed'}</Text>
+      )}
+    </View>
+  );
+}
+
 // ---------- step 2: scanning ----------
 
-function ScanningStep({ current, total, classified, of, batch, done, onSwap, paused, onTogglePause, bottomInset }: {
+function ScanningStep({ current, total, classified, of, batch, done, onSwap, onPublishOne, paused, onTogglePause, bottomInset }: {
   current: number;
   total: number;
   classified: number;
@@ -166,6 +210,7 @@ function ScanningStep({ current, total, classified, of, batch, done, onSwap, pau
   /** Stretches already reconstructed — the same objects the review step edits. */
   done: ReviewablePosting[];
   onSwap: (postingId: string, photoId: string) => void;
+  onPublishOne: (postingId: string) => void;
   paused: boolean;
   onTogglePause: () => void;
   bottomInset: number;
@@ -286,6 +331,8 @@ function ScanningStep({ current, total, classified, of, batch, done, onSwap, pau
               <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
             </TouchableOpacity>
 
+            <PublishOne posting={posting} onPublish={() => onPublishOne(posting.id)} />
+
             {open ? (
               <View style={styles.previewGrid}>
                 {shown.map(c => (
@@ -313,12 +360,13 @@ function ScanningStep({ current, total, classified, of, batch, done, onSwap, pau
 
 // ---------- step 3: review timeline ----------
 
-function PostingCard({ posting, photos, onToggle, onPlace, onSwap }: {
+function PostingCard({ posting, photos, onToggle, onPlace, onSwap, onPublishOne }: {
   posting: ReviewablePosting;
   photos: Map<string, PhotoClassification>;
   onToggle: () => void;
   onPlace: (place: string, coordinate?: Coordinate) => void;
   onSwap: (photoId: string) => void;
+  onPublishOne: () => void;
 }): React.JSX.Element {
   const { dropped } = posting;
   return (
@@ -377,23 +425,30 @@ function PostingCard({ posting, photos, onToggle, onPlace, onSwap }: {
         loading={posting.placeLoading}
         hasGps={posting.hasGps}
       />
+
+      <PublishOne posting={posting} onPublish={onPublishOne} />
     </View>
   );
 }
 
-function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPublish, publishing, published, bottomInset }: {
+function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPublishOne, onPublish, publishing, published, bottomInset }: {
   postings: ReviewablePosting[];
   quotaExhausted: boolean;
   onToggle: (id: string) => void;
   onPlace: (id: string, place: string, coordinate?: Coordinate) => void;
   onSwap: (id: string, photoId: string) => void;
+  onPublishOne: (id: string) => void;
   onPublish: () => void;
   publishing: boolean;
   published: number;
   /** Height of the floating nav — without it the last card sits under it. */
   bottomInset: number;
 }): React.JSX.Element {
-  const keeping = postings.filter(p => !p.dropped && p.slots.length > 0);
+  // Only what is genuinely still outstanding: a stretch already sent on its
+  // own must not be counted again, or the button offers to publish it twice.
+  const keeping = postings.filter(
+    p => !p.dropped && p.slots.length > 0 && p.status !== 'published' && p.status !== 'publishing',
+  );
 
   const photoIndex = useMemo(() => {
     const map = new Map<string, Map<string, PhotoClassification>>();
@@ -453,6 +508,7 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
             onToggle={() => onToggle(p.id)}
             onPlace={(place, coordinate) => onPlace(p.id, place, coordinate)}
             onSwap={photoId => onSwap(p.id, photoId)}
+            onPublishOne={() => onPublishOne(p.id)}
           />
         ))}
       </ScrollView>
@@ -482,7 +538,9 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
             </Text>
           ) : (
             <Text style={styles.primaryButtonText}>
-              Add {keeping.length} {keeping.length === 1 ? 'post' : 'posts'} to my story
+              {keeping.length === 0
+                ? 'All posts added'
+                : `Add ${keeping.length} ${keeping.length === 1 ? 'post' : 'posts'} to my story`}
             </Text>
           )}
         </TouchableOpacity>
@@ -517,7 +575,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
   const publisherId = usePublisherId();
   const {
     phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error,
-    scanClassified, scanOf, scanBatch, paused, togglePause,
+    scanClassified, scanOf, scanBatch, paused, togglePause, publishOne,
     run, toggleDropped, setPlace, swapPhoto, publish, reset,
   } = useHistoryBackfill(publisherId);
 
@@ -566,6 +624,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
           batch={scanBatch}
           done={postings}
           onSwap={swapPhoto}
+          onPublishOne={id => void publishOne(id)}
           bottomInset={bottomInset}
         />
       )}
@@ -577,6 +636,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
           onToggle={toggleDropped}
           onPlace={setPlace}
           onSwap={swapPhoto}
+          onPublishOne={id => void publishOne(id)}
           onPublish={handlePublish}
           publishing={phase === 'publishing'}
           published={published}
@@ -758,6 +818,21 @@ const styles = StyleSheet.create({
   },
   doneHeader: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   doneHeaderText: { flex: 1, gap: 1 },
+  publishOneRow: { gap: spacing.xs },
+  publishOneButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    backgroundColor: colors.accent,
+    borderRadius: radius.pill,
+    paddingVertical: 7,
+  },
+  publishOneText: { ...typography.caption, fontWeight: '700', color: colors.onAccent },
+  publishedRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.xs, paddingVertical: 4 },
+  publishedText: { ...typography.caption, color: colors.success, fontWeight: '600' },
+  publishingText: { ...typography.caption, color: colors.accent, fontWeight: '600' },
+  publishFailed: { ...typography.caption, fontSize: 11, color: colors.danger },
   doneWhen: { ...typography.heading, fontSize: 15, color: colors.text },
   doneCount: { ...typography.caption, fontSize: 11, color: colors.textMuted },
 

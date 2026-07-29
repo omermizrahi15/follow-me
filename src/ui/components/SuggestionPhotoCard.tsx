@@ -2,58 +2,48 @@ import React from 'react';
 import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
-import { CATEGORY_LABEL } from '../data/categoryLabels';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 interface Props {
   photo: PhotoClassification;
-  /**
-   * Swap this photo for another from the pool. Null when there is nothing to
-   * swap to — the chip then renders as a plain label, with no refresh icon, so
-   * it never looks tappable when it isn't.
-   */
+  /** Swap this photo for another from the pool; null when there is none left. */
   onSwap: (() => void) | null;
   /** Grid width. Two-up in review, three-up in the tighter history preview. */
   width?: '47%' | '31%';
 }
 
 /**
- * One suggested photo: the image, the AI's category as a frosted chip, and its
- * caption. Shared by the live review screen and the history preview so a
- * suggestion looks and behaves the same wherever it is shown — they had drifted
- * into two different-looking cards, one of which only pretended to be tappable.
+ * One suggested photo, carrying the single action available on it: swap this
+ * photo for a different one. Shared by the live review screen and the history
+ * preview so a suggestion looks and behaves the same wherever it appears.
+ *
+ * The chip deliberately does NOT name the AI's category. It is a button, not a
+ * label, and captioning it "People" or "Nature" made the one thing you can do
+ * to a photo read as decoration that happened to be tappable. It says what it
+ * does, and keeps its icon whenever it is usable.
  */
 export function SuggestionPhotoCard({ photo, onSwap, width = '47%' }: Props): React.JSX.Element {
+  const swappable = onSwap != null;
   return (
     <View style={[styles.card, { width }]}>
-      {/* The chip is positioned against the IMAGE, not the card. Anchoring it
-          to the card meant offsetting it by the caption's height with a magic
-          number, which only held at one card size — on the smaller history
-          cards the same offset landed the chip in the middle of the photo. */}
+      {/* Positioned against the IMAGE, not the card: anchoring to the card
+          meant offsetting by a magic number that only held at one card size. */}
       <View style={styles.imageWrap}>
         <Image source={{ uri: photo.candidate.uri }} style={styles.photo} />
         <TouchableOpacity
-          style={styles.chip}
+          style={[styles.chip, !swappable && styles.chipDisabled]}
           onPress={onSwap ?? undefined}
-          disabled={onSwap == null}
-          activeOpacity={onSwap != null ? 0.7 : 1}
-          accessibilityRole={onSwap != null ? 'button' : 'text'}
-          accessibilityLabel={
-            onSwap != null
-              ? `${CATEGORY_LABEL[photo.category]}. Suggest a different photo`
-              : CATEGORY_LABEL[photo.category]
-          }
+          disabled={!swappable}
+          activeOpacity={0.7}
+          accessibilityRole="button"
+          accessibilityState={{ disabled: !swappable }}
+          accessibilityLabel="Show a different photo"
           hitSlop={4}
         >
-          <Text style={styles.chipText} numberOfLines={1}>{CATEGORY_LABEL[photo.category]}</Text>
-          {onSwap != null && (
-            <Ionicons name="refresh" size={10} color={colors.ink} style={styles.chipIcon} />
-          )}
+          <Text style={styles.chipText} numberOfLines={1}>Other</Text>
+          <Ionicons name="refresh" size={10} color={colors.ink} style={styles.chipIcon} />
         </TouchableOpacity>
       </View>
-      {photo.caption !== '' && (
-        <Text style={styles.caption} numberOfLines={1}>{photo.caption}</Text>
-      )}
     </View>
   );
 }
@@ -66,8 +56,6 @@ const styles = StyleSheet.create({
     position: 'absolute',
     bottom: spacing.sm,
     left: spacing.sm,
-    // Hugs its label rather than spanning the photo, but capped so a long
-    // category can't run off the edge of the narrower history cards.
     maxWidth: '88%',
     backgroundColor: colors.frosted,
     borderRadius: radius.pill,
@@ -76,7 +64,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  // Dimmed rather than hidden: the control belongs to every photo, and chrome
+  // that vanishes is more confusing than one that reads "not yet".
+  chipDisabled: { opacity: 0.45 },
   chipText: { ...typography.caption, fontSize: 11, fontWeight: '600', color: colors.ink, flexShrink: 1 },
   chipIcon: { marginLeft: 3 },
-  caption: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: spacing.xs },
 });

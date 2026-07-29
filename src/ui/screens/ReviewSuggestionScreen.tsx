@@ -3,7 +3,6 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Image,
   ScrollView,
   ActivityIndicator,
   StyleSheet,
@@ -25,7 +24,7 @@ import type { PhotoClassification } from '../../domain/entities/PhotoClassificat
 import { suggestPlaceSplit } from '../../domain/services/splitSuggestion';
 import type { PlaceSplitSegment } from '../../domain/services/splitSuggestion';
 import { PlaceField } from '../components/PlaceField';
-import { CATEGORY_LABEL } from '../data/categoryLabels';
+import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 
@@ -80,34 +79,6 @@ function StepBar({ phase, classified, total }: {
   );
 }
 
-// ---------- photo grid ----------
-
-function PhotoCard({ c, onSwap }: {
-  c: PhotoClassification;
-  onSwap: (() => void) | null;
-}): React.JSX.Element {
-  return (
-    <View style={gridStyles.card}>
-      <Image source={{ uri: c.candidate.uri }} style={gridStyles.photo} />
-      <TouchableOpacity
-        style={gridStyles.chip}
-        onPress={onSwap ?? undefined}
-        disabled={onSwap == null}
-        activeOpacity={onSwap != null ? 0.7 : 1}
-        accessibilityLabel="Suggest a different photo"
-        hitSlop={4}
-      >
-        <Text style={gridStyles.chipText}>{CATEGORY_LABEL[c.category]}</Text>
-        {onSwap != null && (
-          <Ionicons name="refresh" size={10} color={colors.ink} style={{ marginLeft: 3 }} />
-        )}
-      </TouchableOpacity>
-      {c.caption !== '' && (
-        <Text style={gridStyles.caption} numberOfLines={1}>{c.caption}</Text>
-      )}
-    </View>
-  );
-}
 
 // ---------- inner content (usable inline in the sheet OR as a full screen) ----------
 
@@ -305,6 +276,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
 
   // Next unused, unexcluded photo — powers both swap and the "add photo" slot.
   const nextAvailable = useMemo(() => {
+    // Only once the scan is done: while classifying, the grid shows the
+    // running `partial` batch rather than `slots`, so a swap would change
+    // state nothing is rendering from — a button that looks live and isn't.
     if (phase !== 'done') return null;
     const usedIds = new Set(slots);
     // Mid-split, a replacement must come from the place being posted —
@@ -549,9 +523,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
         <>
           <ScrollView contentContainerStyle={gridStyles.grid} showsVerticalScrollIndicator={false}>
             {kept.map(c => (
-              <PhotoCard
+              <SuggestionPhotoCard
                 key={c.candidate.id}
-                c={c}
+                photo={c}
                 onSwap={hasPool ? () => handleSwap(c.candidate.id) : null}
               />
             ))}

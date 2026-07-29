@@ -38,6 +38,14 @@ export interface ReviewablePosting {
   coordinate?: Coordinate;
   /** Publisher unchecked it — scanned but not published. */
   dropped: boolean;
+  /**
+   * Where this one posting has got to. Per-posting rather than one flag for
+   * the whole run, so a stretch the publisher is happy with can go out while
+   * the rest are still being reconstructed.
+   */
+  status: 'draft' | 'publishing' | 'published' | 'failed';
+  /** Why it failed, shown on the card rather than swallowed. */
+  error?: string;
 }
 
 /** A posting that could not be written, and why — shown, never swallowed. */
@@ -115,6 +123,7 @@ function toReviewable(draft: BackfillDraft): ReviewablePosting {
     placeLoading: true,
     hasGps: false, // corrected once the GPS probe has run
     dropped: false,
+    status: 'draft',
   };
 }
 
@@ -140,6 +149,7 @@ export function useHistoryBackfill(publisherId: string): State & {
   setPlace: (id: string, place: string, coordinate?: Coordinate) => void;
   swapPhoto: (id: string, photoId: string) => void;
   publish: () => Promise<PublishOutcome>;
+  publishOne: (id: string) => Promise<void>;
   togglePause: () => void;
   reset: () => void;
 } {
@@ -292,12 +302,42 @@ export function useHistoryBackfill(publisherId: string): State & {
   }, []);
 
   /**
+   * Publish one stretch now, leaving the rest alone. The scan carries on
+   * underneath: waiting for a twenty-stretch reconstruction to finish before
+   * anything can go out is the whole complaint this answers.
+   */
+  const publishOne = useCallback(async (id: string): Promise<void> => {
+    const posting = state.postings.find(p => p.id === id);
+    if (posting == null || posting.status === 'publishing' || posting.status === 'published') return;
+
+    const mark = (status: ReviewablePosting['status'], error?: string): void =>
+      setState(s => ({
+        ...s,
+        postings: s.postings.map(p =>
+          p.id === id ? { ...p, status, ...(error != null ? { error } : {}) } : p,
+        ),
+      }));
+
+    mark('publishing');
+    try {
+      await publishPosting(publisherId, posting);
+      mark('published');
+    } catch (e: unknown) {
+      mark('failed', e instanceof Error ? e.message : 'Could not publish this post');
+    }
+  }, [publisherId, state.postings]);
+
+  /**
    * Publishes every kept posting, back-dated and silent. Returns the tally
    * directly — a caller reading it off state right after would still see the
    * pre-publish render.
    */
   const publish = useCallback(async (): Promise<PublishOutcome> => {
-    const kept = state.postings.filter(p => !p.dropped && p.slots.length > 0);
+    // Anything already sent individually is skipped — publishing it twice
+    // would put the same stretch in the feed under two postings.
+    const kept = state.postings.filter(
+      p => !p.dropped && p.slots.length > 0 && p.status !== 'published' && p.status !== 'publishing',
+    );
     setState(s => ({ ...s, phase: 'publishing', published: 0 }));
 
     let count = 0;
@@ -310,7 +350,11 @@ export function useHistoryBackfill(publisherId: string): State & {
       try {
         await publishPosting(publisherId, posting);
         count++;
-        setState(s => ({ ...s, published: count }));
+        setState(s => ({
+          ...s,
+          published: count,
+          postings: s.postings.map(p => (p.id === posting.id ? { ...p, status: 'published' } : p)),
+        }));
       } catch (e: unknown) {
         // One posting failing — an iCloud photo that won't download, a dropped
         // upload — must not discard the rest of a twenty-post timeline. The
@@ -338,7 +382,7 @@ export function useHistoryBackfill(publisherId: string): State & {
 
   const reset = useCallback((): void => setState(INITIAL), []);
 
-  return { ...state, run, toggleDropped, setPlace, swapPhoto, publish, togglePause, reset };
+  return { ...state, run, toggleDropped, setPlace, swapPhoto, publish, publishOne, togglePause, reset };
 }
 
 /**
