@@ -12,6 +12,12 @@ export interface MediaProps {
   postingId?: string;
   /** When the publisher moved this item to the trash; absent while it is live. */
   deletedAt?: Date;
+  /**
+   * True when the item was reconstructed by the history backfill rather than
+   * shared live (issue #81). Backfilled items never notified subscribers, so
+   * nothing downstream should treat them as a delivered send.
+   */
+  backfilled?: boolean;
 }
 
 export class Media {
@@ -31,6 +37,7 @@ export class Media {
   get coordinate(): Coordinate | undefined { return this.props.coordinate; }
   get postingId(): string | undefined { return this.props.postingId; }
   get deletedAt(): Date | undefined { return this.props.deletedAt; }
+  get backfilled(): boolean { return this.props.backfilled ?? false; }
 
   /** In the trash — hidden from the feed and the globe, restorable. */
   get isDeleted(): boolean { return this.props.deletedAt != null; }

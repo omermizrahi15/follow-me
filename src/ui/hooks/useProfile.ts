@@ -12,6 +12,12 @@ interface UseProfile extends ProfileState {
   reload: () => Promise<void>;
 }
 
+/** Local calendar day as "YYYY-MM-DD" — never toISOString, which shifts to UTC. */
+function isoDateOnly(d: Date): string {
+  const pad = (n: number): string => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
 export function useProfile(publisherId: string | null): UseProfile {
   const [state, setState] = useState<ProfileState>({ profile: null, loading: true });
 
@@ -31,6 +37,8 @@ export function useProfile(publisherId: string | null): UseProfile {
                 publisherId: profile.publisherId,
                 displayName: profile.displayName,
                 avatarUrl: profile.avatarUrl,
+                tripStartDate:
+                  profile.tripStartDate != null ? isoDateOnly(profile.tripStartDate) : null,
               },
         loading: false,
       });

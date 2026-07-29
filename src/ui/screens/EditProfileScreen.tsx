@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   View,
   Text,
@@ -18,6 +18,8 @@ import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
 import { saveProfile, storage } from '../../composition/container';
 import { PublisherProfile } from '../../domain/entities/PublisherProfile';
+import { CalendarPicker } from '../components/CalendarPicker';
+import { startOfDay } from '../../domain/services/calendarMonth';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { usePublisherId } from '../context/AuthContext';
 import { useProfile } from '../hooks/useProfile';
@@ -27,6 +29,15 @@ import { colors, radius, spacing, typography } from '../theme/theme';
  * Edit the full publisher profile — name and photo — opened from Settings.
  * Pre-filled with the saved profile; the same fields onboarding sets up.
  */
+/** "2026-06-14" -> local midnight; null when unset or malformed. */
+function parseIsoDay(value: string | null): Date | null {
+  if (value == null) return null;
+  const [y, m, d] = value.split('-').map(Number);
+  if (y == null || m == null || d == null) return null;
+  const parsed = new Date(y, m - 1, d);
+  return Number.isNaN(parsed.getTime()) ? null : parsed;
+}
+
 export function EditProfileScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
   const publisherId = usePublisherId();
@@ -38,12 +49,21 @@ export function EditProfileScreen(): React.JSX.Element {
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [tripStart, setTripStart] = useState<Date | null>(null);
+
+  // Pinned per mount so the picker's bounds can't shift mid-edit.
+  const tripToday = useMemo(() => startOfDay(new Date()), []);
+  const tripEarliest = useMemo(
+    () => new Date(tripToday.getFullYear() - 5, tripToday.getMonth(), tripToday.getDate()),
+    [tripToday],
+  );
 
   // Fill the form once the saved profile arrives; never overwrite edits after.
   useEffect(() => {
     if (loading || hydrated) return;
     setName(profile?.displayName ?? '');
     setAvatarUri(profile?.avatarUrl ?? null);
+    setTripStart(parseIsoDay(profile?.tripStartDate ?? null));
     setHydrated(true);
   }, [loading, hydrated, profile]);
 
@@ -85,6 +105,7 @@ export function EditProfileScreen(): React.JSX.Element {
             publisherId,
             displayName: trimmed,
             avatarUrl,
+            tripStartDate: tripStart,
           }),
         );
         navigation.goBack();
@@ -147,6 +168,17 @@ export function EditProfileScreen(): React.JSX.Element {
             onChangeText={setName}
             autoCorrect={false}
             returnKeyType="done"
+          />
+
+          <Text style={styles.label}>When did your travels start?</Text>
+          <Text style={styles.tripHint}>
+            Lets the app spot stretches of your trip with no post yet, and offer to rebuild them.
+          </Text>
+          <CalendarPicker
+            value={tripStart}
+            onChange={setTripStart}
+            minDate={tripEarliest}
+            maxDate={tripToday}
           />
 
           {error != null && <Text style={styles.error}>{error}</Text>}
@@ -216,6 +248,7 @@ const styles = StyleSheet.create({
     fontSize: 16,
     marginBottom: spacing.lg,
   },
+  tripHint: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginBottom: spacing.sm },
   error: { color: colors.danger, fontSize: 13, marginBottom: spacing.md },
   footer: {
     paddingHorizontal: spacing.xl,

@@ -29,8 +29,19 @@ export interface SuggestResult {
 }
 
 /**
- * Builds the suggested batch for the publisher's next post: scan the recent
- * library, classify each photo with AI, then apply the pure selection rules.
+ * An explicit window to scan instead of the config's now-anchored lookback.
+ * Used by the history backfill (issue #81) to reconstruct one post per past
+ * interval; live suggestions omit it and keep the lookback behaviour.
+ */
+export interface SuggestWindow {
+  start: Date;
+  /** Exclusive — adjacent backfill windows must not share a boundary photo. */
+  end: Date;
+}
+
+/**
+ * Builds the suggested batch for the publisher's next post: scan the library
+ * window, classify each photo with AI, then apply the pure selection rules.
  * Orchestration only — all the selection logic lives in PhotoSelectionService.
  */
 export class SuggestPhotosUseCase {
@@ -41,12 +52,18 @@ export class SuggestPhotosUseCase {
     private readonly selection: PhotoSelectionService = new PhotoSelectionService(),
   ) {}
 
-  async execute(config: PublisherConfig, progress?: SuggestProgress): Promise<SuggestResult> {
+  async execute(
+    config: PublisherConfig,
+    progress?: SuggestProgress,
+    window?: SuggestWindow,
+  ): Promise<SuggestResult> {
     progress?.onScanning();
 
     // Scan + already-sent in parallel so we have both before classification starts.
     const [candidates, alreadySent] = await Promise.all([
-      this.mediaLibrary.recentPhotos(config.lookbackDays),
+      window != null
+        ? this.mediaLibrary.photosBetween(window.start, window.end)
+        : this.mediaLibrary.recentPhotos(config.lookbackDays),
       this.sentTracker.sentCandidateIds(config.publisherId),
     ]);
     if (candidates.length === 0) return { batch: [], pool: [] };

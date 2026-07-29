@@ -17,6 +17,7 @@ interface Database {
           latitude: number | null;
           longitude: number | null;
           deleted_at: string | null;
+          backfilled: boolean | null;
         };
         Insert: {
           id: string;
@@ -28,6 +29,7 @@ interface Database {
           latitude?: number | null;
           longitude?: number | null;
           deleted_at?: string | null;
+          backfilled?: boolean | null;
         };
         Update: {
           id?: string;
@@ -39,6 +41,7 @@ interface Database {
           latitude?: number | null;
           longitude?: number | null;
           deleted_at?: string | null;
+          backfilled?: boolean | null;
         };
         Relationships: [];
       };
@@ -54,8 +57,10 @@ type MediaRow = Database['public']['Tables']['media']['Row'];
 
 function rowToMedia(row: MediaRow): Media {
   // Re-validate on read rather than trusting the column: rows predating
-  // 20240022 are null, and a backfilled/garbage pair (0,0 or out of range)
+  // 20240022 are null, and a defaulted/garbage pair (0,0 or out of range)
   // would otherwise put a photo marker in the Gulf of Guinea.
+  // ("defaulted" here is about the coordinate columns — unrelated to the
+  // `backfilled` flag below, which marks reconstructed history.)
   const coordinate =
     row.latitude != null && row.longitude != null
       ? validCoordinate(row.latitude, row.longitude)
@@ -69,6 +74,7 @@ function rowToMedia(row: MediaRow): Media {
     ...(row.location != null ? { location: row.location } : {}),
     ...(coordinate != null ? { coordinate } : {}),
     ...(row.deleted_at != null ? { deletedAt: new Date(row.deleted_at) } : {}),
+    ...(row.backfilled === true ? { backfilled: true } : {}),
   });
 }
 
@@ -89,7 +95,13 @@ export class SupabaseMediaRepository implements IMediaRepository {
       location: media.location ?? null,
       latitude: media.coordinate?.latitude ?? null,
       longitude: media.coordinate?.longitude ?? null,
-      deleted_at: media.deletedAt?.toISOString() ?? null,
+      // Both flags are sent only when set, so a live post never depends on
+      // migration 20240025/20240026 having landed — the columns default to
+      // false/null anyway. Keeps ordinary sharing working on any environment
+      // the migrations haven't reached yet. Restoring clears deleted_at through
+      // setPostingDeleted, not here: save() only ever writes fresh media.
+      ...(media.deletedAt != null ? { deleted_at: media.deletedAt.toISOString() } : {}),
+      ...(media.backfilled ? { backfilled: true } : {}),
     });
     if (error != null) throw new Error(error.message);
   }
