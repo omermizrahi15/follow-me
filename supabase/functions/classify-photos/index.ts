@@ -13,14 +13,21 @@
  * the endpoint is quota/cost-sensitive. Per-user daily quota enforced via
  * increment_classify_quota() (migration 20240015).
  *
- * Env: GEMINI_API_KEY (required), GEMINI_MODEL (optional, default gemini-2.0-flash),
+ * Env: GEMINI_API_KEY (required), GEMINI_MODEL (optional, default gemini-3.5-flash),
  *      SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (auto-injected).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { bytesToBase64, CATEGORIES, type Classification, parseClassification } from './logic.ts';
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
-const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-2.0-flash';
+/**
+ * Default model. NOT 2.0/2.5-flash: Google set their free-tier quota to
+ * literally 0 ("limit: 0, model: gemini-2.0-flash"), so every call 429s
+ * regardless of how little you have used — the model is paid-only now. A live
+ * model with a working free tier is the only sane default; override with the
+ * GEMINI_MODEL secret to pin a different one.
+ */
+const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.5-flash';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 

@@ -248,7 +248,9 @@ function ScanningStep({ current, total, classified, of, batch, done, onSwap, pau
       )}
 
       {done.length > 0 && <Text style={styles.label}>Ready to review</Text>}
-      {done.map(posting => {
+      {/* Built oldest-first so the trip is reconstructed forwards, but listed
+          newest-first like the feed — the most recent stretch on top. */}
+      {[...done].reverse().map(posting => {
         const open = effectiveOpenId === posting.id;
         const photos = new Map(
           [...posting.draft.batch, ...posting.draft.pool].map(c => [c.candidate.id, c]),
@@ -420,7 +422,7 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
         </Text>
         <Text style={styles.scanSub}>
           {quotaExhausted
-            ? 'There’s a daily limit on how many photos we can analyse. Your travels are still there — try again tomorrow and it will pick up where it stopped.'
+            ? 'We’ve hit the limit on how many photos can be analysed. Your travels are still there — nothing was lost. Try again later, and if it keeps happening the photo-analysis model may need updating.'
             : 'We found no photos in that stretch of your library. Try an earlier start date.'}
         </Text>
       </View>
@@ -443,7 +445,7 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
           Your travel story, newest first. Untick anything you’d rather not share, tap a
           photo to swap it, and fix any place that looks off.
         </Text>
-        {postings.map(p => (
+        {[...postings].reverse().map(p => (
           <PostingCard
             key={p.id}
             posting={p}
