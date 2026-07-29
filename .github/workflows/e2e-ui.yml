@@ -6,6 +6,11 @@ name: CI · e2e app (Maestro)
 # nothing — plus on-demand dispatch and a nightly safety net.
 on:
   workflow_dispatch:
+    inputs:
+      flows:
+        description: 'Space-separated flow files to run instead of the whole suite (e.g. ".maestro/flows/add-post-photos.yaml"). sign-in runs first to establish the session, and the retry loop is skipped — for iterating on one flow without paying for the full run.'
+        required: false
+        default: ''
   schedule:
     - cron: '0 6 * * *' # 06:00 UTC nightly
   workflow_run:
@@ -19,12 +24,20 @@ jobs:
   maestro:
     name: Maestro flows (iOS simulator)
     runs-on: macos-15 # ships Xcode 16 — RN 0.81 requires it (macos-14 default is 15.x)
-    timeout-minutes: 45
+    # The native build alone is ~30 min, and the auth suite retries up to 3x —
+    # at 45 the job was being killed mid-suite, before the later flows reported.
+    timeout-minutes: 90
     # For workflow_run, only proceed when the upstream CI actually passed;
     # dispatch and schedule have no upstream run so they always proceed.
     if: ${{ github.event_name != 'workflow_run' || github.event.workflow_run.conclusion == 'success' }}
     env:
       LANG: en_US.UTF-8 # CocoaPods unicode-normalize guard
+      # The Xcode build runs @sentry/react-native's source-map upload script,
+      # which hard-fails the build ("An organization ID or slug is required",
+      # xcodebuild error 65) because SENTRY_ORG/SENTRY_PROJECT/SENTRY_AUTH_TOKEN
+      # only exist in EAS, not here. Nothing consumes source maps from a
+      # throwaway simulator build, so skip the upload rather than wire up creds.
+      SENTRY_DISABLE_AUTO_UPLOAD: 'true'
 
     steps:
       - uses: actions/checkout@v4
@@ -103,6 +116,12 @@ jobs:
       - name: Build & install app on simulator
         run: npx expo run:ios --configuration Release --no-bundler
 
+      # add-post-photos drives the real iOS photo picker, which has nothing to
+      # select on a fresh simulator. Runs after the build so a simulator is
+      # already booted.
+      - name: Seed the simulator photo library
+        run: bash scripts/seed-simulator-photos.sh
+
       - name: Run smoke flows (no backend)
         run: npm run e2e:ui:smoke
 
@@ -117,10 +136,20 @@ jobs:
         env:
           E2E_PHONE: ${{ secrets.E2E_PHONE }}
           E2E_OTP: ${{ secrets.E2E_OTP }}
+          FLOWS: ${{ inputs.flows }}
         run: |
           if [ -z "$E2E_PHONE" ] || [ -z "$E2E_OTP" ]; then
             echo "E2E_PHONE/E2E_OTP not set — skipping auth flows (smoke only)."
             exit 0
+          fi
+          # Dispatched with an explicit flow list: run just those (after sign-in,
+          # which every auth flow needs for its session) and report straight —
+          # no retry loop to sit through while iterating on a single flow.
+          if [ -n "$FLOWS" ]; then
+            echo "Running selected flows: $FLOWS"
+            # shellcheck disable=SC2086
+            exec maestro test -e E2E_PHONE="$E2E_PHONE" -e E2E_OTP="$E2E_OTP" \
+              .maestro/flows/sign-in.yaml $FLOWS
           fi
           for attempt in 1 2 3; do
             echo "::group::Auth suite attempt $attempt/3"

@@ -36,6 +36,12 @@ npm run e2e:ui:ai
 
 A booted iOS simulator with the app installed is required (`xcrun simctl boot "iPhone 16"` or just run the build script, which boots one).
 
+`add-post-photos` drives the real iOS photo picker, so the simulator's photo library must not be empty — seed it once per simulator (CI does this automatically after the build):
+
+```sh
+bash scripts/seed-simulator-photos.sh
+```
+
 ## Flow inventory
 
 | Flow | Tag | Covers |
@@ -45,6 +51,7 @@ A booted iOS simulator with the app installed is required (`xcrun simctl boot "i
 | `navigation` | `auth` | Settings, Edit profile open, Upload modal, section nav |
 | `edit-profile` | `auth` | Edit name → Save → new name shows on the Me page |
 | `add-post` | `auth` | Me → Add post → New-post modal + picker entry point → close |
+| `add-post-photos` | `auth` | Pick 2 photos in the system picker → selection bar → **Change photos** replaces the selection with 1 (never appends) → close |
 | `auto-posting` | `auth` | Configure frequency / reminder day+time / photos-per-post → Save |
 | `remove-cloud-photos` | `auth`, `quarantine` | "Remove my photos from the cloud" → confirm → warning clears (regression for [#58](https://github.com/omermizrahi15/follow-me/issues/58); quarantined until the fix lands) |
 | `followers` | `auth` | Followers section list/empty state + invite entry point |
@@ -53,7 +60,9 @@ A booted iOS simulator with the app installed is required (`xcrun simctl boot "i
 
 Flows run in the order defined in `.maestro/config.yaml`. `sign-in` persists a session the other `auth` flows reuse; `sign-out` runs last because it tears that session down. The `auth` flows are skipped in CI until the test-OTP secrets are set (`sign-in` can't establish the session without them).
 
-Deliberately **not** automated end-to-end (they depend on the iOS system UI or seeded backend data, which aren't deterministic on a CI simulator): completing a photo upload past the system picker, sharing the invite via the system share sheet, and the data-dependent suggestion-review screen. The flows above stop at the app boundary for these.
+Deliberately **not** automated end-to-end (they depend on the iOS system UI or seeded backend data, which aren't deterministic on a CI simulator): actually sending a post (it fans out to the account's real followers over WhatsApp), sharing the invite via the system share sheet, and the data-dependent suggestion-review screen. The flows above stop at the app boundary for these.
+
+`add-post-photos` is the one flow that crosses into iOS's own UI. It stays deterministic by seeding the photo library and asserting only on what the *app* reports (the selection count), never on which images came back; the picker taps select by accessibility label with a percentage-coordinate fallback (`.maestro/subflows/`).
 
 ## AI-maintained tests
 

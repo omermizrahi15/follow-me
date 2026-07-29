@@ -1,0 +1,30 @@
+appId: com.urishiber.followme
+---
+# Selects the first two cells in the already-open iOS system photo picker and
+# confirms. Lives in subflows/ (not flows/) so the workspace glob doesn't pick
+# it up as a standalone flow.
+#
+# Cells expose an accessibility label that starts with "Photo," ("Photo, 12
+# March 2024, 10:32"), which is far more stable than tapping coordinates — but
+# that wording is iOS's, not ours, so a percentage fallback keeps the flow alive
+# if a future iOS renames it. Grid is 3 columns; first row sits under the title
+# and search bar.
+- runFlow:
+    when:
+      visible: "Photo,.*"
+    commands:
+      - tapOn:
+          text: "Photo,.*"
+          index: 0
+      - tapOn:
+          text: "Photo,.*"
+          index: 1
+- runFlow:
+    when:
+      notVisible: "Photo,.*"
+    commands:
+      - tapOn:
+          point: "17%,28%"
+      - tapOn:
+          point: "50%,28%"
+- runFlow: confirm-photo-picker.yaml

@@ -243,6 +243,27 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           </View>
         ) : (
           <>
+            {/* The selection is replaced wholesale, never appended to — so the
+                control lives above the grid as a labelled "change" action
+                rather than as a "+" tile inside it, which read as "add more". */}
+            <View style={styles.selectionBar}>
+              <Text testID="upload-selection-count" style={styles.selectionCount}>
+                {pickedAssets.length} photo{pickedAssets.length === 1 ? '' : 's'} selected
+              </Text>
+              <TouchableOpacity
+                testID="upload-change-photos"
+                style={styles.changeButton}
+                onPress={handlePickMedia}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Change photos"
+                accessibilityHint="Replaces the current selection"
+              >
+                <Ionicons name="swap-horizontal" size={15} color={colors.accent} />
+                <Text style={styles.changeButtonText}>Change photos</Text>
+              </TouchableOpacity>
+            </View>
+
             <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
               {pickedAssets.map((asset, i) => (
                 <Image
@@ -251,17 +272,6 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
                   style={[styles.gridThumb, { width: tileSize, height: tileSize }]}
                 />
               ))}
-              <TouchableOpacity
-                style={[styles.addTile, { width: tileSize, height: tileSize }]}
-                onPress={handlePickMedia}
-                activeOpacity={0.7}
-                accessibilityLabel="Change selection"
-              >
-                <View style={styles.addTileInner}>
-                  <Ionicons name="add" size={24} color={colors.accent} />
-                  <Text style={styles.addTileText}>Change</Text>
-                </View>
-              </TouchableOpacity>
             </ScrollView>
 
             <View style={[styles.footer, keyboardPadding > 0 && { paddingBottom: keyboardPadding }]}>
@@ -282,6 +292,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
                   : 'Will be sent to all your active followers via WhatsApp'}
               </Text>
               <TouchableOpacity
+                testID="upload-send"
                 style={[styles.shareButton, (loading || !canPost) && styles.disabled]}
                 onPress={handleShare}
                 disabled={loading || !canPost}
@@ -368,20 +379,24 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     backgroundColor: colors.surfaceAlt,
   },
-  addTile: {
-    borderRadius: radius.md,
-    borderWidth: 1.5,
-    borderColor: colors.border,
-    borderStyle: 'dashed',
-  },
-  // Absolute fill guarantees dead-center content regardless of how the
-  // touchable lays out its children.
-  addTileInner: {
-    ...StyleSheet.absoluteFillObject,
+  // Selection summary + change action, above the grid
+  selectionBar: {
+    flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'space-between',
+    paddingBottom: spacing.md,
   },
-  addTileText: { ...typography.caption, fontSize: 11, lineHeight: 14, color: colors.accent, fontWeight: '600', textAlign: 'center' },
+  selectionCount: { ...typography.caption, color: colors.textSecondary, fontWeight: '600' },
+  changeButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.xs,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accentSoft,
+  },
+  changeButtonText: { ...typography.caption, color: colors.accent, fontWeight: '600' },
   // Footer
   footer: { paddingVertical: spacing.md },
   placeSpacer: { height: spacing.sm },
