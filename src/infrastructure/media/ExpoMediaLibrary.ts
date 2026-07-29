@@ -8,6 +8,13 @@ import { validCoordinate } from '../../domain/services/coordinate';
 import { imageWidth } from './imageSize';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * How long one photo may spend coming down from iCloud during classification.
+ * Long enough that a normal fetch on a normal connection completes, short
+ * enough that a stuck one costs a single suggestion rather than the stretch.
+ */
+const ICLOUD_FETCH_TIMEOUT_MS = 15_000;
 /** Assets fetched per pagination page. */
 const PAGE_SIZE = 100;
 
@@ -30,16 +37,25 @@ const CLASSIFY_JPEG_QUALITY = 0.7;
  * logic stays device-agnostic. Bytes are loaded later, only for the photos we
  * actually classify.
  *
- * Uses `createdAfter` for OS-level date filtering and paginates through every
- * matching page, so the full lookback window is always scanned regardless of
- * how large the photo library is.
+ * Uses `createdAfter`/`createdBefore` for OS-level date filtering and paginates
+ * through every matching page, so the full window is always scanned regardless
+ * of how large the photo library is. `recentPhotos` is just the now-anchored
+ * case of `photosBetween`.
  */
 export class ExpoMediaLibrary implements IMediaLibrary {
   async recentPhotos(lookbackDays: number): Promise<PhotoCandidate[]> {
+    const now = Date.now();
+    return this.photosBetween(new Date(now - lookbackDays * MS_PER_DAY), new Date(now));
+  }
+
+  async photosBetween(start: Date, end: Date): Promise<PhotoCandidate[]> {
     const granted = await this.ensurePermission();
     if (!granted) throw new Error('Photo library permission not granted');
 
-    const cutoff = Date.now() - lookbackDays * MS_PER_DAY;
+    const startMs = start.getTime();
+    const endMs = end.getTime();
+    if (endMs <= startMs) return [];
+
     const results: PhotoCandidate[] = [];
     let cursor: string | undefined = undefined;
 
@@ -49,7 +65,8 @@ export class ExpoMediaLibrary implements IMediaLibrary {
         // Descending so we process newest photos first (matters when early-stop
         // kicks in during classification — we prefer recent over old).
         sortBy: [[MediaLibrary.SortBy.creationTime, false]],
-        createdAfter: cutoff,
+        createdAfter: startMs,
+        createdBefore: endMs,
         first: PAGE_SIZE,
         ...(cursor != null ? { after: cursor } : {}),
       });
@@ -58,6 +75,9 @@ export class ExpoMediaLibrary implements IMediaLibrary {
         // Screenshots are never post-worthy — drop them at the source so they
         // don't reach classification, suggestions, or the cloud sync.
         if (asset.mediaSubtypes?.includes('screenshot')) continue;
+        // The OS filters are inclusive on some platforms; re-check here so
+        // adjacent backfill windows can never both claim a boundary photo.
+        if (asset.creationTime < startMs || asset.creationTime >= endMs) continue;
         results.push({
           id: asset.id,
           uri: asset.uri,
@@ -91,7 +111,12 @@ export class ExpoMediaLibrary implements IMediaLibrary {
  * bytes would reintroduce the memory spike this downscale exists to avoid.
  */
 export const expoResolvePayload: ResolvePayload = async candidate => {
-  const uri = await expoResolveLocalUri(candidate);
+  // Do fetch iCloud originals — skipping them was worse than waiting. Under
+  // "Optimise iPhone Storage" most originals live in iCloud, so refusing to
+  // download left only the handful cached on device and every reconstructed
+  // post came back with a single photo. A bounded wait keeps the batches full
+  // without letting one pathological fetch stall the stretch.
+  const uri = await resolveLocalUri(candidate, true, ICLOUD_FETCH_TIMEOUT_MS);
   // ph:// URIs can't be read by FileSystem — only skip candidates that couldn't
   // be resolved to a local file:// path (e.g. iCloud-only photos not yet downloaded).
   if (!uri.startsWith('file://')) return null;
@@ -113,14 +138,48 @@ export const expoResolvePayload: ResolvePayload = async candidate => {
 };
 
 /**
- * Resolves a library uri to a readable local file uri (iOS `ph://` → `file://`),
- * used before uploading candidates to the cloud.
+ * Resolves a library uri to a readable local file uri (iOS `ph://` → `file://`).
+ *
+ * `download` decides what happens for a photo whose original lives in iCloud
+ * rather than on the device — the normal state under "Optimise iPhone Storage".
+ * `getAssetInfoAsync` defaults to downloading it, which is right before an
+ * upload (we need the bytes) and badly wrong while classifying: a backfill
+ * would pull hundreds of full-resolution originals over the network and appear
+ * to hang for minutes on the first stretch.
  */
-export const expoResolveLocalUri: ResolveLocalUri = async candidate => {
+export async function resolveLocalUri(
+  candidate: PhotoCandidate,
+  download: boolean,
+  timeoutMs?: number,
+): Promise<string> {
   if (candidate.uri.startsWith('file://')) return candidate.uri;
-  const info = await MediaLibrary.getAssetInfoAsync(candidate.id);
-  return info.localUri ?? candidate.uri;
-};
+
+  const lookup = MediaLibrary.getAssetInfoAsync(candidate.id, {
+    shouldDownloadFromNetwork: download,
+  });
+
+  // Unbounded is right when the caller needs the bytes at any cost (upload).
+  // For classification a slow photo is not worth an open-ended wait: returning
+  // the unusable ph:// uri makes the caller skip it and move to the next.
+  if (timeoutMs == null) return (await lookup).localUri ?? candidate.uri;
+
+  // The timer is cleared whichever side wins. Left dangling it would keep one
+  // pending timeout alive per photo for the full window — enough to hold the
+  // event loop open and, in tests, to stop the worker exiting.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const info = await Promise.race([
+      lookup,
+      new Promise<null>(resolve => { timer = setTimeout(() => resolve(null), timeoutMs); }),
+    ]);
+    return info?.localUri ?? candidate.uri;
+  } finally {
+    if (timer != null) clearTimeout(timer);
+  }
+}
+
+/** Upload path: the bytes are the point, so an iCloud original is worth waiting for. */
+export const expoResolveLocalUri: ResolveLocalUri = candidate => resolveLocalUri(candidate, true);
 
 /**
  * Reads a candidate's GPS coordinate from its asset metadata (issue #23), or
@@ -130,7 +189,10 @@ export const expoResolveLocalUri: ResolveLocalUri = async candidate => {
  * extra per-asset lookup stays bounded.
  */
 export const expoResolveAssetLocation: ResolveAssetLocation = async candidate => {
-  const info = await MediaLibrary.getAssetInfoAsync(candidate.id);
+  // Metadata only — a coordinate never justifies pulling the original down.
+  const info = await MediaLibrary.getAssetInfoAsync(candidate.id, {
+    shouldDownloadFromNetwork: false,
+  });
   const loc = info.location;
   if (loc == null) return null;
   return validCoordinate(loc.latitude, loc.longitude);

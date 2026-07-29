@@ -20,6 +20,10 @@ supabase/.temp/
 .env
 .env.local
 .env.*.local
+# Any .env copy, however it's suffixed. A backup named .env.bak-prod once slipped
+# past the bare `.env` rule and was caught only by GitHub's push protection.
+.env.*
+!.env.example
 
 # Test coverage
 coverage/

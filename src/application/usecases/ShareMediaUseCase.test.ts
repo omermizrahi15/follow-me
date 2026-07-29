@@ -383,6 +383,74 @@ describe('ShareMediaUseCase — delivery logging', () => {
   });
 });
 
+describe('ShareMediaUseCase — history backfill (issue #81)', () => {
+  it('back-dates the posting to the supplied date', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    const when = new Date('2026-03-14T10:00:00Z');
+    await useCase.share({ ownerId: 'user-1', items: multipleItems, createdAt: when });
+    expect(mediaRepo.all().map(m => m.createdAt)).toEqual([when, when, when]);
+  });
+
+  it('defaults to now when no date is supplied', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    const before = Date.now();
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
+    const createdAt = mediaRepo.all()[0]?.createdAt.getTime() ?? 0;
+    expect(createdAt).toBeGreaterThanOrEqual(before);
+    expect(createdAt).toBeLessThanOrEqual(Date.now());
+  });
+
+  it('sends no notifications at all when notify is false', async (): Promise<void> => {
+    const { useCase, subscriberRepo, notifier } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+    await subscriberRepo.save(makeSubscriber('sub-2', 'user-1'));
+
+    await useCase.share({ ownerId: 'user-1', items: multipleItems, notify: false });
+
+    expect(notifier.sent).toEqual([]);
+  });
+
+  it('writes no delivery rows when notify is false', async (): Promise<void> => {
+    const { useCase, subscriberRepo, deliveryLog } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+
+    await useCase.share({ ownerId: 'user-1', items: singleItem, notify: false });
+
+    // A suppressed send must leave no trace — a 'pending' row with no attempt
+    // would read as a delivery that silently failed.
+    expect(await deliveryLog.findByPhoto('media-1')).toEqual([]);
+  });
+
+  it('still saves the media and returns dtos when notify is false', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    const dtos = await useCase.share({ ownerId: 'user-1', items: multipleItems, notify: false });
+    expect(dtos).toHaveLength(3);
+    expect(mediaRepo.all()).toHaveLength(3);
+  });
+
+  it('notifies as usual when notify is omitted or true', async (): Promise<void> => {
+    const { useCase, subscriberRepo, notifier } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
+    await useCase.share({ ownerId: 'user-1', items: singleItem, notify: true });
+
+    expect(notifier.sent).toHaveLength(2);
+  });
+
+  it('flags backfilled items so the feed can tell them from live sends', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: singleItem, notify: false, backfilled: true });
+    expect(mediaRepo.all()[0]?.backfilled).toBe(true);
+  });
+
+  it('leaves live postings unflagged', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
+    expect(mediaRepo.all()[0]?.backfilled).toBe(false);
+  });
+});
+
 describe('ShareMediaUseCase — input validation', () => {
   it('throws before uploading when ownerId is empty', async (): Promise<void> => {
     const { useCase, mediaRepo } = makeSut();

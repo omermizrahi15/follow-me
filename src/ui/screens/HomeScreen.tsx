@@ -22,10 +22,12 @@ import { PostCard, POST_CARD_HEIGHT } from '../components/PostCard';
 import { RouteGlobe } from '../map/RouteGlobe';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { ReviewSuggestionContent } from './ReviewSuggestionScreen';
+import { HistoryBackfillContent } from './HistoryBackfillScreen';
 import { FollowersSection } from './sections/FollowersSection';
 import { useInviteLink } from '../hooks/useInviteLink';
 import { useFeed } from '../hooks/useFeed';
 import { useProfile } from '../hooks/useProfile';
+import { useHistoryGaps } from '../hooks/useHistoryGaps';
 import { useSubscribers } from '../hooks/useSubscribers';
 import { usePublisherId } from '../context/AuthContext';
 import { colors, radius, spacing, shadow, typography } from '../theme/theme';
@@ -55,6 +57,9 @@ export function HomeScreen(): React.JSX.Element {
   const { profile, reload: reloadProfile } = useProfile(publisherId);
   const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
   const { postings, loading: feedLoading, reload: reloadFeed } = useFeed(publisherId);
+  // The History tab exists only when some stretch of the trip has no posting —
+  // including a hole in the middle, not just a missing beginning (issue #81).
+  const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings);
   const [section, setSection] = useState<HomeSection>('me');
   const [showingSuggestions, setShowingSuggestions] = useState(false);
   const [suggestionKey, setSuggestionKey] = useState(0);
@@ -250,11 +255,11 @@ export function HomeScreen(): React.JSX.Element {
                         activeOpacity={0.85}
                         onPress={() => navigation.navigate('Upload')}
                       >
-                        <Ionicons name="add" size={16} color="#fff" />
+                        <Ionicons name="add" size={14} color="#fff" />
                         <Text style={styles.addButtonText} numberOfLines={1}>Add post</Text>
                       </TouchableOpacity>
                       <TouchableOpacity testID="home-invite" style={styles.inviteButton} activeOpacity={0.85} onPress={shareInvite}>
-                        <Ionicons name="person-add-outline" size={15} color={colors.ink} />
+                        <Ionicons name="person-add-outline" size={13} color={colors.ink} />
                         <Text style={styles.inviteButtonText} numberOfLines={1}>Invite</Text>
                       </TouchableOpacity>
                     </View>
@@ -271,12 +276,20 @@ export function HomeScreen(): React.JSX.Element {
             />
           )}
           {!showingSuggestions && section === 'followers' && <FollowersSection bottomInset={bottomInset} />}
+          {!showingSuggestions && section === 'history' && (
+            <HistoryBackfillContent
+              onDone={() => { selectSection('me'); void reloadFeed(); }}
+              initialStartDate={tripStartDate}
+              gaps={gaps}
+              bottomInset={bottomInset}
+            />
+          )}
         </View>
       </Animated.View>
 
       {/* Floating segmented nav (changes the sheet content only) */}
       <View style={[styles.navWrap, { bottom: insets.bottom + spacing.md }]} pointerEvents="box-none">
-        <SectionNav active={section} onChange={selectSection} />
+        <SectionNav active={section} onChange={selectSection} showHistory={hasGaps} />
       </View>
     </View>
   );
@@ -336,7 +349,7 @@ const styles = StyleSheet.create({
   profile: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: spacing.md,
+    gap: spacing.lg,
     // Separates the profile block from the post cards below, which are a
     // different kind of thing — without it they read as one block.
     marginBottom: spacing.xxl,
@@ -357,7 +370,7 @@ const styles = StyleSheet.create({
   name: { ...typography.heading, fontSize: 17, color: colors.text, marginBottom: 1 },
   // Followers count + both actions share one line, so the buttons stay compact
   // and shrink rather than push the count off the row on narrow phones.
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm, marginTop: spacing.xs },
+  metaRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.sm },
   statCol: { flexShrink: 0 },
   statNumber: { ...typography.heading, fontSize: 17, color: colors.text },
   statLabel: { ...typography.caption, fontSize: 11, color: colors.textSecondary, marginTop: -1 },
@@ -366,27 +379,27 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
+    gap: 5,
     backgroundColor: colors.ink,
-    paddingVertical: spacing.sm,
+    paddingVertical: 7,
     paddingHorizontal: spacing.sm,
     borderRadius: radius.md,
   },
-  addButtonText: { color: '#fff', fontWeight: '600', fontSize: 12 },
+  addButtonText: { color: '#fff', fontWeight: '600', fontSize: 11 },
   inviteButton: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: spacing.xs,
+    gap: 5,
     backgroundColor: colors.surface,
     borderWidth: 1,
     borderColor: colors.border,
-    paddingVertical: spacing.sm,
+    paddingVertical: 7,
     paddingHorizontal: spacing.sm,
     borderRadius: radius.md,
   },
-  inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 12 },
+  inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 11 },
   navWrap: {
     position: 'absolute',
     left: spacing.lg,

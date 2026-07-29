@@ -35,6 +35,25 @@ export function reportError(error: unknown, operation: string): void {
   Sentry.captureException(error, { tags: { operation } });
 }
 
+/**
+ * Report a noteworthy non-error event, tagged like reportError so it filters
+ * the same way. For conditions that are expected and handled but whose real
+ * frequency we can only learn from the field — a daily AI quota running out
+ * mid-backfill, say, which is invisible from a stack trace because nothing
+ * ever throws.
+ */
+export function reportMessage(
+  message: string,
+  operation: string,
+  extra?: Record<string, unknown>,
+): void {
+  Sentry.captureMessage(message, {
+    level: 'warning',
+    tags: { operation },
+    ...(extra != null ? { extra } : {}),
+  });
+}
+
 function callReporting<R>(operation: string, fn: (...a: never[]) => R, thisArg: unknown, args: unknown[]): R {
   try {
     const result = Reflect.apply(fn, thisArg, args) as R;

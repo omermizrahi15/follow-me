@@ -351,11 +351,21 @@ export class FakeTwilioClient implements ITwilioClient {
 
 export class FakeMediaLibrary implements IMediaLibrary {
   lastLookbackDays: number | null = null;
+  /** Every window `photosBetween` was asked for, in call order (issue #81). */
+  readonly requestedWindows: { start: Date; end: Date }[] = [];
   constructor(private readonly photos: PhotoCandidate[] = []) {}
 
   recentPhotos(lookbackDays: number): Promise<PhotoCandidate[]> {
     this.lastLookbackDays = lookbackDays;
     return Promise.resolve(this.photos);
+  }
+
+  /** Filters the preset photos by `createdAt`, like the real library does. */
+  photosBetween(start: Date, end: Date): Promise<PhotoCandidate[]> {
+    this.requestedWindows.push({ start, end });
+    return Promise.resolve(
+      this.photos.filter(p => p.createdAt >= start && p.createdAt < end),
+    );
   }
 }
 
@@ -366,16 +376,40 @@ export class FakeMediaLibrary implements IMediaLibrary {
  */
 export class FakePhotoClassifier implements IPhotoClassifier {
   receivedCandidateIds: string[] = [];
+  /**
+   * How many classify() calls have run — one per backfill window (issue #81).
+   * Incremented at the TOP of classify(), before any work, so during the Nth
+   * call it already reads N. Tests set quotaExhaustedFromCallIndex against this
+   * numbering, and the real classifier likewise decides mid-call.
+   */
+  callCount = 0;
+  /**
+   * Simulates the daily classify quota. From this 1-based call index onward,
+   * classify() yields nothing and reports the budget spent — so `2` means the
+   * first call succeeds and every call after it comes back empty.
+   */
+  quotaExhaustedFromCallIndex: number | null = null;
+
   constructor(private readonly byId: Map<string, PhotoClassification> = new Map()) {}
+
+  quotaExhausted(): boolean {
+    return (
+      this.quotaExhaustedFromCallIndex != null &&
+      this.callCount >= this.quotaExhaustedFromCallIndex
+    );
+  }
 
   classify(
     candidates: PhotoCandidate[],
     onEach?: (result: PhotoClassification, index: number, total: number) => void,
     shouldStop?: () => boolean,
   ): Promise<PhotoClassification[]> {
+    this.callCount++;
     this.receivedCandidateIds = [];
     const results: PhotoClassification[] = [];
     const total = candidates.length;
+    // Out of budget: the real function 429s every photo, yielding nothing.
+    if (this.quotaExhausted()) return Promise.resolve(results);
     for (const c of candidates) {
       this.receivedCandidateIds.push(c.id);
       const r = this.byId.get(c.id);

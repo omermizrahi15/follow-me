@@ -161,9 +161,13 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
   });
 
   /**
-   * Plane icon, drawn at runtime rather than shipped as an asset. The glyph
-   * points north-east, and MapLibre rotates a line-placed icon from "pointing
-   * east", so it is pre-rotated 45° clockwise to line up with the leg.
+   * Plane icon, drawn at runtime rather than shipped as an asset.
+   *
+   * NO pre-rotation. This used to rotate the glyph 45° on the belief that ✈
+   * points north-east; it does not — measured against a horizontal line, the
+   * glyph's nose already points EAST, which is the direction MapLibre rotates
+   * a line-placed symbol towards. The correction was what tilted the plane off
+   * its own leg.
    */
   function planeIcon() {
     var size = 64;
@@ -172,7 +176,6 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
     canvas.height = size;
     var ctx = canvas.getContext('2d');
     ctx.translate(size / 2, size / 2);
-    ctx.rotate(Math.PI / 4);
     ctx.font = '42px -apple-system, "Segoe UI Symbol", sans-serif';
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
@@ -185,6 +188,16 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
 
   map.on('load', function () {
     map.setProjection({ type: 'globe' });
+
+    // MapLibre paints the compact attribution EXPANDED the first time, so the
+    // ⓘ panel greeted the publisher on every launch. Shut it once, here.
+    //
+    // Collapsing, not removing: crediting MapTiler and OpenStreetMap is a
+    // licence condition, so the ⓘ button stays and tapping it re-adds this
+    // class and opens the panel as normal. CSS can't do this — the same class
+    // marks "user opened it", so hiding it would break the button too.
+    var attrib = document.querySelector('.maplibregl-ctrl-attrib');
+    if (attrib) attrib.classList.remove('maplibregl-compact-show');
 
     // No setSky atmosphere here on purpose. MapLibre's atmosphere is lit from
     // the sun position, so it brightens ONE limb of the planet and leaves the

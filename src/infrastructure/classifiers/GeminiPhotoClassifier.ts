@@ -64,13 +64,35 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
      * when absent (tests / integration harness).
      */
     private readonly getAccessToken?: () => Promise<string | null>,
+    /**
+     * Called once per run when the daily quota rejects a request. Injected
+     * rather than imported: hard-wiring the monitoring SDK in here would drag
+     * @sentry/react-native — which ships ESM — into every test that touches
+     * this class, and the composition root is where implementations get chosen.
+     */
+    private readonly onQuotaExhausted?: (photosInRun: number) => void,
   ) {}
+
+  /**
+   * Set when the function answers 429 (per-user daily quota, migration
+   * 20240015). Reset per classify() call so it always describes the latest run.
+   */
+  private hitQuota = false;
+
+  /** Photos the current classify() run started with — reported alongside a quota hit. */
+  private runSize = 0;
+
+  quotaExhausted(): boolean {
+    return this.hitQuota;
+  }
 
   async classify(
     candidates: PhotoCandidate[],
     onEach?: (result: PhotoClassification, index: number, total: number) => void,
     shouldStop?: () => boolean,
   ): Promise<PhotoClassification[]> {
+    this.hitQuota = false;
+    this.runSize = candidates.length;
     if (candidates.length === 0) return [];
 
     const total = candidates.length;
@@ -151,6 +173,17 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         });
 
         if (!res.ok) {
+          // 429 is the daily quota, not a per-photo failure: every remaining
+          // photo would fail identically, so record it for the caller instead
+          // of letting a whole backfill quietly come back empty.
+          if (res.status === 429 && !this.hitQuota) {
+            this.hitQuota = true;
+            // Reported once per run, not once per photo: a quota wall trips
+            // every in-flight request, and N identical events per scan would
+            // drown the signal we actually want — how often real publishers
+            // hit the ceiling, which nothing throws and no stack trace shows.
+            this.onQuotaExhausted?.(this.runSize);
+          }
           console.warn(`classify-photos failed for ${c.id} (${res.status}): ${await res.text()}`);
           return null;
         }
