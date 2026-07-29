@@ -76,7 +76,7 @@ export async function publishBatch(
   const { name, phone } = await publisherIdentity(supabase, publisherId);
   const urls = photos.map(p => p.url);
 
-  const galleryUrl = await savePostGallery(supabase, publisherId, urls);
+  const galleryUrl = await savePostGallery(supabase, publisherId, urls, place);
   const caption = composeAutoPostBody(
     name,
     phone,
