@@ -239,12 +239,6 @@ function ScanningStep({ current, total, window, classified, of, batch, done, onS
         <Text style={styles.scanSub}>
           {total > 0 ? `Stretch ${Math.max(current, 1)} of ${total}` : 'Planning the timeline'}
         </Text>
-        {/* Named from the start: which dates are being looked at is knowable
-            the moment the stretch begins, and waiting until its photos are
-            chosen to say so leaves the publisher watching an unlabelled scan. */}
-        {window != null && (
-          <Text style={styles.scanDates}>{describeWindow(window.start, window.end)}</Text>
-        )}
       </View>
 
       <View style={styles.progressRow}>
@@ -264,6 +258,15 @@ function ScanningStep({ current, total, window, classified, of, batch, done, onS
           <Ionicons name={paused ? 'play' : 'pause'} size={16} color={colors.ink} />
         </TouchableOpacity>
       </View>
+
+      {/* Under the bar, not above it: the dates describe the stretch the bar is
+          working through, so they sit with the detail about it rather than in
+          the title block. Known from the moment the stretch starts. */}
+      {window != null && (
+        <Text style={styles.scanDates} accessibilityLiveRegion="polite">
+          {describeWindow(window.start, window.end)}
+        </Text>
+      )}
       {paused && (
         <Text style={styles.scanQuiet}>
           Paused. The stretch already running will finish, then it waits for you.
@@ -802,7 +805,7 @@ const styles = StyleSheet.create({
     marginTop: spacing.xs,
   },
   fill: { height: '100%', backgroundColor: colors.accent, borderRadius: radius.pill },
-  scanDates: { ...typography.heading, fontSize: 15, color: colors.accent, marginTop: 2 },
+  scanDates: { ...typography.heading, fontSize: 15, color: colors.accent, marginTop: spacing.sm },
   scanDetail: { ...typography.caption, color: colors.textSecondary, marginTop: spacing.sm },
   scanQuiet: { ...typography.caption, color: colors.textMuted, marginTop: spacing.sm, lineHeight: 18 },
   progressRow: { flexDirection: 'row', alignItems: 'center', gap: spacing.md, marginTop: spacing.md },
