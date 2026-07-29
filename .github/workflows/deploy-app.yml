@@ -61,14 +61,31 @@ jobs:
           UPDATE_MSG: ${{ github.event.head_commit.message || format('manual → {0}', github.event.inputs.environment) }}
         # --platform ios: the app is iOS-only (app.json platforms) and the
         # default (all platforms) fails exporting the nonexistent android bundle.
+        #
+        # --environment is load-bearing, not decoration. runtimeVersion is the
+        # fingerprint policy, and app.config.js feeds SENTRY_ORG/SENTRY_PROJECT
+        # into the Sentry plugin — those live in EAS's server-side environment,
+        # which `eas build` loads and `eas update` does NOT unless asked. Without
+        # it every update was tagged 1b8041df… while every build carried
+        # e5a59d02…, so no OTA could reach any device and the rebuild check below
+        # fired on every merge. The profile names match the environment names
+        # (preview/production), so $PROFILE is the right value.
+        #
         # --json (stdout only; progress goes to stderr) so the runtimeVersion the
         # update was actually tagged with can be read back instead of recomputed.
         # Written to RUNNER_TEMP, not the repo: the rebuild step below may run
         # `eas build`, which refuses to package a dirty working tree.
         run: |
-          eas update --branch "$CHANNEL" --message "$UPDATE_MSG" --platform ios --json --non-interactive > "$RUNNER_TEMP/update.json"
+          eas update --branch "$CHANNEL" --message "$UPDATE_MSG" --platform ios \
+            --environment "$PROFILE" --json --non-interactive > "$RUNNER_TEMP/update.json"
           node -e "
-            const groups = require(process.env.RUNNER_TEMP + '/update.json');
+            const fs = require('fs');
+            // eas-cli prints the 'Environment variables ... loaded' notice to
+            // STDOUT even under --json, so start at the first JSON delimiter.
+            const raw = fs.readFileSync(process.env.RUNNER_TEMP + '/update.json', 'utf8');
+            const at = raw.search(/[[{]/);
+            if (at < 0) throw new Error('no JSON in eas update output: ' + raw.slice(0, 200));
+            const groups = JSON.parse(raw.slice(at));
             const rv = (Array.isArray(groups) ? groups : [groups]).map((u) => u.runtimeVersion).find(Boolean);
             if (!rv) throw new Error('no runtimeVersion in eas update output');
             console.log('RUNTIME_VERSION=' + rv);
