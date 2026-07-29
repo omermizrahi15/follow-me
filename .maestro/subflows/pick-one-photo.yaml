@@ -1,0 +1,19 @@
+appId: com.urishiber.followme
+---
+# Selects the first cell in the already-open iOS system photo picker and
+# confirms. See pick-two-photos.yaml for why the selector is label-first with a
+# coordinate fallback.
+- runFlow:
+    when:
+      visible: "Photo,.*"
+    commands:
+      - tapOn:
+          text: "Photo,.*"
+          index: 0
+- runFlow:
+    when:
+      notVisible: "Photo,.*"
+    commands:
+      - tapOn:
+          point: "17%,28%"
+- runFlow: confirm-photo-picker.yaml

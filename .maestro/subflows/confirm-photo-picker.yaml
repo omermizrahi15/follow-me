@@ -1,0 +1,15 @@
+appId: com.urishiber.followme
+---
+# Dismisses the iOS system photo picker with its confirm button. Multi-select
+# labels it "Add"; some iOS versions label it "Done". Neither string appears on
+# the app screens behind the picker, so matching on text is unambiguous.
+- runFlow:
+    when:
+      visible: "^Add$"
+    commands:
+      - tapOn: "^Add$"
+- runFlow:
+    when:
+      notVisible: "^Add$"
+    commands:
+      - tapOn: "^Done$"
