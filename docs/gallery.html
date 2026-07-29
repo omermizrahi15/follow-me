@@ -88,7 +88,10 @@
       position: fixed; inset: 0; z-index: 10;
       background: #000;
       display: flex; align-items: center; justify-content: center;
-      touch-action: pan-y;
+      /* The overlay owns every gesture: a downward drag dismisses it, and
+         `pan-y` would hand that to the browser as a scroll — which fires
+         touchcancel instead of touchend and swallows the dismiss. */
+      touch-action: none;
       cursor: pointer;
       -webkit-tap-highlight-color: transparent;
     }
@@ -275,15 +278,34 @@
       if (e.key === 'ArrowRight') step(1);
     });
 
-    // Swipe left/right on touch devices. A real swipe suppresses the tap-zone
-    // click (preventDefault on touchend), so one gesture never steps twice.
+    // Swipe on touch devices: left/right steps through the photos, down
+    // dismisses the story for the feed — the gesture every photo viewer has.
+    // A real swipe suppresses the tap-zone click (preventDefault on touchend),
+    // so one gesture never both steps and taps.
+    /** Horizontal travel that counts as a step. */
+    const SWIPE_STEP = 40;
+    /** Downward travel that dismisses. Higher than a step so a sloppy
+     *  horizontal swipe doesn't throw the follower out of the story. */
+    const SWIPE_DISMISS = 60;
     let touchStartX = null;
-    story.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; }, { passive: true });
+    let touchStartY = null;
+    story.addEventListener('touchstart', e => {
+      touchStartX = e.touches[0].clientX;
+      touchStartY = e.touches[0].clientY;
+    }, { passive: true });
+    story.addEventListener('touchcancel', () => { touchStartX = null; touchStartY = null; });
     story.addEventListener('touchend', e => {
       if (touchStartX == null) return;
       const dx = e.changedTouches[0].clientX - touchStartX;
+      const dy = e.changedTouches[0].clientY - touchStartY;
       touchStartX = null;
-      if (Math.abs(dx) > 40) {
+      touchStartY = null;
+      // Whichever axis dominates wins, so a diagonal drag does one thing only.
+      if (dy > SWIPE_DISMISS && Math.abs(dy) > Math.abs(dx)) {
+        e.preventDefault();
+        return closeStory();
+      }
+      if (Math.abs(dx) > SWIPE_STEP && Math.abs(dx) >= Math.abs(dy)) {
         e.preventDefault();
         step(dx < 0 ? 1 : -1);
       }

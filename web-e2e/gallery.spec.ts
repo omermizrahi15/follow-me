@@ -69,6 +69,31 @@ const feed = (page: Page) => page.locator('#feedView');
 const story = (page: Page) => page.locator('#story');
 const cards = (page: Page) => page.locator('.card');
 
+/**
+ * Drag across the story with a synthetic touch. The chromium project runs
+ * without a touchscreen, so we dispatch the events the page listens for
+ * rather than driving real input.
+ */
+async function swipe(page: Page, dx: number, dy: number): Promise<void> {
+  await page.evaluate(
+    ([moveX, moveY]) => {
+      const el = document.getElementById('story')!;
+      const from = { x: window.innerWidth / 2, y: window.innerHeight / 2 };
+      const touch = (x: number, y: number) =>
+        new Touch({ identifier: 1, target: el, clientX: x, clientY: y });
+      const start = touch(from.x, from.y);
+      const end = touch(from.x + moveX, from.y + moveY);
+      el.dispatchEvent(
+        new TouchEvent('touchstart', { touches: [start], changedTouches: [start], bubbles: true }),
+      );
+      el.dispatchEvent(
+        new TouchEvent('touchend', { touches: [], changedTouches: [end], bubbles: true, cancelable: true }),
+      );
+    },
+    [dx, dy],
+  );
+}
+
 test.describe('post gallery', () => {
   test('the shared link plays its post as a story straight away', async ({ page }) => {
     await mockSupabase(page);
@@ -172,6 +197,54 @@ test.describe('post gallery', () => {
 
     await expect(story(page)).toBeHidden();
     await expect(feed(page)).toBeVisible();
+  });
+
+  test('swiping down dismisses the story to the feed', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/gallery.html?id=post-linked');
+    await expect(story(page)).toBeVisible();
+
+    await swipe(page, 0, 120);
+
+    await expect(story(page)).toBeHidden();
+    await expect(feed(page)).toBeVisible();
+    await expect(page).toHaveURL(/\?u=pub-1$/);
+  });
+
+  test('a swipe down mid-story dismisses from wherever it is', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await cards(page).nth(0).click();
+    await swipe(page, -80, 0); // advance one photo first
+    await expect(page.locator('#storyMeta')).toHaveText('June 18, 2026 · 2/3');
+
+    await swipe(page, 0, 120);
+
+    await expect(story(page)).toBeHidden();
+    await expect(feed(page)).toBeVisible();
+  });
+
+  // Horizontal is the dominant axis here, so it must step rather than dismiss.
+  test('a sloppy sideways swipe still steps instead of closing', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/gallery.html?id=post-linked');
+    await expect(story(page)).toBeVisible();
+
+    await swipe(page, -90, 45);
+
+    await expect(story(page)).toBeVisible();
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 2/2');
+  });
+
+  test('swiping up does not dismiss', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/gallery.html?id=post-linked');
+    await expect(story(page)).toBeVisible();
+
+    await swipe(page, 0, -120);
+
+    await expect(story(page)).toBeVisible();
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 1/2');
   });
 
   test('closing the story with ✕ lands on the feed', async ({ page }) => {
