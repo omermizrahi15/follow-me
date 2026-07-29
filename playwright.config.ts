@@ -1,10 +1,11 @@
 import { defineConfig, devices } from '@playwright/test';
 
 /**
- * Web E2E for the public subscribe page (docs/join/index.html), which the app
- * itself can't cover — it's a static page a follower opens in a browser. Runs
- * headless on Ubuntu in ~1 min (no simulator), separate from the Maestro app
- * suite. See docs/E2E.md.
+ * Web E2E for the public follower-facing pages — the subscribe page
+ * (docs/join/index.html) and the post gallery (docs/gallery.html) — which the
+ * app itself can't cover: they're static pages a follower opens in a browser.
+ * Runs headless on Ubuntu in ~1 min (no simulator), separate from the Maestro
+ * app suite. See docs/E2E.md.
  */
 export default defineConfig({
   testDir: './web-e2e',

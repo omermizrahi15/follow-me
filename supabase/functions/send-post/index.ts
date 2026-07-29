@@ -60,7 +60,7 @@ Deno.serve(async req => {
   const { publisherId, to, mediaUrls, place } = validation.value;
 
   const { name, phone } = await publisherIdentity(supabase, publisherId);
-  const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls);
+  const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls, place ?? null);
   const caption = composeAutoPostBody(
     name,
     phone,
