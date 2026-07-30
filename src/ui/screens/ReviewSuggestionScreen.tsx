@@ -35,6 +35,23 @@ import { colors, radius, spacing, typography } from '../theme/theme';
 
 const STEPS = ['Scanning', 'Classifying', 'Done'] as const;
 
+// ---------- background prefetch tuning ----------
+//
+// The swap chip feels instant because the scan left photos banked. Once those
+// run out every press has to wait for the AI, and the fix is to refill quietly
+// *before* the publisher asks rather than making them watch it happen.
+//
+// The cost of getting this wrong is real money: refilling on a timer would have
+// every publisher who opens a suggested post classify photos they never look
+// at. So it only runs on evidence — see the effect below.
+
+/** Refill once the bank drops to this. Two deep covers a press and a swap. */
+const PREFETCH_LOW_WATER = 2;
+/** Rounds allowed before it stops volunteering and waits to be asked again. */
+const PREFETCH_BUDGET = 2;
+/** Quiet period after the last tap, so a flurry of taps doesn't stack rounds. */
+const PREFETCH_IDLE_MS = 1200;
+
 function stepIndex(phase: string): number {
   if (phase === 'scanning') return 0;
   if (phase === 'classifying') return 1;
@@ -138,6 +155,19 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
   const [topUpNote, setTopUpNote] = useState<string | null>(null);
   // Which photo is waiting on a replacement, so its chip can show it is working.
   const [swappingId, setSwappingId] = useState<string | null>(null);
+  // The publisher is waiting on the "+" specifically. Distinct from the hook's
+  // `toppingUp`, which is also true during a background refill — that one must
+  // stay invisible, or the quiet prefetch would announce itself as a spinner.
+  const [awaitingAdd, setAwaitingAdd] = useState(false);
+  /**
+   * Whether the publisher has asked for another photo at all this session.
+   * Nothing is prefetched before they do: most people open a suggested post,
+   * look at it and send it, and they should never pay for a photo they didn't
+   * ask for. A ref, not state — it gates the effect without re-running it.
+   */
+  const wantsMoreRef = useRef(false);
+  /** Background rounds left before it stops volunteering (see PREFETCH_BUDGET). */
+  const prefetchBudgetRef = useRef(PREFETCH_BUDGET);
 
   // Initialise slots from batch when done; reset if the user re-scans.
   useEffect(() => {
@@ -149,6 +179,11 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
       coordsRef.current.clear();
       setPlace('');
       setPlaceSource(null);
+      // A rescan is a fresh review: it must not inherit the last one's appetite
+      // for photos, or reloading would start classifying with nothing asked.
+      wantsMoreRef.current = false;
+      prefetchBudgetRef.current = PREFETCH_BUDGET;
+      setTopUpNote(null);
     }
     if (phase === 'done' && !slotsInitRef.current && batch.length > 0) {
       slotsInitRef.current = true;
@@ -298,19 +333,22 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
     return config == null ? all : all.filter(c => isSuggestablePhoto(c, config));
   }, [batch, pool, split, config]);
 
-  // Next unused, unexcluded photo — powers both swap and the "add photo" slot.
-  const nextAvailable = useMemo(() => {
+  /**
+   * The photos that could go into a slot right now, with no AI call needed —
+   * what the swap chip has always felt instant off, and what the "+" spends
+   * before it has to ask for more.
+   */
+  const ready = useMemo(() => {
     // Only once the scan is done: while classifying, the grid shows the
     // running `partial` batch rather than `slots`, so a swap would change
     // state nothing is rendering from — a button that looks live and isn't.
-    if (phase !== 'done') return null;
+    if (phase !== 'done') return [];
     const usedIds = new Set(slots);
-    return (
-      offerable.find(
-        c => !excluded.has(c.candidate.id) && !usedIds.has(c.candidate.id),
-      ) ?? null
+    return offerable.filter(
+      c => !excluded.has(c.candidate.id) && !usedIds.has(c.candidate.id),
     );
   }, [phase, slots, excluded, offerable]);
+  const nextAvailable = ready[0] ?? null;
   /**
    * Whether another photo can still be produced — either one is already
    * classified and waiting, or the AI can go look at more of the window.
@@ -325,64 +363,144 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
   const shortfall = phase === 'done' && batch.length > 0 && photosPerPost > 0 && batch.length < photosPerPost;
 
   /**
-   * The next photo to show, asking the AI to classify more of the window when
-   * nothing suitable is left over from the scan. Null means there genuinely
-   * isn't another relevant photo in those days.
+   * Quietly refill the bank so the next "+" is instant instead of a wait.
+   *
+   * Every condition here is about not spending the publisher's AI budget on a
+   * guess:
+   *  - only after they have actually asked for a photo (`wantsMoreRef`), so
+   *    opening a post and sending it costs nothing extra;
+   *  - only when the bank is nearly out — a deep pool needs no help;
+   *  - only while idle: no round already running, no swap mid-flight, not
+   *    posting, not mid-split (top-ups don't apply there), not at the cap;
+   *  - only after a quiet moment, so a flurry of taps schedules one round;
+   *  - and only PREFETCH_BUDGET times in a row. The budget is handed back
+   *    whenever a prefetched photo is actually used, so this keeps helping the
+   *    publisher who is really building a big post, and quietly stands down for
+   *    the one who added a photo and then wandered off.
    */
-  const nextSuggestion = useCallback(
-    async (usedIds: Set<string>, excludedIds: Set<string>): Promise<PhotoClassification | null> => {
-      const ready = offerable.find(c => !excludedIds.has(c.candidate.id) && !usedIds.has(c.candidate.id));
-      if (ready != null) return ready;
-      if (!canTopUp || split != null) return null;
+  useEffect(() => {
+    if (!wantsMoreRef.current || prefetchBudgetRef.current <= 0) return;
+    if (phase !== 'done' || split != null) return;
+    if (!canTopUp || toppingUp || awaitingAdd || swappingId != null || sharing) return;
+    if (kept.length >= MAX_PHOTOS_PER_POST) return;
+    if (ready.length > PREFETCH_LOW_WATER) return;
+
+    const timer = setTimeout(() => {
+      prefetchBudgetRef.current -= 1;
+      void topUp();
+    }, PREFETCH_IDLE_MS);
+    return () => clearTimeout(timer);
+  }, [
+    phase, split, canTopUp, toppingUp, awaitingAdd, swappingId, sharing,
+    kept.length, ready.length, topUp,
+  ]);
+
+  /**
+   * Photos that can fill a slot, in preference order — the ones already banked
+   * when there are any, otherwise a fresh round from the AI. An empty list
+   * means there genuinely isn't another relevant photo in those days.
+   *
+   * Returns the whole list rather than one photo so callers can pick against
+   * the authoritative `slots` inside a state updater: two taps that land on the
+   * same round then take two different photos instead of fighting over one.
+   */
+  const viableSuggestions = useCallback(
+    async (usedIds: Set<string>, excludedIds: Set<string>): Promise<PhotoClassification[]> => {
+      const banked = offerable.filter(
+        c => !excludedIds.has(c.candidate.id) && !usedIds.has(c.candidate.id),
+      );
+      if (banked.length > 0) return banked;
+      if (!canTopUp || split != null) return [];
       const { suggestions, reason } = await topUp();
-      const fresh = suggestions.find(c => !excludedIds.has(c.candidate.id) && !usedIds.has(c.candidate.id)) ?? null;
       setTopUpNote(
-        fresh != null
-          ? null
-          : reason === 'quota'
+        suggestions.length === 0 && reason === 'quota'
           ? "Today's AI limit is used up — try again tomorrow."
           : null,
       );
-      return fresh;
+      return suggestions;
     },
     [offerable, canTopUp, split, topUp],
   );
 
   function handleAddSlot(): void {
-    if (kept.length >= MAX_PHOTOS_PER_POST || toppingUp) return;
+    if (kept.length >= MAX_PHOTOS_PER_POST || awaitingAdd) return;
+    wantsMoreRef.current = true;
+
+    // The banked path stays synchronous. Going through the async one for a
+    // photo we already hold would flash the spinner for a frame on what has
+    // always been an instant action — and that instant feel is the point of
+    // banking photos in the first place.
+    const banked = ready[0];
+    if (banked != null) {
+      prefetchBudgetRef.current = PREFETCH_BUDGET;
+      setSlots(s =>
+        s.length >= MAX_PHOTOS_PER_POST || s.includes(banked.candidate.id)
+          ? s
+          : [...s, banked.candidate.id],
+      );
+      return;
+    }
+
+    setAwaitingAdd(true);
     void (async (): Promise<void> => {
-      const next = await nextSuggestion(new Set(slots), excluded);
-      // Functional update, and re-checked inside: the top-up above is a network
-      // round-trip, and the grid may have changed while it was in flight.
-      if (next != null) {
-        setSlots(s =>
-          s.includes(next.candidate.id) || s.length >= MAX_PHOTOS_PER_POST
-            ? s
-            : [...s, next.candidate.id],
-        );
+      try {
+        const candidates = await viableSuggestions(new Set(slots), excluded);
+        // Picked inside the updater, against the real slots: the round above may
+        // have been a network trip, and the grid can have moved under it.
+        setSlots(s => {
+          if (s.length >= MAX_PHOTOS_PER_POST) return s;
+          const used = new Set(s);
+          const pick = candidates.find(
+            c => !used.has(c.candidate.id) && !excluded.has(c.candidate.id),
+          );
+          if (pick == null) return s;
+          // A photo actually used is proof the prefetching is earning its
+          // calls, so it gets its budget back.
+          prefetchBudgetRef.current = PREFETCH_BUDGET;
+          return [...s, pick.candidate.id];
+        });
+      } finally {
+        setAwaitingAdd(false);
       }
     })();
   }
 
   function handleSwap(id: string): void {
-    // One top-up at a time: a second request while one is in flight comes back
-    // empty, and an empty answer here means "drop this photo" — the publisher
-    // would lose a photo to a double tap.
-    if (swappingId != null || toppingUp) return;
+    // One swap at a time. An empty answer here means "drop this photo", so a
+    // second swap riding on the first one's result could cost the publisher a
+    // photo they never rejected.
+    if (swappingId != null) return;
+    wantsMoreRef.current = true;
+    const newExcluded = new Set(excluded);
+    newExcluded.add(id);
+
+    // Banked replacement: swap on the spot, exactly as this has always worked.
+    // `ready` already excludes everything in a slot, so it never offers back
+    // the photo being replaced.
+    const banked = ready[0];
+    if (banked != null) {
+      prefetchBudgetRef.current = PREFETCH_BUDGET;
+      setExcluded(newExcluded);
+      setSlots(s => s.map(slotId => (slotId === id ? banked.candidate.id : slotId)));
+      return;
+    }
+
     setSwappingId(id);
     void (async (): Promise<void> => {
       try {
-        const newExcluded = new Set(excluded);
-        newExcluded.add(id);
         // The photo being replaced still occupies its slot, so it is "used" —
         // the replacement must be some other photo.
-        const replacement = await nextSuggestion(new Set(slots), newExcluded);
+        const candidates = await viableSuggestions(new Set(slots), newExcluded);
         setExcluded(newExcluded);
-        setSlots(s =>
-          replacement != null
-            ? s.map(slotId => (slotId === id ? replacement.candidate.id : slotId))
-            : s.filter(slotId => slotId !== id),
-        );
+        setSlots(s => {
+          const used = new Set(s);
+          const pick = candidates.find(
+            c => !used.has(c.candidate.id) && !newExcluded.has(c.candidate.id),
+          );
+          return pick != null
+            ? s.map(slotId => (slotId === id ? pick.candidate.id : slotId))
+            : s.filter(slotId => slotId !== id);
+        });
       } finally {
         setSwappingId(null);
       }
@@ -611,7 +729,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
             {/* The empty slot. Always there while the post has room — the
                 publisher can go past their configured count, up to the cap. */}
             {phase === 'done' && kept.length > 0 && kept.length < MAX_PHOTOS_PER_POST && (
-              toppingUp && swappingId == null ? (
+              awaitingAdd ? (
                 <View style={[gridStyles.card, gridStyles.addCard]}>
                   <ActivityIndicator color={colors.accent} />
                   <Text style={gridStyles.addLabel}>Finding one more…</Text>

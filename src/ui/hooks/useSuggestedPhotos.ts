@@ -72,6 +72,10 @@ interface Controls {
    * Classify more of the window and hand back the next photo(s) worth showing.
    * Each call appends everything it classified to `pool`, so a photo the caller
    * decides not to use is still available for a later swap.
+   *
+   * Calling it while one is already running joins that round rather than
+   * starting a second — so a tap that lands during a background prefetch is
+   * answered by the prefetch instead of coming back empty-handed.
    */
   topUp: () => Promise<TopUpResult>;
   /** A top-up is in flight. */
@@ -92,8 +96,8 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
   const pendingRef = useRef<PhotoCandidate[] | null>(null);
   /** Every candidate id already on screen — never queue one of these again. */
   const knownRef = useRef<Set<string>>(new Set());
-  /** Guards against a second top-up while one is in flight (double tap). */
-  const busyRef = useRef(false);
+  /** The running top-up, so concurrent callers share one round instead of racing. */
+  const inFlightRef = useRef<Promise<TopUpResult> | null>(null);
 
   const runScan = useCallback((skipCache: boolean): void => {
     setState(INITIAL);
@@ -176,39 +180,54 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
     knownRef.current = new Set([...state.batch, ...state.pool].map(c => c.candidate.id));
   }, [state.batch, state.pool]);
 
-  const topUp = useCallback(async (): Promise<TopUpResult> => {
+  const topUp = useCallback((): Promise<TopUpResult> => {
     const config = state.config;
-    if (config == null || busyRef.current) return { suggestions: [], reason: 'none' };
-    busyRef.current = true;
+    if (config == null) return Promise.resolve({ suggestions: [], reason: 'none' });
+    // Already running: hand back the same round. Starting a second would double
+    // the AI calls for one wave of photos, and the loser of the race used to
+    // get an empty result — which reads as "no more photos" to the caller.
+    if (inFlightRef.current != null) return inFlightRef.current;
+
     setToppingUp(true);
-    try {
-      // Built once per scan, then walked down: the library query is the slow
-      // part and the window doesn't move while the screen is open.
-      pendingRef.current ??= await suggestPhotos.pendingCandidates(config, knownRef.current);
-      const { classified, suggestions, consumed, quotaExhausted } =
-        await suggestPhotos.classifyMore(pendingRef.current, config);
-      pendingRef.current = pendingRef.current.slice(consumed);
+    const run = async (): Promise<TopUpResult> => {
+      try {
+        // Built once per scan, then walked down: the library query is the slow
+        // part and the window doesn't move while the screen is open.
+        pendingRef.current ??= await suggestPhotos.pendingCandidates(config, knownRef.current);
+        const { classified, suggestions, consumed, quotaExhausted } =
+          await suggestPhotos.classifyMore(pendingRef.current, config);
+        pendingRef.current = pendingRef.current.slice(consumed);
 
-      // Everything classified joins the pool — even the ones not offered now,
-      // which become swap material. Appended rather than re-sorted by quality:
-      // the pool's head is what the scan already judged best, and a late
-      // arrival should not jump it just because the AI scored it highly.
-      if (classified.length > 0) setState(s => ({ ...s, pool: [...s.pool, ...classified] }));
-      if (quotaExhausted || pendingRef.current.length === 0) setCanTopUp(false);
+        // Everything classified joins the pool — even the ones not offered now,
+        // which become swap material. Appended rather than re-sorted by quality:
+        // the pool's head is what the scan already judged best, and a late
+        // arrival should not jump it just because the AI scored it highly.
+        if (classified.length > 0) setState(s => ({ ...s, pool: [...s.pool, ...classified] }));
+        if (quotaExhausted || pendingRef.current.length === 0) setCanTopUp(false);
 
-      return {
-        suggestions,
-        reason: suggestions.length > 0 ? null : quotaExhausted ? 'quota' : 'none',
-      };
-    } catch {
-      // A failed scan or classify round is not worth retrying on every press;
-      // the publisher can rescan, which resets this.
-      setCanTopUp(false);
-      return { suggestions: [], reason: 'none' };
-    } finally {
-      busyRef.current = false;
-      setToppingUp(false);
-    }
+        return {
+          suggestions,
+          reason: suggestions.length > 0 ? null : quotaExhausted ? 'quota' : 'none',
+        };
+      } catch {
+        // A failed scan or classify round is not worth retrying on every press;
+        // the publisher can rescan, which resets this.
+        setCanTopUp(false);
+        return { suggestions: [], reason: 'none' };
+      } finally {
+        setToppingUp(false);
+      }
+    };
+
+    const started = run();
+    inFlightRef.current = started;
+    // Cleared here rather than inside `run`, so the slot is released strictly
+    // after it was claimed however the body is scheduled — an in-flight marker
+    // that outlives its round would wedge every later top-up on a stale result.
+    void started.finally(() => {
+      if (inFlightRef.current === started) inFlightRef.current = null;
+    });
+    return started;
   }, [state.config]);
 
   // Exposed `reload` always does a fresh device scan (ignores cache).
