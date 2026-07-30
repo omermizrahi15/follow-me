@@ -1,11 +1,13 @@
 import { ShareMediaUseCase } from '../application/usecases/ShareMediaUseCase';
 import { ListFeedUseCase } from '../application/usecases/ListFeedUseCase';
+import { TrashPostingUseCase } from '../application/usecases/TrashPostingUseCase';
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
 import { ListSubscribersUseCase } from '../application/usecases/ListSubscribersUseCase';
 import { RemoveSubscriberUseCase } from '../application/usecases/RemoveSubscriberUseCase';
 import { SaveConfigUseCase } from '../application/usecases/SaveConfigUseCase';
 import { LoadConfigUseCase } from '../application/usecases/LoadConfigUseCase';
 import { SuggestPhotosUseCase } from '../application/usecases/SuggestPhotosUseCase';
+import { BackfillHistoryUseCase } from '../application/usecases/BackfillHistoryUseCase';
 import { ScheduleReminderUseCase } from '../application/usecases/ScheduleReminderUseCase';
 import { SyncCandidatePhotosUseCase } from '../application/usecases/SyncCandidatePhotosUseCase';
 import { SaveProfileUseCase } from '../application/usecases/SaveProfileUseCase';
@@ -30,7 +32,7 @@ import { SupabaseApprovalBatchRepository, type ApprovalBatch } from '../infrastr
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
-import { monitored } from '../infrastructure/monitoring/sentry';
+import { monitored, reportMessage } from '../infrastructure/monitoring/sentry';
 import Constants from 'expo-constants';
 
 /**
@@ -87,6 +89,11 @@ const photoClassifier = new GeminiPhotoClassifier(
   // The classify function requires a signed-in user's JWT (anon key rejected).
   // authService is declared below — the closure runs long after module init.
   async () => (await authService.getSession())?.access_token ?? null,
+  // The daily AI budget running out is expected and handled, so nothing ever
+  // throws — without an explicit event we'd have no idea how often real
+  // publishers hit it mid-backfill (issue #81).
+  photosInRun =>
+    reportMessage('classify-photos daily quota exhausted', 'classify_photos', { photosInRun }),
 );
 const notificationScheduler = new ExpoNotificationScheduler();
 // Already-sent = anything recorded in `media` for this publisher (id == asset id).
@@ -112,13 +119,22 @@ export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<s
 // untouched). Tags make "which flow broke" filterable in Sentry (issue #10).
 export const shareMedia = monitored('share_photo', new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storageService, geocoder, deliveryLog));
 export const listFeed = monitored('list_feed', new ListFeedUseCase(mediaRepo));
+export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(mediaRepo));
 export const subscribe = monitored('subscribe', new SubscribeUseCase(subscriberRepo, confirmationSender));
 export const listSubscribers = monitored('list_subscribers', new ListSubscribersUseCase(subscriberRepo));
 export const removeSubscriber = monitored('remove_subscriber', new RemoveSubscriberUseCase(subscriberRepo));
 export const authService = new SupabaseAuthService(supabaseUrl, supabaseKey);
 export const saveConfig = monitored('save_config', new SaveConfigUseCase(configRepo));
 export const loadConfig = monitored('load_config', new LoadConfigUseCase(configRepo));
-export const suggestPhotos = monitored('suggest_photos', new SuggestPhotosUseCase(mediaLibrary, photoClassifier, sentPhotoTracker));
+const suggestPhotosUseCase = new SuggestPhotosUseCase(mediaLibrary, photoClassifier, sentPhotoTracker);
+export const suggestPhotos = monitored('suggest_photos', suggestPhotosUseCase);
+// Reconstructs pre-app travel history one cadence-window at a time (issue #81).
+// Takes the unwrapped suggest use case so a window's failure is tagged
+// `backfill_history` rather than double-reported as a live suggestion.
+export const backfillHistory = monitored(
+  'backfill_history',
+  new BackfillHistoryUseCase(suggestPhotosUseCase, photoClassifier),
+);
 export const scheduleReminder = monitored('schedule_reminder', new ScheduleReminderUseCase(notificationScheduler));
 export const syncCandidatePhotos = monitored('sync_candidate_photos', new SyncCandidatePhotosUseCase(
   mediaLibrary,

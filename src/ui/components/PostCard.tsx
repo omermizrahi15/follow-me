@@ -16,6 +16,8 @@ const COVER_WIDTH = 720;
 interface Props {
   posting: FeedPosting;
   onPress?: () => void;
+  /** Long-press shortcut for deleting the post; the story viewer has a button. */
+  onLongPress?: () => void;
 }
 
 /**
@@ -25,7 +27,7 @@ interface Props {
  * A card, not a list. The feed IS the sheet's own FlatList — nesting a second
  * scrollable list inside it would fight it for the gesture.
  */
-export function PostCard({ posting, onPress }: Props): React.JSX.Element {
+export function PostCard({ posting, onPress, onLongPress }: Props): React.JSX.Element {
   const rawCover = posting.coverUri ?? posting.media.find(m => m.uri)?.uri;
   const cover = rawCover != null ? displaySizedUri(rawCover, COVER_WIDTH) : undefined;
   return (
@@ -33,7 +35,8 @@ export function PostCard({ posting, onPress }: Props): React.JSX.Element {
       style={styles.card}
       activeOpacity={0.9}
       onPress={onPress}
-      disabled={onPress == null}
+      onLongPress={onLongPress}
+      disabled={onPress == null && onLongPress == null}
       testID={`post-card-${posting.id}`}
     >
       {cover != null ? (

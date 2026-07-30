@@ -14,7 +14,9 @@ export const mediaLibraryAssetLocation: AssetLocationLookup = async assetId => {
   if (cached !== undefined) return cached;
   let location: Coordinate | null = null;
   try {
-    const info = await MediaLibrary.getAssetInfoAsync(assetId);
+    const info = await MediaLibrary.getAssetInfoAsync(assetId, {
+      shouldDownloadFromNetwork: false,
+    });
     location =
       info.location != null
         ? validCoordinate(info.location.latitude, info.location.longitude)

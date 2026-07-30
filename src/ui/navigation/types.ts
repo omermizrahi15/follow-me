@@ -10,8 +10,12 @@ export type RootStackParamList = {
   Settings: undefined;
   /** Edit the full publisher profile (name, photo), from Settings. */
   EditProfile: undefined;
+  /** Deleted posts, restorable one by one — from Settings. */
+  Trash: undefined;
   Upload: undefined;
   ReviewSuggestion: undefined;
+  /** Reconstruct travels from before the publisher installed the app (issue #81). */
+  HistoryBackfill: undefined;
   /**
    * All media of one feed posting. The feed passes the posting it already has;
    * the "Posted ✅" push only knows the id it just created, so that form is

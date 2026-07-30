@@ -133,3 +133,63 @@ describe('ListFeedUseCase — postingId invariant', () => {
     );
   });
 });
+
+describe('ListFeedUseCase — trash', () => {
+  const trashed = { deletedAt: new Date('2026-07-20T12:00:00Z') };
+
+  it('leaves trashed postings out of the feed', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await mediaRepo.save(makeMedia('live', { postingId: 'post-live' }));
+    await mediaRepo.save(makeMedia('gone', { postingId: 'post-gone', ...trashed }));
+
+    const feed = await useCase.list('user-1');
+
+    expect(feed.map(p => p.id)).toEqual(['post-live']);
+    expect(feed[0]?.deletedAt).toBeNull();
+  });
+
+  it('listDeleted returns only trashed postings, with the photos they had', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await mediaRepo.save(makeMedia('live', { postingId: 'post-live' }));
+    await mediaRepo.save(makeMedia('m1', { postingId: 'post-gone', ...trashed }));
+    await mediaRepo.save(makeMedia('m2', { postingId: 'post-gone', ...trashed }));
+
+    const deleted = await useCase.listDeleted('user-1');
+
+    expect(deleted).toHaveLength(1);
+    expect(deleted[0]?.id).toBe('post-gone');
+    expect(deleted[0]?.media.map(m => m.id).sort()).toEqual(['m1', 'm2']);
+    expect(deleted[0]?.deletedAt).toBe('2026-07-20T12:00:00.000Z');
+  });
+
+  it('orders the trash by when it was deleted, not when it was posted', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    // The older post was deleted most recently, so it comes first.
+    await mediaRepo.save(makeMedia('m1', {
+      postingId: 'post-old',
+      createdAt: new Date('2026-06-01T10:00:00Z'),
+      deletedAt: new Date('2026-07-25T12:00:00Z'),
+    }));
+    await mediaRepo.save(makeMedia('m2', {
+      postingId: 'post-new',
+      createdAt: new Date('2026-06-18T10:00:00Z'),
+      deletedAt: new Date('2026-07-20T12:00:00Z'),
+    }));
+
+    const deleted = await useCase.listDeleted('user-1');
+
+    expect(deleted.map(p => p.id)).toEqual(['post-old', 'post-new']);
+  });
+
+  it('returns an empty trash when nothing is deleted', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await mediaRepo.save(makeMedia('live', { postingId: 'post-live' }));
+
+    expect(await useCase.listDeleted('user-1')).toEqual([]);
+  });
+
+  it('throws when publisherId is empty', async (): Promise<void> => {
+    const { useCase } = makeSut();
+    await expect(useCase.listDeleted('')).rejects.toThrow('publisherId is required');
+  });
+});

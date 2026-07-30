@@ -19,6 +19,8 @@ export interface FeedPostingDto {
   location: string | null;
   /** Where the posting is plotted on the Me-page globe; null when no item has GPS. */
   coordinate: Coordinate | null;
+  /** ISO string when the posting sits in the trash; null while it is live. */
+  deletedAt: string | null;
   media: FeedMediaDto[];
 }
 
@@ -33,4 +35,6 @@ export interface ProfileDto {
   publisherId: string;
   displayName: string;
   avatarUrl: string | null;
+  /** ISO date-only string ("2026-06-14"), or null when the publisher hasn't said. */
+  tripStartDate: string | null;
 }

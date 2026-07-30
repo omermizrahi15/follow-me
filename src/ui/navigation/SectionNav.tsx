@@ -4,7 +4,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { BlurView } from 'expo-blur';
 import { colors, radius, shadow } from '../theme/theme';
 
-export type HomeSection = 'me' | 'auto' | 'followers';
+export type HomeSection = 'me' | 'auto' | 'followers' | 'history';
 
 type IconName = React.ComponentProps<typeof Ionicons>['name'];
 
@@ -12,11 +12,20 @@ const ITEMS: { key: HomeSection; label: string; active: IconName; inactive: Icon
   { key: 'me', label: 'Me', active: 'person-circle', inactive: 'person-circle-outline' },
   { key: 'auto', label: 'Auto-posting', active: 'time', inactive: 'time-outline' },
   { key: 'followers', label: 'Followers', active: 'people', inactive: 'people-outline' },
+  // Only rendered when the publisher actually has travels left to reconstruct
+  // — see `showHistory` below (issue #81).
+  { key: 'history', label: 'History', active: 'refresh-circle', inactive: 'refresh-circle-outline' },
 ];
 
 interface Props {
   active: HomeSection;
   onChange: (section: HomeSection) => void;
+  /**
+   * Whether to offer the History tab. False when the publisher's postings
+   * already cover their whole trip, or when they haven't said when it began —
+   * a tab that opens onto "nothing to rebuild" is worse than no tab.
+   */
+  showHistory?: boolean;
 }
 
 /**
@@ -24,12 +33,15 @@ interface Props {
  * page — it only switches which content the bottom sheet shows (Me / Auto-posting
  * / Followers) while the feed stays put behind it.
  */
-export function SectionNav({ active, onChange }: Props): React.JSX.Element {
+export function SectionNav({ active, onChange, showHistory = false }: Props): React.JSX.Element {
+  const items = ITEMS.filter(item => item.key !== 'history' || showHistory);
+  // Four tabs need to share the same pill width as three did.
+  const tabStyle = items.length > 3 ? styles.tabNarrow : styles.tab;
   return (
     <View style={styles.shadow}>
       <BlurView intensity={65} tint="light" style={styles.pill}>
         <View style={styles.tint} pointerEvents="none" />
-        {ITEMS.map(item => {
+        {items.map(item => {
           const isActive = active === item.key;
           return (
             <TouchableOpacity
@@ -39,7 +51,7 @@ export function SectionNav({ active, onChange }: Props): React.JSX.Element {
               accessibilityState={isActive ? { selected: true } : {}}
               accessibilityLabel={item.label}
               activeOpacity={0.7}
-              style={[styles.tab, isActive && styles.tabActive]}
+              style={[tabStyle, isActive && styles.tabActive]}
               onPress={() => onChange(item.key)}
             >
               <Ionicons name={isActive ? item.active : item.inactive} size={20} color={colors.ink} />
@@ -75,6 +87,15 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     paddingVertical: 6,
     paddingHorizontal: 4,
+    borderRadius: radius.pill,
+    gap: 2,
+  },
+  tabNarrow: {
+    width: 68,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 6,
+    paddingHorizontal: 2,
     borderRadius: radius.pill,
     gap: 2,
   },
