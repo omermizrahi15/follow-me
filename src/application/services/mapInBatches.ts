@@ -10,6 +10,18 @@
  */
 export const PHOTO_UPLOAD_BATCH_SIZE = 3;
 
+/**
+ * How many photos may have their asset metadata resolved at once.
+ *
+ * Cheaper than an upload — no bitmap is decoded — but not free: under "Optimise
+ * iPhone Storage" resolving a `ph://` handle pulls the full-resolution original
+ * down from iCloud, so a post's whole selection at once is still a spike of
+ * concurrent downloads. Higher than the upload ceiling because the peak is disk
+ * and network rather than RAM, and a post can now carry up to
+ * MAX_PHOTOS_PER_POST photos.
+ */
+export const PHOTO_METADATA_BATCH_SIZE = 8;
+
 export interface BatchOptions<R> {
   /**
    * Runs after each batch settles, before the next one starts — use it to

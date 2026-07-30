@@ -4,6 +4,19 @@ import { SELECTABLE_CATEGORIES } from './PhotoClassification';
 export type Frequency = '3days' | 'weekly' | 'biweekly' | 'monthly';
 export type PhotoCount = 5 | 10 | 15;
 
+/**
+ * Hard ceiling on how many photos one post may carry, whatever `photosPerPost`
+ * says. The configured count is what the AI pre-selects; the publisher can keep
+ * adding past it while reviewing, and this is where that stops.
+ *
+ * It exists because the cost of a post is not flat: every extra photo is an
+ * iCloud original to fetch, a full-resolution bitmap to downscale and upload,
+ * and a row per subscriber to deliver. Twice the largest configurable count
+ * leaves real room to keep adding without handing the upload path an unbounded
+ * selection (the shape that got the app watchdog-killed in issue #77).
+ */
+export const MAX_PHOTOS_PER_POST = 30;
+
 /** Lookback window (in days) for each posting frequency. The two are the same concept. */
 export const FREQUENCY_DAYS: Record<Frequency, number> = {
   '3days': 3,
