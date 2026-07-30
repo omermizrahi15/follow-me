@@ -101,6 +101,18 @@ if (changed.includes('app.config.js')) {
   });
 }
 
+// --- .gitignore: cannot change the binary, still changes the runtimeVersion ---
+// @expo/fingerprint hashes the root .gitignore (source `bareGitIgnore`), so a
+// housekeeping edit moves the fingerprint runtimeVersion and every installed
+// build stops receiving OTAs — for a rebuild that would be byte-identical. This
+// bit once already (b56b54e added a `.env.*` rule and stranded staging).
+if (changed.includes('.gitignore')) {
+  rebuild.push({
+    title: '.gitignore changed — moves runtimeVersion for no benefit',
+    detail: 'The fingerprint hashes the root `.gitignore`, so this silently retags every OTA and no installed build can receive them, even though the binary would be identical. Prefer keeping ignore rules stable: enforce commit hygiene in `.husky/pre-commit` instead. If the change is genuinely needed, it has to ship with an `eas build`.',
+  });
+}
+
 // --- prebuilt native project, if one is ever committed ---
 if (changed.some((f) => f.startsWith('ios/'))) {
   rebuild.push({

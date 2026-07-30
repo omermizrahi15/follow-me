@@ -18,6 +18,7 @@ on:
       - 'app.json'
       - 'app.config.js'
       - 'eas.json'
+      - '.gitignore' # hashed by the fingerprint, so it retags OTAs; see the script
       - 'ios/**'
 
 jobs:
