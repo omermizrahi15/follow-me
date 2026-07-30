@@ -21,6 +21,9 @@ import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
+import { MAX_PHOTOS_PER_POST } from '../../domain/entities/PublisherConfig';
+import { isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
+import { mapInBatches, PHOTO_METADATA_BATCH_SIZE } from '../../application/services/mapInBatches';
 import { suggestPlaceSplit } from '../../domain/services/splitSuggestion';
 import type { PlaceSplitSegment } from '../../domain/services/splitSuggestion';
 import { PlaceField } from '../components/PlaceField';
@@ -89,7 +92,10 @@ interface ContentProps {
 
 export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProps): React.JSX.Element {
   const publisherId = usePublisherId();
-  const { phase, found, unique, classified, total, partial, batch, pool, photosPerPost, fromCache, error, reload } = useSuggestedPhotos(publisherId);
+  const {
+    phase, found, unique, classified, total, partial, batch, pool, photosPerPost, config,
+    fromCache, error, reload, topUp, toppingUp, canTopUp,
+  } = useSuggestedPhotos(publisherId);
   const { share, loading: sharing, error: shareError, progress: shareProgress } = useShareMedia();
   // Keeps the footer's place input above the keyboard (this screen renders in
   // sheets/modals where KeyboardAvoidingView mis-measures — see the hook doc).
@@ -127,6 +133,11 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
   const [offered, setOffered] = useState<PlaceSplitSegment[] | null>(null);
   const [splitDismissed, setSplitDismissed] = useState(false);
   const [split, setSplit] = useState<{ segments: PlaceSplitSegment[]; index: number } | null>(null);
+  // Set when a top-up came back empty, so the "+" can say why rather than just
+  // going grey. Cleared as soon as another one succeeds.
+  const [topUpNote, setTopUpNote] = useState<string | null>(null);
+  // Which photo is waiting on a replacement, so its chip can show it is working.
+  const [swappingId, setSwappingId] = useState<string | null>(null);
 
   // Initialise slots from batch when done; reset if the user re-scans.
   useEffect(() => {
@@ -274,6 +285,19 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
       .filter((c): c is PhotoClassification => c != null);
   }, [phase, slots, photoById, partial]);
 
+  /**
+   * Everything already classified that is still worth offering, best first.
+   * Filtered by the publisher's own categories: `selectBatch` may fall back to
+   * `other` to avoid an empty post, but nothing should volunteer a screenshot
+   * as "another photo from those days".
+   */
+  const offerable = useMemo(() => {
+    // Mid-split, a replacement must come from the place being posted —
+    // otherwise swapping a Lisbon photo could pull in a Madrid one.
+    const all = split != null ? (split.segments[split.index]?.pool ?? []) : [...batch, ...pool];
+    return config == null ? all : all.filter(c => isSuggestablePhoto(c, config));
+  }, [batch, pool, split, config]);
+
   // Next unused, unexcluded photo — powers both swap and the "add photo" slot.
   const nextAvailable = useMemo(() => {
     // Only once the scan is done: while classifying, the grid shows the
@@ -281,45 +305,99 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
     // state nothing is rendering from — a button that looks live and isn't.
     if (phase !== 'done') return null;
     const usedIds = new Set(slots);
-    // Mid-split, a replacement must come from the place being posted —
-    // otherwise swapping a Lisbon photo could pull in a Madrid one.
-    const source = split != null ? (split.segments[split.index]?.pool ?? []) : [...batch, ...pool];
     return (
-      source.find(
+      offerable.find(
         c => !excluded.has(c.candidate.id) && !usedIds.has(c.candidate.id),
       ) ?? null
     );
-  }, [phase, slots, excluded, batch, pool, split]);
-  const hasPool = nextAvailable != null;
+  }, [phase, slots, excluded, offerable]);
+  /**
+   * Whether another photo can still be produced — either one is already
+   * classified and waiting, or the AI can go look at more of the window.
+   *
+   * Not offered mid-split: a top-up classifies from the whole window, and the
+   * leg being posted is one place inside it. Adding a photo from the other city
+   * is exactly what splitting was meant to prevent.
+   */
+  const canOfferMore = nextAvailable != null || (canTopUp && split == null && phase === 'done');
+  const hasPool = canOfferMore;
 
   const shortfall = phase === 'done' && batch.length > 0 && photosPerPost > 0 && batch.length < photosPerPost;
 
+  /**
+   * The next photo to show, asking the AI to classify more of the window when
+   * nothing suitable is left over from the scan. Null means there genuinely
+   * isn't another relevant photo in those days.
+   */
+  const nextSuggestion = useCallback(
+    async (usedIds: Set<string>, excludedIds: Set<string>): Promise<PhotoClassification | null> => {
+      const ready = offerable.find(c => !excludedIds.has(c.candidate.id) && !usedIds.has(c.candidate.id));
+      if (ready != null) return ready;
+      if (!canTopUp || split != null) return null;
+      const { suggestions, reason } = await topUp();
+      const fresh = suggestions.find(c => !excludedIds.has(c.candidate.id) && !usedIds.has(c.candidate.id)) ?? null;
+      setTopUpNote(
+        fresh != null
+          ? null
+          : reason === 'quota'
+          ? "Today's AI limit is used up — try again tomorrow."
+          : null,
+      );
+      return fresh;
+    },
+    [offerable, canTopUp, split, topUp],
+  );
+
   function handleAddSlot(): void {
-    if (nextAvailable != null) {
-      setSlots(s => [...s, nextAvailable.candidate.id]);
-    }
+    if (kept.length >= MAX_PHOTOS_PER_POST || toppingUp) return;
+    void (async (): Promise<void> => {
+      const next = await nextSuggestion(new Set(slots), excluded);
+      // Functional update, and re-checked inside: the top-up above is a network
+      // round-trip, and the grid may have changed while it was in flight.
+      if (next != null) {
+        setSlots(s =>
+          s.includes(next.candidate.id) || s.length >= MAX_PHOTOS_PER_POST
+            ? s
+            : [...s, next.candidate.id],
+        );
+      }
+    })();
   }
 
   function handleSwap(id: string): void {
-    const newExcluded = new Set(excluded);
-    newExcluded.add(id);
-    const usedIds = new Set(slots);
-    // Find the next available photo that is neither already shown nor excluded.
-    const replacement = [...batch, ...pool].find(
-      c => !newExcluded.has(c.candidate.id) && !usedIds.has(c.candidate.id),
-    );
-    setExcluded(newExcluded);
-    setSlots(
-      replacement
-        ? slots.map(slotId => (slotId === id ? replacement.candidate.id : slotId))
-        : slots.filter(slotId => slotId !== id),
-    );
+    // One top-up at a time: a second request while one is in flight comes back
+    // empty, and an empty answer here means "drop this photo" — the publisher
+    // would lose a photo to a double tap.
+    if (swappingId != null || toppingUp) return;
+    setSwappingId(id);
+    void (async (): Promise<void> => {
+      try {
+        const newExcluded = new Set(excluded);
+        newExcluded.add(id);
+        // The photo being replaced still occupies its slot, so it is "used" —
+        // the replacement must be some other photo.
+        const replacement = await nextSuggestion(new Set(slots), newExcluded);
+        setExcluded(newExcluded);
+        setSlots(s =>
+          replacement != null
+            ? s.map(slotId => (slotId === id ? replacement.candidate.id : slotId))
+            : s.filter(slotId => slotId !== id),
+        );
+      } finally {
+        setSwappingId(null);
+      }
+    })();
   }
 
   const handleConfirm = useCallback((): void => {
     void (async (): Promise<void> => {
-      const items = await Promise.all(
-        kept.map(async c => {
+      // Batched, not Promise.all: a post can carry up to MAX_PHOTOS_PER_POST
+      // photos, and resolving a ph:// handle downloads the full-resolution
+      // original from iCloud. All of them at once is the spike issue #77 was.
+      const items = await mapInBatches(
+        kept,
+        PHOTO_METADATA_BATCH_SIZE,
+        async c => {
           // ph:// asset handles can't be read by the uploader — resolve to a
           // real file:// path first. Remote https URLs pass through untouched
           // (ShareMediaUseCase skips re-uploading those).
@@ -342,7 +420,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
             filename: c.candidate.uri.split('/').pop() ?? `${c.candidate.id}.jpg`,
             ...(coordinate != null ? { coordinate } : {}),
           };
-        }),
+        },
       );
       if (__DEV__) {
         const withGps = items.filter(i => i.coordinate != null).length;
@@ -496,7 +574,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
 
         {shortfall && (
           <Text style={innerStyles.shortfallNote}>
-            Only {batch.length} of {photosPerPost} photos found — try expanding the lookback window in settings.
+            Only {batch.length} of {photosPerPost} photos found — tap + to look for more, or widen the lookback window in settings.
           </Text>
         )}
         {phase !== 'error' && (
@@ -527,35 +605,64 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
                 key={c.candidate.id}
                 photo={c}
                 onSwap={hasPool ? () => handleSwap(c.candidate.id) : null}
+                busy={swappingId === c.candidate.id}
               />
             ))}
-            {/* Empty slot — batch is below the configured photos-per-post. */}
-            {phase === 'done' && kept.length > 0 && photosPerPost > 0 && kept.length < photosPerPost && (
-              hasPool ? (
+            {/* The empty slot. Always there while the post has room — the
+                publisher can go past their configured count, up to the cap. */}
+            {phase === 'done' && kept.length > 0 && kept.length < MAX_PHOTOS_PER_POST && (
+              toppingUp && swappingId == null ? (
+                <View style={[gridStyles.card, gridStyles.addCard]}>
+                  <ActivityIndicator color={colors.accent} />
+                  <Text style={gridStyles.addLabel}>Finding one more…</Text>
+                  <Text style={gridStyles.addHint}>The AI is looking through those days</Text>
+                </View>
+              ) : canOfferMore ? (
                 <TouchableOpacity
+                  testID="review-add-photo"
                   style={[gridStyles.card, gridStyles.addCard]}
                   onPress={handleAddSlot}
                   activeOpacity={0.7}
+                  accessibilityRole="button"
                   accessibilityLabel="Add the next suggested photo"
                 >
                   <View style={gridStyles.addPlus}>
                     <Ionicons name="add" size={28} color={colors.accent} />
                   </View>
                   <Text style={gridStyles.addLabel}>Add photo</Text>
-                  <Text style={gridStyles.addHint}>{kept.length}/{photosPerPost} selected</Text>
+                  <Text style={gridStyles.addHint}>
+                    {photosPerPost > 0 && kept.length < photosPerPost
+                      ? `${kept.length}/${photosPerPost} selected`
+                      : `${kept.length} selected · up to ${MAX_PHOTOS_PER_POST}`}
+                  </Text>
                 </TouchableOpacity>
               ) : (
-                <View style={[gridStyles.card, gridStyles.addCard, gridStyles.addCardDisabled]}>
+                <View
+                  testID="review-add-photo-disabled"
+                  style={[gridStyles.card, gridStyles.addCard, gridStyles.addCardDisabled]}
+                  accessibilityRole="button"
+                  accessibilityState={{ disabled: true }}
+                  accessibilityLabel="No more photos to add"
+                >
                   <View style={[gridStyles.addPlus, gridStyles.addPlusDisabled]}>
                     <Ionicons name="add" size={28} color={colors.textMuted} />
                   </View>
                   <Text style={gridStyles.addLabelDisabled}>No more photos</Text>
-                  <TouchableOpacity onPress={reload} hitSlop={8}>
-                    <Text style={gridStyles.addRescanLink}>Rescan library</Text>
-                  </TouchableOpacity>
-                  <Text style={gridStyles.addHint}>or adjust categories in settings</Text>
+                  <Text style={gridStyles.addHint}>
+                    {topUpNote ?? 'Nothing else worth posting in those days'}
+                  </Text>
+                  {split == null && (
+                    <TouchableOpacity onPress={reload} hitSlop={8}>
+                      <Text style={gridStyles.addRescanLink}>Rescan library</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               )
+            )}
+            {phase === 'done' && kept.length >= MAX_PHOTOS_PER_POST && (
+              <Text style={gridStyles.capNote}>
+                That's the {MAX_PHOTOS_PER_POST}-photo maximum for one post.
+              </Text>
             )}
             {isLoading && kept.length === 0 && (
               <View style={innerStyles.scanningRow}>
@@ -844,4 +951,12 @@ const gridStyles = StyleSheet.create({
   addLabelDisabled: { ...typography.caption, fontSize: 12, fontWeight: '600', color: colors.textMuted },
   addRescanLink: { ...typography.caption, fontSize: 11, color: colors.accent, textDecorationLine: 'underline' },
   addHint: { ...typography.caption, fontSize: 10, color: colors.textMuted, textAlign: 'center' },
+  capNote: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.textMuted,
+    width: '100%',
+    textAlign: 'center',
+    paddingVertical: spacing.sm,
+  },
 });

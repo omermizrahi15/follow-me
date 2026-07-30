@@ -23,6 +23,21 @@ import type { PhotoCategory, PhotoClassification } from '../entities/PhotoClassi
  *    If still short, fill from photos Gemini labelled 'other'. These are used
  *    as a last resort so the batch is never empty when photos exist.
  */
+/**
+ * Whether a classified photo is worth *offering* to the publisher as one more
+ * suggestion — the review screen's "+" slot and the swap chip both draw from
+ * photos that pass this.
+ *
+ * Stricter than what `selectBatch` may end up with: pass 3 falls back to
+ * `other` (screenshots, receipts, blurry shots) rather than leave a suggested
+ * post empty, but nothing should volunteer a receipt as "another photo from
+ * those days". Same for categories the publisher switched off. Offering either
+ * would make the empty state — no more relevant photos — a lie.
+ */
+export function isSuggestablePhoto(c: PhotoClassification, config: PublisherConfig): boolean {
+  return c.category !== 'other' && config.enabledCategories.includes(c.category);
+}
+
 export class PhotoSelectionService {
   /**
    * Collapses burst shots before AI classification — photos taken within

@@ -1,4 +1,4 @@
-import { PhotoSelectionService } from './PhotoSelectionService';
+import { PhotoSelectionService, isSuggestablePhoto } from './PhotoSelectionService';
 import { PublisherConfig } from '../entities/PublisherConfig';
 import type { PublisherConfigProps } from '../entities/PublisherConfig';
 import type { PhotoCategory, PhotoClassification } from '../entities/PhotoClassification';
@@ -275,5 +275,21 @@ describe('PhotoSelectionService — capacity', () => {
       config({ photosPerPost: 5 }),
     );
     expect(ids(batch).sort()).toEqual(['a', 'b', 'c']);
+  });
+});
+
+describe('isSuggestablePhoto', () => {
+  it('accepts a photo in a category the publisher has enabled', () => {
+    expect(isSuggestablePhoto(make({ category: 'food' }), config())).toBe(true);
+  });
+
+  it('rejects the `other` bucket — screenshots and receipts are not suggestions', () => {
+    expect(isSuggestablePhoto(make({ category: 'other' }), config())).toBe(false);
+  });
+
+  it('rejects categories the publisher switched off', () => {
+    const onlyFood = config({ enabledCategories: ['food'] });
+    expect(isSuggestablePhoto(make({ category: 'nature' }), onlyFood)).toBe(false);
+    expect(isSuggestablePhoto(make({ category: 'food' }), onlyFood)).toBe(true);
   });
 });

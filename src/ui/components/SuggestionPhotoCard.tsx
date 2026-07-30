@@ -1,5 +1,5 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, Image, StyleSheet, ActivityIndicator } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { colors, radius, spacing, typography } from '../theme/theme';
@@ -8,6 +8,12 @@ interface Props {
   photo: PhotoClassification;
   /** Swap this photo for another from the pool; null when there is none left. */
   onSwap: (() => void) | null;
+  /**
+   * A replacement is being fetched for this photo. The swap can need an AI
+   * round-trip when nothing is left over from the scan, and a chip that just
+   * sat there through it read as a dead button.
+   */
+  busy?: boolean;
   /** Grid width. Two-up in review, three-up in the tighter history preview. */
   width?: '47%' | '31%';
 }
@@ -22,8 +28,8 @@ interface Props {
  * to a photo read as decoration that happened to be tappable. It says what it
  * does, and keeps its icon whenever it is usable.
  */
-export function SuggestionPhotoCard({ photo, onSwap, width = '47%' }: Props): React.JSX.Element {
-  const swappable = onSwap != null;
+export function SuggestionPhotoCard({ photo, onSwap, busy = false, width = '47%' }: Props): React.JSX.Element {
+  const swappable = onSwap != null && !busy;
   return (
     <View style={[styles.card, { width }]}>
       {/* Positioned against the IMAGE, not the card: anchoring to the card
@@ -36,12 +42,16 @@ export function SuggestionPhotoCard({ photo, onSwap, width = '47%' }: Props): Re
           disabled={!swappable}
           activeOpacity={0.7}
           accessibilityRole="button"
-          accessibilityState={{ disabled: !swappable }}
+          accessibilityState={{ disabled: !swappable, busy }}
           accessibilityLabel="Show a different photo"
           hitSlop={4}
         >
-          <Text style={styles.chipText} numberOfLines={1}>Other</Text>
-          <Ionicons name="refresh" size={10} color={colors.ink} style={styles.chipIcon} />
+          <Text style={styles.chipText} numberOfLines={1}>{busy ? 'Finding…' : 'Other'}</Text>
+          {busy ? (
+            <ActivityIndicator size="small" color={colors.ink} style={styles.chipIcon} />
+          ) : (
+            <Ionicons name="refresh" size={10} color={colors.ink} style={styles.chipIcon} />
+          )}
         </TouchableOpacity>
       </View>
     </View>
