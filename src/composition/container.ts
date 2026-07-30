@@ -1,5 +1,6 @@
 import { ShareMediaUseCase } from '../application/usecases/ShareMediaUseCase';
 import { ListFeedUseCase } from '../application/usecases/ListFeedUseCase';
+import { TrashPostingUseCase } from '../application/usecases/TrashPostingUseCase';
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
 import { ListSubscribersUseCase } from '../application/usecases/ListSubscribersUseCase';
 import { RemoveSubscriberUseCase } from '../application/usecases/RemoveSubscriberUseCase';
@@ -118,6 +119,7 @@ export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<s
 // untouched). Tags make "which flow broke" filterable in Sentry (issue #10).
 export const shareMedia = monitored('share_photo', new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storageService, geocoder, deliveryLog));
 export const listFeed = monitored('list_feed', new ListFeedUseCase(mediaRepo));
+export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(mediaRepo));
 export const subscribe = monitored('subscribe', new SubscribeUseCase(subscriberRepo, confirmationSender));
 export const listSubscribers = monitored('list_subscribers', new ListSubscribersUseCase(subscriberRepo));
 export const removeSubscriber = monitored('remove_subscriber', new RemoveSubscriberUseCase(subscriberRepo));

@@ -1,0 +1,27 @@
+appId: com.urishiber.followme
+name: deleted-posts
+tags:
+  - auth
+---
+# Settings -> Deleted posts opens the trash and comes back. Only the page
+# itself is asserted: whether the test account has anything in the trash
+# depends on earlier runs, so restoring a row is not deterministic here.
+# Reuses the session persisted by sign-in.
+- launchApp
+- extendedWaitUntil:
+    visible:
+      id: "home-settings-button"
+    timeout: 15000
+- tapOn:
+    id: "home-settings-button"
+- tapOn:
+    id: "settings-trash"
+- assertVisible: "Deleted posts"
+- tapOn:
+    id: "header-back"
+- assertVisible:
+    id: "settings-trash"
+- tapOn:
+    id: "header-back"
+- assertVisible:
+    id: "home-add-post"

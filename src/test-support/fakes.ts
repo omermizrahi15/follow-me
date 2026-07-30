@@ -47,6 +47,14 @@ export class InMemoryMediaRepository implements IMediaRepository {
     return Promise.resolve(this.store.get(id) ?? null);
   }
 
+  async setPostingDeleted(ownerId: string, postingId: string, deletedAt: Date | null): Promise<void> {
+    for (const [id, media] of this.store) {
+      if (media.ownerId !== ownerId || media.postingId !== postingId) continue;
+      this.store.set(id, media.withDeletedAt(deletedAt));
+    }
+    return Promise.resolve();
+  }
+
   all(): Media[] { return [...this.store.values()]; }
 }
 

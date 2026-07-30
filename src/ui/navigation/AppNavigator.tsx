@@ -14,6 +14,7 @@ import { ReviewSuggestionScreen } from '../screens/ReviewSuggestionScreen';
 import { HistoryBackfillScreen } from '../screens/HistoryBackfillScreen';
 import { PostingDetailScreen } from '../screens/PostingDetailScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
+import { TrashScreen } from '../screens/TrashScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { useAutoSync } from '../hooks/useAutoSync';
@@ -100,6 +101,7 @@ function RootNavigator(): React.JSX.Element {
             <Stack.Screen name="Home" component={HomeScreen} />
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
+            <Stack.Screen name="Trash" component={TrashScreen} />
             <Stack.Screen name="Upload" component={UploadScreen} options={{ presentation: 'modal' }} />
             <Stack.Screen
               name="ReviewSuggestion"

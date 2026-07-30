@@ -26,6 +26,7 @@ import { HistoryBackfillContent } from './HistoryBackfillScreen';
 import { FollowersSection } from './sections/FollowersSection';
 import { useInviteLink } from '../hooks/useInviteLink';
 import { useFeed } from '../hooks/useFeed';
+import { confirmMoveToTrash } from '../hooks/useTrash';
 import { useProfile } from '../hooks/useProfile';
 import { useHistoryGaps } from '../hooks/useHistoryGaps';
 import { useSubscribers } from '../hooks/useSubscribers';
@@ -206,6 +207,9 @@ export function HomeScreen(): React.JSX.Element {
                 <PostCard
                   posting={item}
                   onPress={() => navigation.navigate('Posting', { posting: item })}
+                  // Long-press is the shortcut; the story viewer has the
+                  // explicit button for anyone who never discovers it.
+                  onLongPress={() => confirmMoveToTrash(publisherId, item, () => void reloadFeed())}
                 />
               )}
               // Fixed-height cards, so the list can skip measuring and mount
