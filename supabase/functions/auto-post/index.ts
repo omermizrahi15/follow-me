@@ -3,8 +3,13 @@
  *
  * For each publisher who turned OFF "Ask before posting" and whose schedule is
  * due, it selects a batch from their cloud-synced candidate photos, sends it to
- * followers on WhatsApp, and records the send. If no batch is available it pushes
- * the publisher a reminder to pick photos manually. Zero device involvement.
+ * followers on WhatsApp, and records the send. Zero device involvement.
+ *
+ * When a posting comes due and the cloud photo set is empty, the slot is held
+ * open for a grace window (issue #97) rather than immediately spending it on a
+ * contentless reminder: the job wakes the phone with a silent push and re-checks
+ * every tick, so a late sync still becomes a real post. The reminder is the last
+ * resort — see holdForSync.
  *
  * Guarded by a shared CRON_SECRET so only the scheduler can trigger it.
  *
@@ -21,7 +26,13 @@ import { postingIdFor, publishBatch } from '../_shared/publishBatch.ts';
 import { galleryUrls, saveApprovalBatch } from '../_shared/approvalBatch.ts';
 import { resolveBatchPlace } from '../_shared/geocode.ts';
 import type { Coordinate } from '../_shared/postingLocation.ts';
-import { approvalPushContent, parseNotifyTime, reminderPushContent, type ReminderReason } from './logic.ts';
+import {
+  approvalPushContent,
+  parseNotifyTime,
+  reminderPushContent,
+  syncGraceDecision,
+  type ReminderReason,
+} from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -48,6 +59,50 @@ interface ConfigRow {
   timezone: string;
   expo_push_token: string | null;
   last_auto_post_at: string | null;
+  // Sync grace window (issue #97) — see migration 20240026.
+  post_pending_since: string | null;
+  last_wake_push_at: string | null;
+  last_candidate_sync_at: string | null;
+}
+
+function parseDate(value: string | null): Date | null {
+  return value != null ? new Date(value) : null;
+}
+
+async function updateConfig(publisherId: string, patch: Record<string, string | null>): Promise<void> {
+  await supabase.from('publisher_config').update(patch).eq('publisher_id', publisherId);
+}
+
+/** Whether the publisher published anything (by any route) since the given moment. */
+async function postedSince(publisherId: string, since: Date): Promise<boolean> {
+  const { count } = await supabase
+    .from('media')
+    .select('id', { count: 'exact', head: true })
+    .eq('owner_id', publisherId)
+    .gte('created_at', since.toISOString());
+  return (count ?? 0) > 0;
+}
+
+/**
+ * Decide whether a publisher whose due window has closed should still be
+ * processed because a posting slot is being held open for a late sync.
+ *
+ * The slot is released — and the schedule stamped as spent — if they posted by
+ * hand in the meantime. Otherwise the most likely sequence is the worst one:
+ * nothing synced at 18:00, the user opens the app at 19:00 and posts manually
+ * (which syncs their photos as a side effect), and the very next cron tick
+ * pushes "10 photos ready to post" at somebody who just posted.
+ */
+async function pendingSlotStillOpen(config: ConfigRow, now: Date): Promise<boolean> {
+  const pendingSince = parseDate(config.post_pending_since);
+  if (pendingSince == null) return false;
+  if (!(await postedSince(config.publisher_id, pendingSince))) return true;
+  await updateConfig(config.publisher_id, {
+    last_auto_post_at: now.toISOString(),
+    post_pending_since: null,
+    last_wake_push_at: null,
+  });
+  return false;
 }
 
 interface CandidateRow {
@@ -104,6 +159,72 @@ async function pushReminder(token: string, reason: ReminderReason): Promise<void
       data: { screen: 'ReviewSuggestion' },
     }),
   });
+}
+
+/**
+ * Silent push that wakes the app to sync its recent photos (issue #97).
+ *
+ * No title/body, so nothing is shown: `_contentAvailable` is Expo's spelling of
+ * the APNs `content-available: 1` flag, which asks iOS to launch/resume the app
+ * in the background and hand the payload to its background notification task.
+ * `priority: 'normal'` maps to apns-priority 5, which is what Apple requires for
+ * background pushes — a high-priority silent push gets throttled harder.
+ *
+ * Delivery is explicitly best-effort: iOS budgets these per app and may drop
+ * them entirely on a low battery. That's why it's a nudge inside a grace window
+ * and not the mechanism the posting depends on.
+ */
+async function pushSyncWake(token: string): Promise<void> {
+  if (!token) return;
+  await fetch('https://exp.host/--/api/v2/push/send', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      to: token,
+      data: { type: 'sync-candidates' },
+      _contentAvailable: true,
+      priority: 'normal',
+    }),
+  });
+}
+
+/**
+ * A posting came due but the publisher's cloud photo set is empty.
+ *
+ * Before issue #97 this sent the "nothing has synced" reminder immediately and
+ * stamped the schedule, so a phone that synced ten minutes later still waited a
+ * full interval for its next chance — and the user got a push that looked like
+ * a batch notification but carried no photo, place, or gallery.
+ *
+ * Now the slot is held open: the job records `post_pending_since`, wakes the
+ * device with a throttled silent push, and returns. Because `post_pending_since`
+ * is set, later cron ticks re-enter this publisher even though the 30-minute due
+ * window has closed, and the real batch goes out the moment photos land. Only
+ * when the grace window expires does a reminder go out — once, and worded for
+ * what actually happened.
+ */
+async function holdForSync(config: ConfigRow, now: Date, stamp: () => Promise<void>): Promise<string> {
+  const token = config.expo_push_token ?? '';
+  const decision = syncGraceDecision({
+    pendingSince: parseDate(config.post_pending_since),
+    lastWakePushAt: parseDate(config.last_wake_push_at),
+    lastClientSyncAt: parseDate(config.last_candidate_sync_at),
+    now,
+  });
+
+  if (decision.kind === 'give-up') {
+    await pushReminder(token, decision.reason);
+    await stamp();
+    return `reminder (${decision.reason})`;
+  }
+
+  if (decision.nudge) await pushSyncWake(token);
+  await updateConfig(config.publisher_id, {
+    // Keep the original timestamp so the grace window measures from first sight.
+    post_pending_since: config.post_pending_since ?? now.toISOString(),
+    ...(decision.nudge ? { last_wake_push_at: now.toISOString() } : {}),
+  });
+  return decision.nudge ? 'waiting for sync (device woken)' : 'waiting for sync';
 }
 
 interface BatchPhoto {
@@ -181,10 +302,19 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
     },
     now,
   );
-  if (!due) return 'not-due';
+  // A pending slot keeps this publisher in play after the 30-minute due window
+  // closes, so a late sync still becomes a real post (issue #97).
+  if (!due && !(await pendingSlotStillOpen(config, now))) return 'not-due';
 
   const token = config.expo_push_token ?? '';
-  if (!token) return 'skipped (no push token)';
+  if (!token) {
+    // Nothing can be delivered to this publisher, so don't leave a pending slot
+    // behind to re-enter on every tick forever.
+    if (config.post_pending_since != null) {
+      await updateConfig(config.publisher_id, { post_pending_since: null, last_wake_push_at: null });
+    }
+    return 'skipped (no push token)';
+  }
 
   const cutoff = new Date(now.getTime() - config.lookback_days * MS_PER_DAY).toISOString();
   const { data: candidates } = await supabase
@@ -195,17 +325,15 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
   const rows = (candidates ?? []) as CandidateRow[];
 
   const stamp = async (): Promise<void> => {
-    await supabase
-      .from('publisher_config')
-      .update({ last_auto_post_at: now.toISOString() })
-      .eq('publisher_id', config.publisher_id);
+    await updateConfig(config.publisher_id, {
+      last_auto_post_at: now.toISOString(),
+      // The slot is settled either way — release the grace state with it.
+      post_pending_since: null,
+      last_wake_push_at: null,
+    });
   };
 
-  if (rows.length === 0) {
-    await pushReminder(token, 'no-candidates');
-    await stamp();
-    return 'reminder (no candidates)';
-  }
+  if (rows.length === 0) return holdForSync(config, now, stamp);
 
   const { data: sentRows } = await supabase
     .from('media')
@@ -242,6 +370,10 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
     alreadySent,
   );
 
+  // No grace window here, unlike the empty-cloud-set case: the photos ARE
+  // synced, they just don't pass the publisher's filters. Waiting re-runs
+  // classification (a paid Gemini call per photo) every cron tick to reach the
+  // same verdict, so say so now.
   if (selectedBatch.length === 0) {
     await pushReminder(token, 'empty-batch');
     await stamp();
@@ -299,7 +431,8 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     },
     now,
   );
-  if (!due) return 'not-due';
+  // See processApprovalPublisher: a pending slot outlives the due window.
+  if (!due && !(await pendingSlotStillOpen(config, now))) return 'not-due';
 
   const cutoff = new Date(now.getTime() - config.lookback_days * MS_PER_DAY).toISOString();
   const { data: candidates } = await supabase
@@ -310,17 +443,14 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
   const rows = (candidates ?? []) as CandidateRow[];
 
   const stamp = async (): Promise<void> => {
-    await supabase
-      .from('publisher_config')
-      .update({ last_auto_post_at: now.toISOString() })
-      .eq('publisher_id', config.publisher_id);
+    await updateConfig(config.publisher_id, {
+      last_auto_post_at: now.toISOString(),
+      post_pending_since: null,
+      last_wake_push_at: null,
+    });
   };
 
-  if (rows.length === 0) {
-    await pushReminder(config.expo_push_token ?? '', 'no-candidates');
-    await stamp();
-    return 'reminder (no candidates)';
-  }
+  if (rows.length === 0) return holdForSync(config, now, stamp);
 
   // Already-sent = anything already in `media` for this publisher (id == asset_id).
   const { data: sentRows } = await supabase
@@ -357,6 +487,8 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     alreadySent,
   );
 
+  // Synced but unusable — see the same branch in processApprovalPublisher for
+  // why this one doesn't get a grace window.
   if (batch.length === 0) {
     await pushReminder(config.expo_push_token ?? '', 'empty-batch');
     await stamp();
@@ -409,10 +541,12 @@ Deno.serve(async (req: Request) => {
     .lt('created_at', cutoff);
   if (pruneError != null) console.error('candidate_photos retention prune failed:', pruneError.message);
 
+  // Kept as one literal (not a shared const): supabase-js infers the row type
+  // from the column string, and a computed one degrades it to GenericStringError.
   const { data: configs, error } = await supabase
     .from('publisher_config')
     .select(
-      'publisher_id, require_approval, photos_per_post, notify_day_of_week, notify_time, enabled_categories, lookback_days, min_quality, timezone, expo_push_token, last_auto_post_at',
+      'publisher_id, require_approval, photos_per_post, notify_day_of_week, notify_time, enabled_categories, lookback_days, min_quality, timezone, expo_push_token, last_auto_post_at, post_pending_since, last_wake_push_at, last_candidate_sync_at',
     );
   if (error != null) return json({ error: error.message }, 500);
 

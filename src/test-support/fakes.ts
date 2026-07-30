@@ -290,6 +290,14 @@ export class InMemoryPublisherConfigRepository implements IPublisherConfigReposi
   async findByPublisher(publisherId: string): Promise<PublisherConfig | null> {
     return Promise.resolve(this.store.get(publisherId) ?? null);
   }
+
+  /** Last device sync heartbeat per publisher — assert on it directly. */
+  readonly candidateSyncs: Map<string, Date> = new Map();
+
+  async recordCandidateSync(publisherId: string, at: Date): Promise<void> {
+    this.candidateSyncs.set(publisherId, at);
+    return Promise.resolve();
+  }
 }
 
 export class InMemoryPublisherProfileRepository implements IPublisherProfileRepository {
