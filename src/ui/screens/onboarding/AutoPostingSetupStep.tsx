@@ -15,7 +15,6 @@ import {
   loadConfig,
   saveConfig,
   scheduleReminder,
-  syncCandidatePhotos,
   registerPushToken,
   deviceTimezone,
 } from '../../../composition/container';
@@ -23,6 +22,7 @@ import { PublisherConfig } from '../../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
 import { colors, radius, spacing, typography } from '../../theme/theme';
 import { confirmPhotoSync } from '../../data/photoSyncConsent';
+import { runCandidateSyncQuietly } from '../../data/candidateSync';
 
 type Props = {
   publisherId: string;
@@ -88,7 +88,7 @@ export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: 
         const config = buildCurrentConfig(token);
         await saveConfig.execute(config);
         if (await confirmPhotoSync()) {
-          await syncCandidatePhotos.execute(publisherId, config.lookbackDays).catch(() => undefined);
+          await runCandidateSyncQuietly(publisherId, 'onboarding_sync_candidates', config.lookbackDays);
         }
         if (token !== '') {
           // Server owns the reminder — cancel the local one to avoid double-notifying.
