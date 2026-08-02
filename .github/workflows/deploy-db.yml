@@ -76,8 +76,12 @@ jobs:
           done
           exit $status
 
+  # Static name: `github.event.inputs` is null on a pull_request, and a job name
+  # is resolved early enough that the fallback does not save it — the checks list
+  # showed the unrendered `${{ ... }}` instead. The target is on the run's
+  # environment badge and echoed by the step below.
   migrate:
-    name: Migrate ${{ github.event.inputs.environment || 'staging' }}
+    name: Migrate
     if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || 'staging' }}
