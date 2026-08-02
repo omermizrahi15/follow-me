@@ -66,8 +66,27 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
 }
 
 /**
- * Asks before moving a post to the trash, then does it. Shared by the feed card
- * and the story viewer so both explain the same thing: the post leaves the feed
+ * Deletes straight away, no dialog — for the feed's swipe-to-delete, where the
+ * swipe plus a deliberate tap on a red Delete button already is the
+ * confirmation, exactly as an iOS list row behaves. Safe to do without asking
+ * because it is a soft delete: Settings → Deleted posts brings it back.
+ */
+export function moveToTrash(
+  publisherId: string | null,
+  posting: FeedPosting,
+  onTrashed: () => void,
+): void {
+  if (publisherId == null) return;
+  void trashPosting
+    .trash({ publisherId, postingId: posting.id })
+    .then(onTrashed)
+    .catch(() => Alert.alert('Could not delete this post', 'Please try again.'));
+}
+
+/**
+ * Asks before moving a post to the trash, then does it — for the story viewer,
+ * where deleting is a single tap and so needs a gate the swipe already
+ * provides. The copy explains what the swipe can't: the post leaves the feed
  * and the map but is recoverable, and followers already have the photos.
  */
 export function confirmMoveToTrash(
