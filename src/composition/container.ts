@@ -7,6 +7,8 @@ import { RemoveSubscriberUseCase } from '../application/usecases/RemoveSubscribe
 import { SaveConfigUseCase } from '../application/usecases/SaveConfigUseCase';
 import { LoadConfigUseCase } from '../application/usecases/LoadConfigUseCase';
 import { SuggestPhotosUseCase } from '../application/usecases/SuggestPhotosUseCase';
+import { PhotoSelectionService } from '../domain/services/PhotoSelectionService';
+import { ClassificationCache } from '../infrastructure/cache/ClassificationCache';
 import { BackfillHistoryUseCase } from '../application/usecases/BackfillHistoryUseCase';
 import { ScheduleReminderUseCase } from '../application/usecases/ScheduleReminderUseCase';
 import { SyncCandidatePhotosUseCase } from '../application/usecases/SyncCandidatePhotosUseCase';
@@ -126,7 +128,15 @@ export const removeSubscriber = monitored('remove_subscriber', new RemoveSubscri
 export const authService = new SupabaseAuthService(supabaseUrl, supabaseKey);
 export const saveConfig = monitored('save_config', new SaveConfigUseCase(configRepo));
 export const loadConfig = monitored('load_config', new LoadConfigUseCase(configRepo));
-const suggestPhotosUseCase = new SuggestPhotosUseCase(mediaLibrary, photoClassifier, sentPhotoTracker);
+// The grade store is what makes grading the whole window affordable: a photo is
+// classified once ever, so rescans, reopens and swaps cost nothing.
+const suggestPhotosUseCase = new SuggestPhotosUseCase(
+  mediaLibrary,
+  photoClassifier,
+  sentPhotoTracker,
+  new PhotoSelectionService(),
+  ClassificationCache,
+);
 export const suggestPhotos = monitored('suggest_photos', suggestPhotosUseCase);
 // Reconstructs pre-app travel history one cadence-window at a time (issue #81).
 // Takes the unwrapped suggest use case so a window's failure is tagged

@@ -75,8 +75,130 @@ describe('SuggestPhotosUseCase', () => {
 
     const { batch } = await useCase.execute(config());
 
-    expect(classifier.receivedCandidateIds).toEqual(['a', 'b']);
+    // Newest first: a run cut short by the per-scan cap or the daily quota must
+    // spend what budget it has on recent photos, not on the oldest in the window.
+    expect(classifier.receivedCandidateIds).toEqual(['b', 'a']);
     expect(batch.map(c => c.candidate.id)).toEqual(['a', 'b']); // ranked by quality
+  });
+
+  describe('grading the whole window', () => {
+    /** `count` candidates the classifier will grade, plus a lookup for the fake. */
+    function window(count: number): { candidates: PhotoCandidate[]; byId: Map<string, PhotoClassification> } {
+      const candidates = Array.from({ length: count }, (_, i) => candidate(`p${i}`));
+      return {
+        candidates,
+        byId: new Map(candidates.map(c => [c.id, { ...classification(c.id), candidate: c }])),
+      };
+    }
+
+    /** In-memory IClassificationStore, so a test can see what was remembered. */
+    function store(): { load: jest.Mock; save: jest.Mock; held: Map<string, PhotoClassification> } {
+      const held = new Map<string, PhotoClassification>();
+      return {
+        held,
+        load: jest.fn((ids: readonly string[]) =>
+          Promise.resolve(new Map([...held].filter(([id]) => ids.includes(id)))),
+        ),
+        save: jest.fn((cs: readonly PhotoClassification[]) => {
+          for (const c of cs) held.set(c.candidate.id, c);
+          return Promise.resolve();
+        }),
+      };
+    }
+
+    // The old stop-at-2×-quota is what made every swap a live network round:
+    // 5 per post meant 10 graded and the rest of the window never looked at.
+    it('grades every photo in the window, not just twice the post size', async () => {
+      const { candidates, byId } = window(40);
+      const classifier = new FakePhotoClassifier(byId);
+      const useCase = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        classifier,
+        new FakeSentPhotoTracker(),
+      );
+
+      const { batch, pool } = await useCase.execute(config());
+
+      expect(classifier.receivedCandidateIds).toHaveLength(40);
+      expect(batch).toHaveLength(5);
+      expect(pool).toHaveLength(35);
+    });
+
+    it('stops at the per-scan cap, keeping the newest photos', async () => {
+      const { candidates, byId } = window(30);
+      const classifier = new FakePhotoClassifier(byId);
+      const useCase = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        classifier,
+        new FakeSentPhotoTracker(),
+        undefined,
+        undefined,
+        10, // maxPerScan
+      );
+
+      await useCase.execute(config());
+
+      // p29 is the newest (candidates are one day apart, ascending).
+      expect(classifier.receivedCandidateIds).toHaveLength(10);
+      expect(classifier.receivedCandidateIds).toContain('p29');
+      expect(classifier.receivedCandidateIds).not.toContain('p0');
+    });
+
+    it('never pays to grade the same photo twice', async () => {
+      const { candidates, byId } = window(12);
+      const grades = store();
+      const build = (): SuggestPhotosUseCase =>
+        new SuggestPhotosUseCase(
+          new FakeMediaLibrary(candidates),
+          classifier,
+          new FakeSentPhotoTracker(),
+          undefined,
+          grades,
+        );
+      const classifier = new FakePhotoClassifier(byId);
+
+      await build().execute(config());
+      expect(classifier.receivedCandidateIds).toHaveLength(12);
+
+      const second = new FakePhotoClassifier(byId);
+      const rescan = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        second,
+        new FakeSentPhotoTracker(),
+        undefined,
+        grades,
+      );
+      const { batch, pool } = await rescan.execute(config());
+
+      expect(second.receivedCandidateIds).toEqual([]); // no AI calls at all
+      expect(batch).toHaveLength(5);
+      expect(pool).toHaveLength(7);
+    });
+
+    // Grading the whole window takes far longer than grading ten photos, and
+    // the publisher must not sit through it before seeing a post.
+    it('announces a usable batch before the window finishes grading', async () => {
+      const { candidates, byId } = window(40);
+      const useCase = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        new FakePhotoClassifier(byId),
+        new FakeSentPhotoTracker(),
+      );
+
+      let gradedWhenAnnounced = -1;
+      let seen = 0;
+      await useCase.execute(config(), {
+        onScanning() {},
+        onScanned() {},
+        onClassifying() { seen++; },
+        onBatchReady(batch) {
+          gradedWhenAnnounced = seen;
+          expect(batch).toHaveLength(5);
+        },
+      });
+
+      expect(gradedWhenAnnounced).toBe(config().photosPerPost * 2);
+    });
   });
 
   it('excludes already-sent photos reported by the tracker', async () => {
@@ -115,7 +237,9 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
 
       const pending = await useCase.pendingCandidates(config(), new Set(['a']));
 
-      expect(pending.map(c => c.id)).toEqual(['b', 'c']);
+      // Newest first, matching the scan — whatever the "+" hands over next
+      // should come from the recent end of the window.
+      expect(pending.map(c => c.id)).toEqual(['c', 'b']);
       expect(library.lastLookbackDays).toBe(7);
     });
 
