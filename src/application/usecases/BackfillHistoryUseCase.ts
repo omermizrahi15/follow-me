@@ -42,9 +42,19 @@ export interface BackfillHistoryInput {
   beforeWindow?: () => Promise<void>;
 }
 
+/** What the library scan turned up for one window, before any AI ran. */
+export interface WindowScan {
+  /** Photos found in the window. */
+  found: number;
+  /** What was left after burst/near-duplicate shots were collapsed. */
+  unique: number;
+}
+
 /** One reconstructed posting, before the publisher reviews and publishes it. */
 export interface BackfillDraft {
   window: HistoryWindow;
+  /** The scan behind this stretch, so a thin post can explain itself. */
+  scanned: WindowScan;
   /** AI-selected photos for this window, same rules as a live post. */
   batch: PhotoClassification[];
   /** Classified-but-unselected photos, available as swaps in review. */
@@ -56,6 +66,8 @@ export interface BackfillProgress {
   onPlanned?(plan: HistoryWindowPlan): void;
   /** Fires as each window starts. `index` is 1-based. */
   onWindowStart?(index: number, total: number, window: HistoryWindow): void;
+  /** Fires once the window's library scan is done, before any AI runs. */
+  onWindowScanned?(index: number, total: number, scan: WindowScan): void;
   /**
    * Fires repeatedly *within* a window as its photos are classified. Without
    * it a stretch is a black box: a slow one looks identical to a hung one, and
@@ -144,11 +156,19 @@ export class BackfillHistoryUseCase {
       await input.beforeWindow?.();
       progress?.onWindowStart?.(i + 1, total, window);
 
+      // Captured from the scan callback so the finished draft can carry it —
+      // a stretch that came back with three photos should be able to say
+      // whether that is all there was, or all that survived deduplication.
+      let scanned: WindowScan = { found: 0, unique: 0 };
+
       const { batch, pool } = await this.suggestPhotos.execute(
         input.config,
         {
           onScanning: () => undefined,
-          onScanned: () => undefined,
+          onScanned: (found, unique) => {
+            scanned = { found, unique };
+            progress?.onWindowScanned?.(i + 1, total, scanned);
+          },
           onClassifying: (classified, of, currentBatch) =>
             progress?.onWindowProgress?.(i + 1, total, { classified, of, batch: currentBatch }),
         },
@@ -158,7 +178,7 @@ export class BackfillHistoryUseCase {
 
       // A window with nothing in it is normal — weeks at home between trips.
       // Dropping it keeps the review timeline about places the publisher went.
-      const draft = batch.length > 0 ? { window, batch, pool } : null;
+      const draft = batch.length > 0 ? { window, scanned, batch, pool } : null;
       if (draft != null) drafts.push(draft);
       progress?.onWindowDone?.(i + 1, total, draft);
 
