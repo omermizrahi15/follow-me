@@ -1,5 +1,3 @@
-import type { TravelRoute } from '../../domain/services/travelRoute';
-
 /**
  * MapLibre GL JS version loaded inside the WebView. Pinned exactly (never a
  * range) — the page is the app's UI, so the bytes it runs must not change
@@ -28,7 +26,13 @@ export type GlobeMessage =
   | { type: 'error'; message: string };
 
 export interface GlobeOptions {
-  route: TravelRoute;
+  /**
+   * The initial route, already through {@link toScriptLiteral}. A literal
+   * rather than the object because the caller holds one anyway: the same
+   * string is what it pushes into the live page when the route changes, and
+   * comparing those strings is how it knows whether it changed at all.
+   */
+  routeLiteral: string;
   /** MapLibre style URL — satellite when a MapTiler key is configured. */
   styleUrl: string;
   /**
@@ -39,7 +43,7 @@ export interface GlobeOptions {
 }
 
 /** Embeds a value as a JS literal, safely inside a <script> in an HTML string. */
-function toScriptLiteral(value: unknown): string {
+export function toScriptLiteral(value: unknown): string {
   // '</' + 'script>' inside the JSON would close the script block early, and
   // U+2028 / U+2029 are valid JSON but illegal inside a JS string literal.
   return JSON.stringify(value)
@@ -55,7 +59,7 @@ function toScriptLiteral(value: unknown): string {
  * a WebView. The bridge is deliberately tiny: the route goes in as one JSON
  * literal, and the only thing that comes back is which posting was tapped.
  */
-export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions): string {
+export function buildGlobeHtml({ routeLiteral, styleUrl, bottomPadding }: GlobeOptions): string {
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -63,7 +67,10 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
 <link href="${MAPLIBRE_CSS}" rel="stylesheet" integrity="${MAPLIBRE_CSS_SRI}" crossorigin="anonymous" />
 <style>
-  html { margin: 0; padding: 0; height: 100%; width: 100%; background: #05070f; }
+  /* Kept as a custom property, not a baked-in value: the sheet height can
+     change without reloading the page, and __setBottomPadding() below writes
+     this one property rather than the document being rebuilt around it. */
+  html { margin: 0; padding: 0; height: 100%; width: 100%; background: #05070f; --bottom-padding: ${Math.round(bottomPadding)}px; }
   /*
    * Starfield. The map canvas is transparent outside the sphere, so this sits
    * behind it and shows as deep space around the globe. Built from repeating
@@ -106,7 +113,7 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
   }
   /* The globe sits on deep space, like the profile screen it replaces. */
   .maplibregl-ctrl-attrib { font-size: 9px; opacity: 0.6; }
-  .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { bottom: ${Math.round(bottomPadding)}px; }
+  .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { bottom: var(--bottom-padding); }
   .stop {
     width: 54px; height: 54px; border-radius: 50%;
     border: 3px solid #fff; padding: 0; background: #14324a;
@@ -124,7 +131,7 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
 <script src="${MAPLIBRE_JS}" integrity="${MAPLIBRE_JS_SRI}" crossorigin="anonymous"></script>
 <script>
 (function () {
-  var ROUTE = ${toScriptLiteral(route)};
+  var ROUTE = ${routeLiteral};
   var STYLE_URL = ${toScriptLiteral(styleUrl)};
   var BOTTOM_PADDING = ${Math.round(bottomPadding)};
 
@@ -139,13 +146,26 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
 
   var map = new maplibregl.Map({
     container: 'map',
-    style: STYLE_URL,
+    // NO style here, deliberately. The globe projection has to be part of the
+    // style when that style is committed, or the first frames are drawn in
+    // Mercator and only become a sphere afterwards — that is the flat world
+    // map that used to flash on every launch. There is no way to say "globe"
+    // up front: the constructor takes no transformStyle, and setProjection()
+    // throws before the style has loaded. So the map starts style-less (it
+    // draws nothing at all) and the style is committed below with the
+    // projection already set on it.
     center: last,
     // Low enough that the whole sphere sits inside the visible band with space
     // around it, the way the globe reads on a profile screen. Anything past ~2
     // and the planet is cropped by the viewport.
     zoom: 0.9,
     attributionControl: { compact: true },
+  });
+  map.setStyle(STYLE_URL, {
+    transformStyle: function (previous, next) {
+      next.projection = { type: 'globe' };
+      return next;
+    },
   });
   // The sheet covers the lower part of the screen, so the globe is centred in
   // what is left above it. Set after construction: padding passed to the
@@ -187,8 +207,6 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
   }
 
   map.on('load', function () {
-    map.setProjection({ type: 'globe' });
-
     // MapLibre paints the compact attribution EXPANDED the first time, so the
     // ⓘ panel greeted the publisher on every launch. Shut it once, here.
     //
@@ -210,15 +228,7 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
       map.addImage('plane', { width: icon.width, height: icon.height, data: icon.data });
     }
 
-    map.addSource('route', {
-      type: 'geojson',
-      data: {
-        type: 'FeatureCollection',
-        features: ROUTE.legs.map(function (leg) {
-          return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: leg.path } };
-        }),
-      },
-    });
+    map.addSource('route', { type: 'geojson', data: routeFeatures() });
 
     // A dark casing under the white route. Without it a white dashed line
     // disappears over pale terrain (shallow sea, desert, snow) — the route has
@@ -264,6 +274,37 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
       },
     });
 
+    addMarkers();
+
+    positionGlow();
+    map.on('move', positionGlow);
+    map.on('zoom', positionGlow);
+    map.on('resize', positionGlow);
+
+    startDrift();
+
+    loaded = true;
+    // A route that arrived while the style was still loading — apply it now
+    // rather than dropping it, or a fast feed load would leave a bare planet.
+    if (pendingRoute) {
+      applyRoute(pendingRoute);
+      pendingRoute = null;
+    }
+    post({ type: 'ready' });
+  });
+
+  /** The legs, as the GeoJSON the 'route' source consumes. */
+  function routeFeatures() {
+    return {
+      type: 'FeatureCollection',
+      features: ROUTE.legs.map(function (leg) {
+        return { type: 'Feature', properties: {}, geometry: { type: 'LineString', coordinates: leg.path } };
+      }),
+    };
+  }
+
+  var markers = [];
+  function addMarkers() {
     ROUTE.stops.forEach(function (stop) {
       var el = document.createElement('button');
       el.className = 'stop';
@@ -283,23 +324,56 @@ export function buildGlobeHtml({ route, styleUrl, bottomPadding }: GlobeOptions)
       // is snapped to whole pixels every frame, so while the map scales
       // continuously each one jumps a pixel back and forth against the imagery
       // underneath. Positioning on fractions lets them track the map exactly.
-      new maplibregl.Marker({
+      var marker = new maplibregl.Marker({
         element: el,
         opacityWhenCovered: '0',
         subpixelPositioning: true,
       })
         .setLngLat(stop.position)
         .addTo(map);
+      markers.push(marker);
     });
+  }
 
+  /**
+   * Swaps in a new route without reloading the page.
+   *
+   * This is the whole point of the bridge below. The route changes constantly
+   * — the feed is refetched on every focus, and deleting a post rewrites it —
+   * and rebuilding the HTML for that would throw the document away: a fresh
+   * MapLibre, a fresh style fetch, every tile and thumbnail downloaded again,
+   * and the Mercator-to-globe boot visible each time. The source data and the
+   * markers are the only things that actually differ, so only they are redone.
+   */
+  var loaded = false;
+  var pendingRoute = null;
+  function applyRoute(next) {
+    var hadStops = ROUTE.stops.length > 0;
+    ROUTE = next;
+    map.getSource('route').setData(routeFeatures());
+    markers.forEach(function (marker) { marker.remove(); });
+    markers = [];
+    addMarkers();
+    // Only when the first stops arrive at all: the page is built before the
+    // feed has loaded, so the camera is parked on a neutral view of the planet
+    // and has to be told where the trip is. Never afterwards — the user may
+    // have spun the globe somewhere, and deleting a post must not yank it back.
+    if (!hadStops && ROUTE.stops.length > 0) {
+      map.jumpTo({ center: ROUTE.stops[ROUTE.stops.length - 1].position });
+    }
     positionGlow();
-    map.on('move', positionGlow);
-    map.on('zoom', positionGlow);
-    map.on('resize', positionGlow);
+  }
+  window.__setRoute = function (next) {
+    if (!loaded) { pendingRoute = next; return; }
+    applyRoute(next);
+  };
 
-    startDrift();
-    post({ type: 'ready' });
-  });
+  /** Re-centres the globe when the sheet over it changes height. */
+  window.__setBottomPadding = function (px) {
+    BOTTOM_PADDING = px;
+    document.documentElement.style.setProperty('--bottom-padding', px + 'px');
+    map.setPadding({ top: 0, left: 0, right: 0, bottom: px });
+  };
 
   /**
    * Sizes the halo to the planet and pins it to the planet's centre.
