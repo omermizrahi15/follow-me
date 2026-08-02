@@ -18,20 +18,13 @@ on:
       - 'tsconfig.json'
       - 'supabase/functions/_shared/**'
       - '.github/workflows/ci.yml'
+  # No paths filter, unlike the push trigger above: main requires `validate` on
+  # every pull request, and a required check that does not run is not a skipped
+  # check — GitHub waits for a report that never comes and the PR sits in BLOCKED
+  # for good. A workflow-only or docs-only change was unmergeable until this.
+  # The suite is a couple of minutes; a PR that cannot merge costs far more.
   pull_request:
     branches: [main]
-    paths:
-      - 'src/**'
-      - 'App.js'
-      - 'app.json'
-      - 'app.config.js'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'jest.config.json'
-      - 'jest.setup.ts'
-      - 'tsconfig.json'
-      - 'supabase/functions/_shared/**'
-      - '.github/workflows/ci.yml'
 
 jobs:
   # Named `validate`, not something prettier: main's branch protection requires a
