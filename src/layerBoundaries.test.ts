@@ -36,6 +36,9 @@ describe('architecture layer boundaries', () => {
   });
 
   it('resolves a cross-layer .ts import, so the restricted-path zones can fire', () => {
+    // A synthetic pair: the import below is exactly the kind of breach the zones
+    // forbid, and no file writes it today. What matters is that the resolver
+    // *finds* the target — an import it cannot resolve is one the rule ignores.
     const result = tsResolver.resolve(
       '../../infrastructure/cache/SuggestionCache',
       path.join(repoRoot, 'src/ui/screens/ReviewSuggestionScreen.tsx'),

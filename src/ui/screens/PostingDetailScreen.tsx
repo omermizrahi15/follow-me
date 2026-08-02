@@ -23,8 +23,7 @@ import { toFeedPosting, type FeedMedia, type FeedPosting } from '../data/feed';
 import { usePublisherId } from '../context/AuthContext';
 import { confirmMoveToTrash } from '../hooks/useTrash';
 import { listFeed } from '../../composition/container';
-// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): displaySizedUri is a pure URL transform with no I/O — it belongs in a UI media helper, not in infrastructure. Waived until it is moved.
-import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
+import { displaySizedUri } from '../../domain/services/mediaDisplayUri';
 import { colors, radius, spacing } from '../theme/theme';
 
 /** Fraction of the page width that counts as the "go back" tap zone. */

@@ -1,6 +1,7 @@
 import * as Notifications from 'expo-notifications';
+import { POST_NOW_ACTION } from '../../domain/services/postNowAction';
 
-export const POST_NOW_ACTION = 'POST_NOW';
+export { POST_NOW_ACTION };
 export const REVIEW_ACTION = 'REVIEW';
 export const POST_REVIEW_CATEGORY = 'post-review';
 

@@ -15,8 +15,7 @@ import { ScreenHeader } from '../components/ScreenHeader';
 import { usePublisherId } from '../context/AuthContext';
 import { useTrashedPostings } from '../hooks/useTrash';
 import { formatPostingDate, type FeedPosting } from '../data/feed';
-// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): displaySizedUri is a pure URL transform with no I/O — it belongs in a UI media helper, not in infrastructure. Waived until it is moved.
-import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
+import { displaySizedUri } from '../../domain/services/mediaDisplayUri';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /** The thumbnail is small; ask Cloudinary for a matching crop, not the original. */

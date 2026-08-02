@@ -1,6 +1,9 @@
-import { loadConfig, recordSyncState, syncCandidatePhotos } from '../../composition/container';
-// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): monitoring is cross-cutting and this background entry point has no hook to report through. Waived until error reporting is exposed as a port.
-import { reportError } from '../../infrastructure/monitoring/sentry';
+import {
+  loadConfig,
+  recordSyncState,
+  reportError,
+  syncCandidatePhotos,
+} from '../../composition/container';
 import { singleFlight } from '../../application/services/singleFlight';
 import { hasPhotoSyncConsent, isPhotoSyncPaused } from './photoSyncConsent';
 import { syncBlocked, syncFailed, syncFinished, syncProgressed, syncStarted } from './syncStatus';

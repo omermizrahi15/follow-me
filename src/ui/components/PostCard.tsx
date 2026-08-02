@@ -11,8 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): displaySizedUri is a pure URL transform with no I/O — it belongs in a UI media helper, not in infrastructure. Waived until it is moved.
-import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
+import { displaySizedUri } from '../../domain/services/mediaDisplayUri';
 import type { FeedPosting } from '../data/feed';
 import { colors, radius, spacing } from '../theme/theme';
 

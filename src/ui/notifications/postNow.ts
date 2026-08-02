@@ -1,8 +1,10 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Notifications from 'expo-notifications';
-// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): POST_NOW_ACTION is a shared constant that belongs in domain, not in the notifier. Waived until it moves.
-import { POST_NOW_ACTION } from '../../infrastructure/notifiers/NotificationCategories';
-import { postNowRequest as decidePostNow, type PostNowRequest } from '../../domain/services/postNowAction';
+import {
+  POST_NOW_ACTION,
+  postNowRequest as decidePostNow,
+  type PostNowRequest,
+} from '../../domain/services/postNowAction';
 import { publishApprovalBatch } from '../../composition/container';
 
 /**

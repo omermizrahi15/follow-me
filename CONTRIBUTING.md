@@ -41,7 +41,10 @@ The ESLint config enforces these rules and will fail the build if violated:
 
 Enforcement depends on `eslint-import-resolver-typescript` being wired through `settings['import/resolver']` in `.eslintrc.js`. Without it the `import` plugin cannot resolve `.ts`/`.tsx` paths, every restricted import silently fails to resolve, and the zones match nothing while lint stays green — which is exactly what happened up to #107. `src/layerBoundaries.test.ts` guards that wiring; don't delete it.
 
-You will find `// eslint-disable-next-line import/no-restricted-paths` on a handful of imports, each with a written reason. Those are the pre-existing breaches that the resolver exposed when it was turned on, waived individually so new code is guarded while the backlog is worked down. They are debt to be paid, not precedent to copy — a new violation should be fixed, not waived.
+There are no `eslint-disable` waivers on these rules, and new ones shouldn't be added. When a screen needs something that lives in `infrastructure/`, there are two honest ways out, and the right one is usually obvious:
+
+- **The thing is pure** — no I/O, no SDK, just a transform over data. It belongs in `domain/`. `displaySizedUri` and `POST_NOW_ACTION` moved there for exactly this reason.
+- **The thing is a real capability** — a cache, the photo library, the crash reporter. Bind it in `composition/container.ts` and import it from there, like every use case already is.
 
 If you need to add a new delivery mechanism (email, push notifications, etc.), implement the `INotifier` interface in `infrastructure/notifiers/`. Do not modify any use case.
 

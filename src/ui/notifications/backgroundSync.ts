@@ -1,8 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
-import { authService } from '../../composition/container';
-// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): monitoring is cross-cutting and this background entry point has no hook to report through. Waived until error reporting is exposed as a port.
-import { reportError } from '../../infrastructure/monitoring/sentry';
+import { authService, reportError } from '../../composition/container';
 import { runCandidateSyncQuietly } from '../data/candidateSync';
 import { isSyncWakePayload } from '../../domain/services/syncWake';
 

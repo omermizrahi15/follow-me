@@ -34,7 +34,15 @@ import { SupabaseApprovalBatchRepository, type ApprovalBatch } from '../infrastr
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
-import { monitored, reportMessage } from '../infrastructure/monitoring/sentry';
+import { monitored, reportError, reportMessage } from '../infrastructure/monitoring/sentry';
+import { mediaLibraryAssetLocation } from '../infrastructure/media/assetLocation';
+import {
+  SuggestionCache,
+  cachedPhotoToClassification,
+  classificationToCachedPhoto,
+  type CachedPhoto,
+  type CachedSuggestion,
+} from '../infrastructure/cache/SuggestionCache';
 import Constants from 'expo-constants';
 
 /**
@@ -278,3 +286,31 @@ export const deleteUploadedPhotos = monitored('delete_uploaded_photos', async ()
   if (!res.ok) throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
   return (await res.json()) as { deletedRows: number };
 });
+
+// ── Infrastructure the UI binds to here, not by reaching across the boundary ──
+//
+// These are not use cases, so there is nothing to wrap: they are device and
+// platform capabilities the UI genuinely needs (an on-device cache, the photo
+// library, the crash reporter). Naming them here keeps the composition root the
+// single place that knows which implementation is in play — swapping Sentry for
+// another reporter, or the cache for a different store, stays a one-line change
+// and no screen has to be touched. Screens importing them from
+// `infrastructure/` directly is the boundary breach that #107 uncovered.
+
+/** Crash and event reporting. Callers pass the operation name that failed. */
+export { reportError, reportMessage };
+
+/** Local URI for a media-library asset, and that asset's recorded GPS fix. */
+export { expoResolveLocalUri, mediaLibraryAssetLocation };
+
+/**
+ * On-device cache of the last photo suggestion, so a reminder tapped hours
+ * later shows the same batch the server picked.
+ */
+export {
+  SuggestionCache,
+  cachedPhotoToClassification,
+  classificationToCachedPhoto,
+  type CachedPhoto,
+  type CachedSuggestion,
+};
