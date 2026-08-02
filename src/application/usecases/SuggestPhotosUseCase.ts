@@ -215,13 +215,21 @@ export class SuggestPhotosUseCase {
    *
    * @param known Candidate ids already on screen (batch + pool), so a photo the
    *              publisher can already see is never queued a second time.
+   * @param window The stretch to draw from, for the history backfill's per-post
+   *              top-up. Omitted for live suggestions, which use the lookback.
+   *              A backfilled post reconstructs one past window, so topping it
+   *              up from "the last N days" would offer photos from a different
+   *              trip entirely.
    */
   async pendingCandidates(
     config: PublisherConfig,
     known: ReadonlySet<string> = new Set(),
+    window?: SuggestWindow,
   ): Promise<PhotoCandidate[]> {
     const [candidates, alreadySent] = await Promise.all([
-      this.mediaLibrary.recentPhotos(config.lookbackDays),
+      window != null
+        ? this.mediaLibrary.photosBetween(window.start, window.end)
+        : this.mediaLibrary.recentPhotos(config.lookbackDays),
       this.sentTracker.sentCandidateIds(config.publisherId),
     ]);
     // Same dedup as the scan, so bursts stay collapsed here too — the top-up

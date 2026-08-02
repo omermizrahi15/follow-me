@@ -87,15 +87,16 @@ export function HomeScreen(): React.JSX.Element {
   }, [requestedSection]);
 
   // The Me page never unmounts (sections are local state, Upload is a modal on
-  // top), so refresh the followers count, the feed and the profile whenever
-  // the screen regains focus — e.g. a fresh upload or a profile edit in
-  // Settings must show up on return.
+  // top), so refresh the followers count and the profile whenever the screen
+  // regains focus — e.g. a fresh upload or a profile edit in Settings must
+  // show up on return. The feed is NOT refreshed here: useFeed already does it
+  // on focus, and asking twice meant two round trips and two feed states per
+  // focus, each one a fresh postings array for everything below to react to.
   useFocusEffect(
     useCallback(() => {
       void reloadSubscribers();
-      void reloadFeed();
       void reloadProfile();
-    }, [reloadSubscribers, reloadFeed, reloadProfile]),
+    }, [reloadSubscribers, reloadProfile]),
   );
 
   function snapTo(h: number): void {
@@ -125,7 +126,15 @@ export function HomeScreen(): React.JSX.Element {
   function selectSection(next: HomeSection): void {
     setShowingSuggestions(false);
     setSection(next);
-    if (next === 'me') void reloadSubscribers();
+    // The Me page is a section of a screen that never unmounts and never loses
+    // focus, so nothing else refetches for it. Anything published from another
+    // section — a history stretch sent with "Publish this one", a post shared
+    // from the suggestions sheet — was otherwise invisible until the app was
+    // relaunched.
+    if (next === 'me') {
+      void reloadSubscribers();
+      void reloadFeed();
+    }
     snapTo(MEDIUM_H);
   }
 
