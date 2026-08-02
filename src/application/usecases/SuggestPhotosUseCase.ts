@@ -1,4 +1,5 @@
 import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
+import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { IMediaLibrary, IPhotoClassifier, ISentPhotoTracker } from '../../domain/interfaces';
 import { PhotoSelectionService } from '../../domain/services/PhotoSelectionService';
@@ -22,10 +23,18 @@ export interface SuggestResult {
   /** AI-selected initial batch (capped at photosPerPost, diversity-optimised). */
   batch: PhotoClassification[];
   /**
-   * Classified photos that weren't chosen for the batch — available as
-   * replacements if the user removes a batch photo. Sorted by quality descending.
+   * Everything else in the window that the publisher may swap in — AI-ranked
+   * photos first, then the ones the classifier never got to.
+   *
+   * It deliberately includes UNCLASSIFIED photos. The pool used to hold only
+   * classified ones, which meant a flaky or rate-limited classifier produced an
+   * empty pool and the publisher could not change a single photo, even with
+   * fifty sitting in that week. The AI's job is to pick the opening batch; it
+   * should never be what decides whether a person may choose their own photo.
    */
   pool: PhotoClassification[];
+  /** How many photos the classifier never returned a verdict on. */
+  unclassifiedCount: number;
 }
 
 /**
@@ -44,6 +53,15 @@ export interface SuggestWindow {
  * window, classify each photo with AI, then apply the pure selection rules.
  * Orchestration only — all the selection logic lives in PhotoSelectionService.
  */
+/**
+ * A photo the classifier never judged, shaped so the UI can offer it like any
+ * other. Quality 0 and category 'other' keep it behind everything the AI did
+ * rank, without pretending to know anything about it.
+ */
+function unratedClassification(candidate: PhotoCandidate): PhotoClassification {
+  return { candidate, category: 'other', confidence: 0, quality: 0, caption: '', scene: '' };
+}
+
 export class SuggestPhotosUseCase {
   constructor(
     private readonly mediaLibrary: IMediaLibrary,
@@ -66,7 +84,7 @@ export class SuggestPhotosUseCase {
         : this.mediaLibrary.recentPhotos(config.lookbackDays),
       this.sentTracker.sentCandidateIds(config.publisherId),
     ]);
-    if (candidates.length === 0) return { batch: [], pool: [] };
+    if (candidates.length === 0) return { batch: [], pool: [], unclassifiedCount: 0 };
 
     // Remove burst/near-duplicate shots before AI classification.
     const deduplicated = this.selection.deduplicateCandidates(candidates);
@@ -89,8 +107,9 @@ export class SuggestPhotosUseCase {
 
     const batch = this.selection.selectBatch(accumulated, config, alreadySent);
     const batchIds = new Set(batch.map(c => c.candidate.id));
-    // Pool = classified photos not chosen for the initial batch, sorted by quality.
-    const pool = accumulated
+
+    // Classified leftovers, best first — these are the good replacements.
+    const rated = accumulated
       .filter(c => !batchIds.has(c.candidate.id) && !alreadySent.has(c.candidate.id))
       .sort(
         (a, b) =>
@@ -98,6 +117,20 @@ export class SuggestPhotosUseCase {
           b.candidate.createdAt.getTime() - a.candidate.createdAt.getTime(),
       );
 
-    return { batch, pool };
+    // Then everything the classifier never reached: stopped early once the
+    // quota was met, skipped because its original was still in iCloud, or lost
+    // to a failing API. Unranked, so they sit behind the rated ones — but they
+    // are in the window, so the publisher can reach them.
+    const seen = new Set([...batchIds, ...rated.map(c => c.candidate.id)]);
+    const unreached = deduplicated.filter(c => !seen.has(c.id) && !alreadySent.has(c.id));
+    const unrated = unreached
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+      .map(unratedClassification);
+
+    return {
+      batch,
+      pool: [...rated, ...unrated],
+      unclassifiedCount: unreached.length,
+    };
   }
 }
