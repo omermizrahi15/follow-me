@@ -1,10 +1,10 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import type { FeedPosting } from '../data/feed';
 import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
 import { buildTravelRoute, type TravelRouteInput } from '../../domain/services/travelRoute';
-import { buildGlobeHtml, type GlobeMessage } from './globeHtml';
+import { buildGlobeHtml, toScriptLiteral, type GlobeMessage } from './globeHtml';
 import { globeStyleUrl } from './styleUrl';
 import { colors, spacing } from '../theme/theme';
 
@@ -69,20 +69,53 @@ export function isAllowedUrl(url: string): boolean {
  */
 export function RouteGlobe({ postings, onPressPosting, bottomPadding }: Props): React.JSX.Element {
   const [ready, setReady] = useState(false);
+  const webRef = useRef<WebView>(null);
   // The postings are captured when the HTML is built; keep a live map from id
   // back to the posting so a tap always opens the current object.
   const byId = useRef(new Map<string, FeedPosting>());
   byId.current = new Map(postings.map(p => [p.id, p]));
 
-  const html = useMemo(
-    () =>
-      buildGlobeHtml({
-        route: buildTravelRoute(postings.map(toRouteInput)),
-        styleUrl: globeStyleUrl(),
-        bottomPadding,
-      }),
-    [postings, bottomPadding],
+  // The route as a JS literal, ready either to bake into the page or to push
+  // into the live one. Comparing these strings is also how "did the route
+  // actually change?" is answered: `postings` is a fresh array on every feed
+  // reload even when it holds exactly the same posts.
+  const routeLiteral = useMemo(
+    () => toScriptLiteral(buildTravelRoute(postings.map(toRouteInput))),
+    [postings],
   );
+
+  // Built ONCE, on the first render, and never again. The WebView reloads the
+  // whole document whenever its source changes — new MapLibre, new style
+  // fetch, every tile and thumbnail again, and the boot sequence visible — so
+  // keying the HTML on `postings` meant the entire globe was torn down and
+  // rebuilt on every focus and after every delete. That was the flash. Both
+  // things that can change afterwards (the route, the sheet height) are now
+  // pushed into the running page instead, by the two effects below.
+  const [source] = useState(() => ({
+    html: buildGlobeHtml({ routeLiteral, styleUrl: globeStyleUrl(), bottomPadding }),
+    baseUrl: 'https://localhost',
+  }));
+
+  // What the page was built with, so a document that reloads itself can be
+  // brought back up to date — see handleMessage.
+  const bakedRoute = useRef(routeLiteral);
+  const bakedPadding = useRef(bottomPadding);
+  const sentRoute = useRef(routeLiteral);
+  const sentPadding = useRef(bottomPadding);
+
+  useEffect(() => {
+    if (routeLiteral === sentRoute.current) return;
+    sentRoute.current = routeLiteral;
+    // Before the page has loaded this is buffered inside it, so there is no
+    // need to wait for `ready` here.
+    webRef.current?.injectJavaScript(`window.__setRoute(${routeLiteral});true;`);
+  }, [routeLiteral]);
+
+  useEffect(() => {
+    if (bottomPadding === sentPadding.current) return;
+    sentPadding.current = bottomPadding;
+    webRef.current?.injectJavaScript(`window.__setBottomPadding(${Math.round(bottomPadding)});true;`);
+  }, [bottomPadding]);
 
   function handleMessage(event: WebViewMessageEvent): void {
     let message: GlobeMessage;
@@ -91,7 +124,18 @@ export function RouteGlobe({ postings, onPressPosting, bottomPadding }: Props): 
     } catch {
       return; // Not ours — ignore rather than crash the screen.
     }
-    if (message.type === 'ready') setReady(true);
+    if (message.type === 'ready') {
+      setReady(true);
+      // WebKit can reclaim a backgrounded content process and reload the
+      // document by itself, which drops the page back to whatever was baked
+      // into it at mount. Anything that has moved on since is re-pushed here.
+      if (routeLiteral !== bakedRoute.current) {
+        webRef.current?.injectJavaScript(`window.__setRoute(${routeLiteral});true;`);
+      }
+      if (bottomPadding !== bakedPadding.current) {
+        webRef.current?.injectJavaScript(`window.__setBottomPadding(${Math.round(bottomPadding)});true;`);
+      }
+    }
     if (message.type === 'error') {
       // A blank globe otherwise looks like a hang; at least say so in dev.
       if (__DEV__) console.warn('[globe]', message.message);
@@ -107,11 +151,12 @@ export function RouteGlobe({ postings, onPressPosting, bottomPadding }: Props): 
   return (
     <View style={styles.container}>
       <WebView
+        ref={webRef}
         testID="route-globe"
         style={styles.web}
         // The page is generated locally; a base URL is still needed so the CDN
         // and tile requests are not treated as cross-origin from about:blank.
-        source={{ html, baseUrl: 'https://localhost' }}
+        source={source}
         originWhitelist={['https://*']}
         onMessage={handleMessage}
         javaScriptEnabled
