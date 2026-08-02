@@ -68,6 +68,14 @@ jobs:
     environment: ${{ needs.detect.outputs.environment }}
     strategy:
       fail-fast: false
+      # One at a time. Deploying nine functions to one project concurrently
+      # silently lost three of them on 2026-08-02: every job printed "Deployed
+      # Functions on project ..." and exited 0, but classify-photos,
+      # join-webhook and send-post kept their previous version, bundle hash and
+      # updated_at. Redeploying each on its own bumped all three immediately.
+      # Nothing in the run said anything was wrong, so the only symptom was
+      # production quietly running weeks-old code.
+      max-parallel: 1
       matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
     steps:
       - uses: actions/checkout@v4
