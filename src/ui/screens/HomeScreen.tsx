@@ -125,7 +125,15 @@ export function HomeScreen(): React.JSX.Element {
   function selectSection(next: HomeSection): void {
     setShowingSuggestions(false);
     setSection(next);
-    if (next === 'me') void reloadSubscribers();
+    // The Me page is a section of a screen that never unmounts and never loses
+    // focus, so nothing else refetches for it. Anything published from another
+    // section — a history stretch sent with "Publish this one", a post shared
+    // from the suggestions sheet — was otherwise invisible until the app was
+    // relaunched.
+    if (next === 'me') {
+      void reloadSubscribers();
+      void reloadFeed();
+    }
     snapTo(MEDIUM_H);
   }
 
