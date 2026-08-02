@@ -18,6 +18,14 @@ on:
         type: choice
         options: [staging, production]
         default: staging
+      include_all:
+        description: >-
+          Also apply migrations that sort BELOW the remote's newest one. Needed
+          only to adopt an environment whose early schema was created by hand,
+          so the ledger has gaps. Every skipped migration then runs, so check
+          they are all idempotent first.
+        type: boolean
+        default: false
 
 concurrency:
   group: deploy-db-${{ github.event.inputs.environment || 'staging' }}
@@ -81,8 +89,10 @@ jobs:
       - name: Push migrations
         run: |
           ENV="${{ github.event.inputs.environment || 'staging' }}"
+          FLAGS=""
+          [ "${{ github.event.inputs.include_all }}" = "true" ] && FLAGS="--include-all"
           if [ "$ENV" = "production" ]; then
-            supabase db push --db-url "${{ secrets.PROD_DB_URL }}"
+            supabase db push $FLAGS --db-url "${{ secrets.PROD_DB_URL }}"
           else
-            supabase db push --db-url "${{ secrets.STAGING_DB_URL }}"
+            supabase db push $FLAGS --db-url "${{ secrets.STAGING_DB_URL }}"
           fi
