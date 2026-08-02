@@ -19,64 +19,50 @@ public launch.
 | `CRON_SECRET` | Edge Function secret + pg_cron header | **Private** — gates `auto-post` invocation |
 | `GALLERY_BASE_URL` | optional Edge Function secret | Public URL; override when moving off github.io |
 
-## RLS hardening — TODO(production)
+## RLS hardening (issue #9) — applied in migration 20240031
 
-Current dev posture: `candidate_photos`, `publisher_config`, `subscribers`,
-`notification_deliveries`, `posts` (select) allow the **anon** role. Anyone with the anon key can read and
-(for some tables) write rows. Acceptable for a closed dev instance, unsafe for
-production.
+Every table used to carry `dev_allow_*` policies granting the **anon** role
+blanket CRUD. Since `EXPO_PUBLIC_SUPABASE_ANON_KEY` ships inside the app bundle
+and is trivially extractable, that was the whole security boundary: anyone
+holding it could read every publisher's photos, read every follower's phone
+number, rewrite anyone's posting config and delete anyone's uploads.
 
-Plan:
-1. App clients authenticate today (Supabase phone auth) but the repositories
-   construct **separate anon clients**. Refactor the repositories to share the
-   authed client from `SupabaseAuthService` so `auth.uid()` is available to RLS.
-2. Apply the policies below (and drop every `dev_allow_*` policy).
-3. `posts` keeps anon **select only** (the public gallery page reads it); ids
-   are unguessable 20-hex-char hashes.
-4. Server paths (`auto-post`, `send-post`, `delete-candidates`) use the
-   service role and are unaffected.
+`20240031_rls_owner_only_policies.sql` drops all of them and replaces each with
+an owner-only policy for the `authenticated` role:
 
-Exact SQL to apply (once step 1 lands):
+| Table | Policy |
+|---|---|
+| `media` | `owner_all` — `auth.uid()::text = owner_id`, all verbs |
+| `candidate_photos` | `owner_all` — `auth.uid()::text = publisher_id`, all verbs |
+| `publisher_config` | `owner_all` — same shape |
+| `subscribers` | `owner_all` — same shape (reads + revokes; subscribing is service-role) |
+| `approval_batches` | `owner_all` — same shape |
+| `notification_deliveries` | `owner_all` — same shape |
+| `publisher_profile` | `public_read` (anon SELECT) + `owner_write` |
+| `posts` | unchanged — anon **select only** (20240018); ids are unguessable 20-hex hashes |
 
-```sql
--- candidate_photos: owner-only, all verbs
-drop policy if exists dev_allow_select on candidate_photos;
-drop policy if exists dev_allow_insert on candidate_photos;
-drop policy if exists dev_allow_update on candidate_photos;
-drop policy if exists dev_allow_delete on candidate_photos;
-create policy owner_all on candidate_photos
-  for all to authenticated
-  using (auth.uid() = publisher_id)
-  with check (auth.uid() = publisher_id);
+Two deliberate anon exceptions, both because the gallery link a follower opens
+is an unauthenticated page (`docs/gallery.html`): it reads `posts` for the feed
+and `publisher_profile` for the header name/avatar. `publisher_profile` holds
+only `(publisher_id, display_name, avatar_url)` — what the publisher chose to
+show followers. Writes to it are owner-only.
 
--- publisher_config: owner-only, all verbs (same shape)
-create policy owner_all on publisher_config
-  for all to authenticated
-  using (auth.uid() = publisher_id)
-  with check (auth.uid() = publisher_id);
+This depended on issue #115, landed alongside it: the repositories used to build
+their own `persistSession: false` clients, so every query ran as `anon` and no
+`auth.uid()`-scoped policy could ever have matched. They now share the one
+authenticated client in `src/infrastructure/supabase/client.ts`.
 
--- media: owner writes; keep read open only if the feed must work signed-out
-create policy owner_write on media
-  for insert to authenticated
-  with check (auth.uid() = owner_id);
+Server paths (`auto-post`, `send-post`, `post-batch`, `delete-candidates`,
+`join-webhook`, `subscribe`, `twilio-status`) use the service role, which
+bypasses RLS, and are unaffected.
 
--- posts: public gallery needs anon SELECT only — no anon writes
--- (the existing "anon can read posts" select policy stays; writes are
--- service-role only because no other policy exists.)
+`src/infrastructure/supabase/rls.integration.test.ts` is the negative test: it
+seeds rows through the service role, then asserts a bare anon client and a
+signed-in *other* user both read zero of them, and that anon writes are refused.
 
--- notification_deliveries: owner-only, all verbs (publisher_id is text)
-drop policy if exists dev_allow_select on notification_deliveries;
-drop policy if exists dev_allow_insert on notification_deliveries;
-drop policy if exists dev_allow_update on notification_deliveries;
-drop policy if exists dev_allow_delete on notification_deliveries;
-create policy owner_all on notification_deliveries
-  for all to authenticated
-  using (auth.uid()::text = publisher_id)
-  with check (auth.uid()::text = publisher_id);
-```
-
-Add an RLS test pass (a small integration test signing in as two users and
-asserting cross-user reads/writes fail) before flipping these on.
+**Rollout:** the migration and the app build must ship together. Applying
+20240031 while an older build is live blanks the app (its queries are anonymous);
+shipping the new build first is harmless (the old policies still permit it).
 
 ## Verified in the deployed environment (2026-07-06)
 
@@ -248,6 +234,19 @@ existing targets) and fail fast when the values can't be determined.
 # EXPO_PUBLIC_CLASSIFY_FN_URL, TWILIO_* and WHATSAPP_TEST_RECIPIENT
 npm run test:integration
 ```
+
+Every suite that touches a publisher-owned table now needs a **signed-in**
+client, because the RLS policies match `auth.uid()` (see the section above), so
+add:
+
+| Var | What it is |
+|---|---|
+| `SUPABASE_SERVICE_ROLE_KEY` | seeds/cleans rows the way an Edge Function does |
+| `AUTH_TEST_PHONE` | a Supabase **test phone number** (Auth → Phone) |
+| `AUTH_TEST_OTP` | that number's fixed OTP — no real WhatsApp send |
+
+The test user's `auth.uid()` becomes the `publisher_id` under test; a made-up
+publisher string is now rejected by the policy's `WITH CHECK`.
 
 Each `*.integration.test.ts` self-skips when its env vars are absent, so CI
 stays green without secrets; `npm run validate` runs typecheck + lint + the
