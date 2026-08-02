@@ -3,11 +3,16 @@ import {
   backfillHistory,
   loadConfig,
   shareMedia,
+  suggestPhotos,
   resolvePlaceForCoordinates,
 } from '../../composition/container';
 import type { BackfillDraft } from '../../application/usecases/BackfillHistoryUseCase';
 import type { HistoryWindow, HistoryWindowPlan } from '../../domain/services/historyWindows';
+import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
+import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
+import { MAX_PHOTOS_PER_POST } from '../../domain/entities/PublisherConfig';
+import { isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
 import type { Coordinate } from '../../domain/interfaces';
 import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
 import { coordinateFor, coordinatesFor } from '../data/photoCoordinates';
@@ -46,6 +51,23 @@ export interface ReviewablePosting {
   status: 'draft' | 'publishing' | 'published' | 'failed';
   /** Why it failed, shown on the card rather than swallowed. */
   error?: string;
+  /**
+   * The photo whose replacement is being fetched. A swap can need an AI
+   * round-trip once the window's pool is spent, and a chip that just sat there
+   * through it read as a dead button.
+   */
+  swappingId: string | null;
+  /** An extra photo is being classified for this stretch — the "+" spinner. */
+  adding: boolean;
+  /**
+   * Whether the AI can still be asked for more of this window. The scan stops
+   * at 2× the photos-per-post, so a stretch with sixty photos in it has most of
+   * them unlooked-at: this stays true until that queue (or the day's budget)
+   * runs out.
+   */
+  canAddMore: boolean;
+  /** Why nothing more can be offered, when that is the case. */
+  note?: string;
 }
 
 /** A posting that could not be written, and why — shown, never swallowed. */
@@ -85,6 +107,12 @@ interface State {
   published: number;
   /** Postings that failed to publish — reported rather than silently dropped. */
   failedCount: number;
+  /**
+   * The publisher's config, once the run has loaded it. Kept in state (not just
+   * a ref) because the screen filters what it may still offer by the same
+   * categories the AI selected with.
+   */
+  config: PublisherConfig | null;
   error: string | null;
 }
 
@@ -102,6 +130,7 @@ const INITIAL: State = {
   paused: false,
   published: 0,
   failedCount: 0,
+  config: null,
   error: null,
 };
 
@@ -127,7 +156,46 @@ function toReviewable(draft: BackfillDraft): ReviewablePosting {
     hasGps: false, // corrected once the GPS probe has run
     dropped: false,
     status: 'draft',
+    swappingId: null,
+    adding: false,
+    canAddMore: true,
   };
+}
+
+/**
+ * The classified photos of a stretch that could still fill a slot, best first.
+ *
+ * Filtered by the publisher's own categories, exactly as the live review screen
+ * filters its pool: `selectBatch` may fall back to `other` to avoid an empty
+ * post, but nothing should volunteer a screenshot as "another photo from those
+ * days".
+ */
+function spareFor(
+  posting: ReviewablePosting,
+  config: PublisherConfig | null,
+): PhotoClassification[] {
+  const used = new Set(posting.slots);
+  const all = [...posting.draft.batch, ...posting.draft.pool].filter(
+    c => !used.has(c.candidate.id),
+  );
+  return config == null ? all : all.filter(c => isSuggestablePhoto(c, config));
+}
+
+/**
+ * Whether this stretch can still produce another photo — one is already
+ * classified and waiting, or the AI can go and look at more of the window.
+ * What the "Other" chip and the "+" slot are enabled from.
+ */
+export function canOfferMorePhotos(
+  posting: ReviewablePosting,
+  config: PublisherConfig | null,
+): boolean {
+  return spareFor(posting, config).length > 0 || posting.canAddMore;
+}
+
+/** Room left in the post. A backfilled post obeys the same ceiling as a live one. */
+export function hasRoomForMore(posting: ReviewablePosting): boolean {
+  return posting.slots.length < MAX_PHOTOS_PER_POST;
 }
 
 /** Every classified photo of a draft, batch and pool alike, keyed by id. */
@@ -151,6 +219,7 @@ export function useHistoryBackfill(publisherId: string): State & {
   toggleDropped: (id: string) => void;
   setPlace: (id: string, place: string, coordinate?: Coordinate) => void;
   swapPhoto: (id: string, photoId: string) => void;
+  addPhoto: (id: string) => void;
   publish: () => Promise<PublishOutcome>;
   publishOne: (id: string) => Promise<void>;
   togglePause: () => void;
@@ -159,6 +228,15 @@ export function useHistoryBackfill(publisherId: string): State & {
   const [state, setState] = useState<State>(INITIAL);
   // Places the publisher typed themselves — never overwritten by resolution.
   const editedPlaces = useRef<Set<string>>(new Set());
+  // Per-stretch queue of photos the AI has not looked at yet, built on the
+  // first top-up for that stretch and walked down after that: the library
+  // query is the slow part and a past window never moves.
+  const pending = useRef<Map<string, PhotoCandidate[]>>(new Map());
+  // The top-up currently running, whichever stretch asked for it. Rounds are
+  // serialised behind it: one already fans out several full-resolution uploads,
+  // and the scan underneath is doing the same — running a handful at once is
+  // exactly the unbounded-work pattern that got the app watchdog-killed before.
+  const inFlight = useRef<Promise<PhotoClassification[]> | null>(null);
   // The pause gate. Held in a ref because the running scan closes over it once
   // and must see every later toggle, which a state value would not give it.
   const pause = useRef<{ paused: boolean; waiting: (() => void)[] }>({ paused: false, waiting: [] });
@@ -177,6 +255,7 @@ export function useHistoryBackfill(publisherId: string): State & {
   const run = useCallback((startDate: Date, intervalDays: number, windows?: HistoryWindow[]): void => {
     setState({ ...INITIAL, phase: 'scanning' });
     editedPlaces.current = new Set();
+    pending.current = new Map();
     pause.current = { paused: false, waiting: [] };
 
     if (!publisherId) {
@@ -187,6 +266,7 @@ export function useHistoryBackfill(publisherId: string): State & {
     void (async (): Promise<void> => {
       try {
         const config = await loadConfig.execute(publisherId);
+        setState(s => ({ ...s, config }));
         const result = await backfillHistory.execute(
           {
             config,
@@ -284,27 +364,182 @@ export function useHistoryBackfill(publisherId: string): State & {
     }));
   }, []);
 
-  /** Replaces one photo with the next unused one from that window's pool. */
+  /**
+   * Classifies more of one stretch's window on demand — the same top-up the
+   * live review screen's "+" runs, scoped to that stretch instead of the
+   * lookback window.
+   *
+   * This is what makes "Other" keep working. The scan deliberately stops at 2×
+   * photos-per-post, so a stretch reporting sixty photos has most of them
+   * unlooked-at, and the chip used to go dead the moment the handful the scan
+   * classified were all on screen.
+   */
+  const topUpWindow = useCallback(
+    (posting: ReviewablePosting, config: PublisherConfig): Promise<PhotoClassification[]> => {
+      const run = async (): Promise<PhotoClassification[]> => {
+        let queue = pending.current.get(posting.id);
+        if (queue == null) {
+          const known = new Set(
+            [...posting.draft.batch, ...posting.draft.pool].map(c => c.candidate.id),
+          );
+          queue = await suggestPhotos.pendingCandidates(config, known, posting.draft.window);
+          pending.current.set(posting.id, queue);
+        }
+
+        const note = (message: string): void =>
+          setState(s => ({
+            ...s,
+            postings: s.postings.map(p =>
+              p.id === posting.id ? { ...p, canAddMore: false, note: message } : p,
+            ),
+          }));
+
+        if (queue.length === 0) {
+          note('Nothing else in these days');
+          return [];
+        }
+
+        const { classified, suggestions, consumed, quotaExhausted } =
+          await suggestPhotos.classifyMore(queue, config, 1);
+        const left = queue.slice(consumed);
+        pending.current.set(posting.id, left);
+
+        // Everything classified joins the pool — even what isn't offered now,
+        // which becomes swap material. Appended, not re-sorted: the pool's head
+        // is what the scan already judged best.
+        setState(s => ({
+          ...s,
+          postings: s.postings.map(p => {
+            if (p.id !== posting.id) return p;
+            const exhausted = quotaExhausted || left.length === 0;
+            return {
+              ...p,
+              draft: { ...p.draft, pool: [...p.draft.pool, ...classified] },
+              canAddMore: !exhausted,
+              ...(exhausted
+                ? {
+                    note: quotaExhausted
+                      ? 'Today’s photo analysis is used up — try again tomorrow'
+                      : 'Nothing else in these days',
+                  }
+                : {}),
+            };
+          }),
+        }));
+        return suggestions;
+      };
+
+      const previous = inFlight.current;
+      const started = (previous == null ? Promise.resolve() : previous.catch(() => undefined))
+        .then(run);
+      inFlight.current = started;
+      void started.catch(() => undefined).finally(() => {
+        if (inFlight.current === started) inFlight.current = null;
+      });
+      return started;
+    },
+    [],
+  );
+
+  /**
+   * Replaces one photo with another from the same stretch: a spare the scan
+   * already classified when there is one, otherwise a fresh look at the window.
+   *
+   * When there genuinely is nothing else the photo STAYS. Dropping the slot —
+   * what this used to do — turned a chip that could not deliver into one that
+   * quietly cost the publisher a photo.
+   */
   const swapPhoto = useCallback((id: string, photoId: string): void => {
+    const posting = state.postings.find(p => p.id === id);
+    const config = state.config;
+    // One swap at a time per stretch: a second riding on the first's round
+    // could spend two AI calls to fill one slot.
+    if (posting == null || posting.swappingId != null) return;
+
+    const banked = spareFor(posting, config)[0];
+    if (banked != null) {
+      setState(s => ({
+        ...s,
+        postings: s.postings.map(p =>
+          p.id === id
+            ? { ...p, slots: p.slots.map(s2 => (s2 === photoId ? banked.candidate.id : s2)) }
+            : p,
+        ),
+      }));
+      return;
+    }
+    if (config == null || !posting.canAddMore) return;
+
     setState(s => ({
       ...s,
-      postings: s.postings.map(p => {
-        if (p.id !== id) return p;
-        const used = new Set(p.slots);
-        const replacement = [...p.draft.batch, ...p.draft.pool].find(
-          c => !used.has(c.candidate.id),
-        );
-        // No spare photo in this window — drop the slot rather than leaving a
-        // photo the publisher explicitly rejected.
-        return {
-          ...p,
-          slots: replacement
-            ? p.slots.map(s2 => (s2 === photoId ? replacement.candidate.id : s2))
-            : p.slots.filter(s2 => s2 !== photoId),
-        };
-      }),
+      postings: s.postings.map(p => (p.id === id ? { ...p, swappingId: photoId } : p)),
     }));
-  }, []);
+    void topUpWindow(posting, config)
+      .catch(() => [] as PhotoClassification[])
+      .then(suggestions => {
+        setState(s => ({
+          ...s,
+          postings: s.postings.map(p => {
+            if (p.id !== id) return p;
+            // Picked against the live slots: the round above was a network trip
+            // and the card can have moved under it.
+            const used = new Set(p.slots);
+            const pick = suggestions.find(c => !used.has(c.candidate.id));
+            return {
+              ...p,
+              swappingId: null,
+              slots:
+                pick == null
+                  ? p.slots
+                  : p.slots.map(s2 => (s2 === photoId ? pick.candidate.id : s2)),
+            };
+          }),
+        }));
+      });
+  }, [state.postings, state.config, topUpWindow]);
+
+  /**
+   * Adds one more photo to a stretch — the "+" slot the live review screen has
+   * always had. A reconstructed post starts at the configured photo count; this
+   * is how a memorable week gets more than an ordinary one.
+   */
+  const addPhoto = useCallback((id: string): void => {
+    const posting = state.postings.find(p => p.id === id);
+    const config = state.config;
+    if (posting == null || posting.adding || !hasRoomForMore(posting)) return;
+
+    const append = (photo: PhotoClassification | undefined): void =>
+      setState(s => ({
+        ...s,
+        postings: s.postings.map(p => {
+          if (p.id !== id) return p;
+          const room = hasRoomForMore(p);
+          const already = photo != null && p.slots.includes(photo.candidate.id);
+          return {
+            ...p,
+            adding: false,
+            slots: photo == null || !room || already ? p.slots : [...p.slots, photo.candidate.id],
+          };
+        }),
+      }));
+
+    // The banked path stays synchronous: going through the async one for a
+    // photo we already hold would flash a spinner on an instant action.
+    const banked = spareFor(posting, config)[0];
+    if (banked != null) {
+      append(banked);
+      return;
+    }
+    if (config == null || !posting.canAddMore) return;
+
+    setState(s => ({
+      ...s,
+      postings: s.postings.map(p => (p.id === id ? { ...p, adding: true } : p)),
+    }));
+    void topUpWindow(posting, config)
+      .catch(() => [] as PhotoClassification[])
+      .then(suggestions => append(suggestions[0]));
+  }, [state.postings, state.config, topUpWindow]);
 
   /**
    * Publish one stretch now, leaving the rest alone. The scan carries on
@@ -385,9 +620,15 @@ export function useHistoryBackfill(publisherId: string): State & {
     return { published: count, failed, failures };
   }, [publisherId, state.postings]);
 
-  const reset = useCallback((): void => setState(INITIAL), []);
+  const reset = useCallback((): void => {
+    pending.current = new Map();
+    setState(INITIAL);
+  }, []);
 
-  return { ...state, run, toggleDropped, setPlace, swapPhoto, publish, publishOne, togglePause, reset };
+  return {
+    ...state,
+    run, toggleDropped, setPlace, swapPhoto, addPhoto, publish, publishOne, togglePause, reset,
+  };
 }
 
 /**

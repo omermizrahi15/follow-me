@@ -14,7 +14,12 @@ import { Ionicons } from '@expo/vector-icons';
 import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
 import { usePublisherId } from '../context/AuthContext';
-import { useHistoryBackfill, describeWindow } from '../hooks/useHistoryBackfill';
+import {
+  useHistoryBackfill,
+  describeWindow,
+  canOfferMorePhotos,
+  hasRoomForMore,
+} from '../hooks/useHistoryBackfill';
 import { PlaceField } from '../components/PlaceField';
 import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
 import type { ReviewablePosting } from '../hooks/useHistoryBackfill';
@@ -22,7 +27,7 @@ import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { planHistoryWindows } from '../../domain/services/historyWindows';
 import type { HistoryWindow } from '../../domain/services/historyWindows';
 import { FREQUENCY_DAYS } from '../../domain/entities/PublisherConfig';
-import type { Frequency } from '../../domain/entities/PublisherConfig';
+import type { Frequency, PublisherConfig } from '../../domain/entities/PublisherConfig';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { Coordinate } from '../../domain/interfaces';
 import { colors, radius, spacing, typography } from '../theme/theme';
@@ -178,7 +183,7 @@ function PublishOne({ posting, onPublish }: {
     return (
       <View style={styles.publishedRow}>
         <Ionicons name="checkmark-circle" size={16} color={colors.success} />
-        <Text style={styles.publishedText}>Added to your story</Text>
+        <Text style={styles.publishedText}>Post published</Text>
       </View>
     );
   }
@@ -212,9 +217,58 @@ function PublishOne({ posting, onPublish }: {
   );
 }
 
+/**
+ * The empty slot — the same "+" the live review screen carries (issue #17).
+ *
+ * A reconstructed stretch starts at the publisher's configured photo count,
+ * but a week in Rome deserves more than a quiet week at home, and the window
+ * usually holds far more photos than the scan classified. Pressing this asks
+ * the AI to look at more of that stretch.
+ */
+function AddPhotoCard({ posting, canAdd, onPress, variant }: {
+  posting: ReviewablePosting;
+  /** False once the window's queue — or the day's AI budget — is spent. */
+  canAdd: boolean;
+  onPress: () => void;
+  /** 'grid' sits in the three-up preview; 'row' matches a photo in the strip. */
+  variant: 'grid' | 'row';
+}): React.JSX.Element {
+  const shape = variant === 'grid' ? styles.addCardGrid : styles.addCardRow;
+
+  if (posting.adding) {
+    return (
+      <View style={[styles.addCard, shape]} accessibilityLiveRegion="polite">
+        <ActivityIndicator color={colors.accent} size="small" />
+        <Text style={styles.addHint} numberOfLines={2}>Finding one more…</Text>
+      </View>
+    );
+  }
+  return (
+    <TouchableOpacity
+      testID={`backfill-add-photo-${posting.id}`}
+      style={[styles.addCard, shape, !canAdd && styles.addCardDisabled]}
+      onPress={onPress}
+      disabled={!canAdd}
+      activeOpacity={0.7}
+      accessibilityRole="button"
+      accessibilityState={{ disabled: !canAdd }}
+      accessibilityLabel={canAdd ? 'Add another photo to this post' : 'No more photos to add'}
+      accessibilityHint="Looks through the rest of this stretch for one more photo"
+    >
+      <Ionicons name="add" size={22} color={canAdd ? colors.accent : colors.textMuted} />
+      <Text
+        style={[styles.addLabel, !canAdd && styles.addLabelDisabled]}
+        numberOfLines={2}
+      >
+        {canAdd ? 'Add photo' : posting.note ?? 'No more photos'}
+      </Text>
+    </TouchableOpacity>
+  );
+}
+
 // ---------- step 2: scanning ----------
 
-function ScanningStep({ current, total, window, classified, of, batch, done, onSwap, onPublishOne, paused, onTogglePause, bottomInset }: {
+function ScanningStep({ current, total, window, classified, of, batch, done, config, onSwap, onAdd, onPublishOne, paused, onTogglePause, bottomInset }: {
   current: number;
   total: number;
   /** Dates of the stretch being scanned, known before any photo is picked. */
@@ -224,7 +278,10 @@ function ScanningStep({ current, total, window, classified, of, batch, done, onS
   batch: PhotoClassification[];
   /** Stretches already reconstructed — the same objects the review step edits. */
   done: ReviewablePosting[];
+  /** Filters what may still be offered by the publisher's own categories. */
+  config: PublisherConfig | null;
   onSwap: (postingId: string, photoId: string) => void;
+  onAdd: (postingId: string) => void;
   onPublishOne: (postingId: string) => void;
   paused: boolean;
   onTogglePause: () => void;
@@ -327,9 +384,12 @@ function ScanningStep({ current, total, window, classified, of, batch, done, onS
         const shown = posting.slots
           .map(id => photos.get(id))
           .filter((c): c is PhotoClassification => c != null);
-        const spare = [...posting.draft.batch, ...posting.draft.pool].some(
-          c => !posting.slots.includes(c.candidate.id),
-        );
+        // Not just "is there a spare left over from the scan" — the AI can go
+        // back and look at more of this stretch, which is most of it. A stretch
+        // already sent is settled: editing it here would change nothing in the
+        // feed while looking like it did.
+        const editable = posting.status !== 'published' && posting.status !== 'publishing';
+        const more = editable && canOfferMorePhotos(posting, config);
 
         return (
           <View key={posting.id} style={styles.doneCard}>
@@ -365,9 +425,18 @@ function ScanningStep({ current, total, window, classified, of, batch, done, onS
                     key={c.candidate.id}
                     photo={c}
                     width="31%"
-                    onSwap={spare ? () => onSwap(posting.id, c.candidate.id) : null}
+                    busy={posting.swappingId === c.candidate.id}
+                    onSwap={more ? () => onSwap(posting.id, c.candidate.id) : null}
                   />
                 ))}
+                {editable && hasRoomForMore(posting) && (
+                  <AddPhotoCard
+                    posting={posting}
+                    canAdd={more}
+                    onPress={() => onAdd(posting.id)}
+                    variant="grid"
+                  />
+                )}
               </View>
             ) : (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
@@ -385,15 +454,21 @@ function ScanningStep({ current, total, window, classified, of, batch, done, onS
 
 // ---------- step 3: review timeline ----------
 
-function PostingCard({ posting, photos, onToggle, onPlace, onSwap, onPublishOne }: {
+function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd, onPublishOne }: {
   posting: ReviewablePosting;
   photos: Map<string, PhotoClassification>;
+  config: PublisherConfig | null;
   onToggle: () => void;
   onPlace: (place: string, coordinate?: Coordinate) => void;
   onSwap: (photoId: string) => void;
+  onAdd: () => void;
   onPublishOne: () => void;
 }): React.JSX.Element {
   const { dropped } = posting;
+  // A stretch already on its way out is settled — swapping a photo into it
+  // would change nothing in the feed while looking like it did.
+  const editable = posting.status !== 'published' && posting.status !== 'publishing';
+  const more = editable && canOfferMorePhotos(posting, config);
   return (
     <View style={[styles.card, dropped && styles.cardDropped]}>
       <View style={styles.cardHeader}>
@@ -426,20 +501,32 @@ function PostingCard({ posting, photos, onToggle, onPlace, onSwap, onPublishOne 
         {posting.slots.map(id => {
           const photo = photos.get(id);
           if (photo == null) return null;
+          const busy = posting.swappingId === id;
           return (
             <TouchableOpacity
               key={id}
               onPress={() => onSwap(id)}
-              disabled={dropped}
+              disabled={dropped || busy || !more}
               activeOpacity={0.7}
               accessibilityRole="button"
+              accessibilityState={{ disabled: dropped || !more, busy }}
               accessibilityLabel="Suggest a different photo"
               accessibilityHint="Replaces this photo with another from the same stretch"
             >
               <Image source={{ uri: photo.candidate.uri }} style={styles.photo} />
+              {/* The swap can need an AI round-trip once the scan's spares are
+                  used up; without this the tap looks like it did nothing. */}
+              {busy && (
+                <View style={styles.photoBusy}>
+                  <ActivityIndicator color={colors.onAccent} size="small" />
+                </View>
+              )}
             </TouchableOpacity>
           );
         })}
+        {!dropped && editable && hasRoomForMore(posting) && (
+          <AddPhotoCard posting={posting} canAdd={more} onPress={onAdd} variant="row" />
+        )}
       </ScrollView>
 
       {/* Same field the live review screen uses: with photo GPS it's just an
@@ -457,12 +544,14 @@ function PostingCard({ posting, photos, onToggle, onPlace, onSwap, onPublishOne 
   );
 }
 
-function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPublishOne, onPublish, publishing, published, bottomInset }: {
+function ReviewStep({ postings, quotaExhausted, config, onToggle, onPlace, onSwap, onAdd, onPublishOne, onPublish, publishing, published, bottomInset }: {
   postings: ReviewablePosting[];
   quotaExhausted: boolean;
+  config: PublisherConfig | null;
   onToggle: (id: string) => void;
   onPlace: (id: string, place: string, coordinate?: Coordinate) => void;
   onSwap: (id: string, photoId: string) => void;
+  onAdd: (id: string) => void;
   onPublishOne: (id: string) => void;
   onPublish: () => void;
   publishing: boolean;
@@ -524,16 +613,18 @@ function ReviewStep({ postings, quotaExhausted, onToggle, onPlace, onSwap, onPub
         )}
         <Text style={styles.lead}>
           Your travel story, newest first. Untick anything you’d rather not share, tap a
-          photo to swap it, and fix any place that looks off.
+          photo to swap it, tap + to add one more, and fix any place that looks off.
         </Text>
         {[...postings].reverse().map(p => (
           <PostingCard
             key={p.id}
             posting={p}
             photos={photoIndex.get(p.id) ?? new Map()}
+            config={config}
             onToggle={() => onToggle(p.id)}
             onPlace={(place, coordinate) => onPlace(p.id, place, coordinate)}
             onSwap={photoId => onSwap(p.id, photoId)}
+            onAdd={() => onAdd(p.id)}
             onPublishOne={() => onPublishOne(p.id)}
           />
         ))}
@@ -600,15 +691,15 @@ interface ContentProps {
 export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, bottomInset = 0 }: ContentProps): React.JSX.Element {
   const publisherId = usePublisherId();
   const {
-    phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error,
+    phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error, config,
     scanClassified, scanOf, scanBatch, scanWindow, paused, togglePause, publishOne,
-    run, toggleDropped, setPlace, swapPhoto, publish, reset,
+    run, toggleDropped, setPlace, swapPhoto, addPhoto, publish, reset,
   } = useHistoryBackfill(publisherId);
 
   function handlePublish(): void {
     void publish()
       .then(({ published: count, failed, failures }) => {
-        const added = `${count} ${count === 1 ? 'post' : 'posts'} added to your story.`;
+        const added = `${count} ${count === 1 ? 'post' : 'posts'} published.`;
         // Never round a partial failure up to a success — name which stretches
         // failed and why, so "3 couldn't be uploaded" is something the
         // publisher can actually act on.
@@ -650,7 +741,9 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
           of={scanOf}
           batch={scanBatch}
           done={postings}
+          config={config}
           onSwap={swapPhoto}
+          onAdd={addPhoto}
           onPublishOne={id => void publishOne(id)}
           bottomInset={bottomInset}
         />
@@ -660,9 +753,11 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
         <ReviewStep
           postings={postings}
           quotaExhausted={quotaExhausted}
+          config={config}
           onToggle={toggleDropped}
           onPlace={setPlace}
           onSwap={swapPhoto}
+          onAdd={addPhoto}
           onPublishOne={id => void publishOne(id)}
           onPublish={handlePublish}
           publishing={phase === 'publishing'}
@@ -835,6 +930,33 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   previewGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: spacing.sm, marginTop: spacing.sm },
+  // Dashed, so the empty slot reads as "room for one more" rather than as a
+  // photo that failed to load.
+  addCard: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 2,
+    padding: spacing.xs,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderStyle: 'dashed',
+    borderColor: colors.accent,
+    backgroundColor: colors.surfaceAlt,
+  },
+  addCardGrid: { width: '31%', aspectRatio: 1 },
+  addCardRow: { width: 84, height: 84, borderRadius: radius.sm },
+  addCardDisabled: { borderColor: colors.border },
+  addLabel: { ...typography.caption, fontSize: 10, fontWeight: '700', color: colors.accent, textAlign: 'center' },
+  addLabelDisabled: { color: colors.textMuted, fontWeight: '600' },
+  addHint: { ...typography.caption, fontSize: 10, color: colors.textMuted, textAlign: 'center' },
+  // Sits over the photo whose replacement is being fetched.
+  photoBusy: {
+    ...StyleSheet.absoluteFillObject,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: radius.sm,
+    backgroundColor: 'rgba(0,0,0,0.45)',
+  },
   doneCard: {
     backgroundColor: colors.surface,
     borderRadius: radius.lg,

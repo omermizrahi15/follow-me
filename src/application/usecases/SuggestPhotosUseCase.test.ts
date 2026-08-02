@@ -140,6 +140,27 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
 
       expect(pending.map(c => c.id)).toEqual(['a']);
     });
+
+    /**
+     * The history backfill tops up ONE reconstructed stretch (issue #81). The
+     * scan stops at 2× photos-per-post, so a stretch reporting sixty photos has
+     * most of them unlooked-at — and reaching them through the lookback would
+     * hand a June post a photo taken last week.
+     */
+    it('draws from the given stretch, not the lookback, when one is passed', async () => {
+      const inWindow = { id: 'june', uri: 'https://cdn.test/june.jpg', createdAt: new Date(Date.UTC(2026, 5, 3)) };
+      const outside = { id: 'today', uri: 'https://cdn.test/today.jpg', createdAt: new Date(Date.UTC(2026, 7, 3)) };
+      const library = new FakeMediaLibrary([inWindow, outside]);
+      const useCase = useCaseWith(library, new FakePhotoClassifier());
+      const window = { start: new Date(Date.UTC(2026, 5, 1)), end: new Date(Date.UTC(2026, 5, 8)) };
+
+      const pending = await useCase.pendingCandidates(config(), new Set(), window);
+
+      expect(pending.map(c => c.id)).toEqual(['june']);
+      expect(library.requestedWindows).toEqual([window]);
+      // Never the lookback: that is a different stretch of the trip entirely.
+      expect(library.lastLookbackDays).toBeNull();
+    });
   });
 
   describe('classifyMore', () => {
