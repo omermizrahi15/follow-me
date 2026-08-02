@@ -96,7 +96,7 @@ export class SupabaseMediaRepository implements IMediaRepository {
       latitude: media.coordinate?.latitude ?? null,
       longitude: media.coordinate?.longitude ?? null,
       // Both flags are sent only when set, so a live post never depends on
-      // migration 20240025/20240026 having landed — the columns default to
+      // migration 20240029/20240030 having landed — the columns default to
       // false/null anyway. Keeps ordinary sharing working on any environment
       // the migrations haven't reached yet. Restoring clears deleted_at through
       // setPostingDeleted, not here: save() only ever writes fresh media.
