@@ -142,11 +142,18 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
           onClassifying(index, total, currentBatch) {
             setState(s => ({
               ...s,
-              phase: 'classifying',
+              // Once the post is on screen the grading is a background detail —
+              // it must not drag the UI back into the scanning state.
+              phase: s.phase === 'done' ? 'done' : 'classifying',
               classified: index,
               total,
               partial: currentBatch,
             }));
+          },
+          // Enough grades for a real post: show it now and let the rest of the
+          // window keep grading behind it.
+          onBatchReady(batch, pool) {
+            setState(s => ({ ...s, phase: 'done', batch, pool, fromCache: false, error: null }));
           },
         });
 

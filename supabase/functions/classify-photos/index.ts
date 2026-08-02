@@ -35,7 +35,20 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: 
 
 /** Guards against runaway clients: request size cap + per-user daily quota. */
 const MAX_PHOTOS_PER_REQUEST = 3;
-const DAILY_QUOTA = 500;
+/**
+ * Per-user photos per day. This is *our* ceiling, not Google's — Google's real
+ * limit is per-account and only visible on the AI Studio rate-limit dashboard,
+ * so this exists to stop a bug costing a fortune, not to mirror the API.
+ *
+ * Overridable via the CLASSIFY_DAILY_QUOTA secret precisely because the right
+ * number depends on the account: tune it once the dashboard says what the plan
+ * actually allows, without a redeploy of this file.
+ *
+ * Hitting it is not a failure — grades are remembered per photo on the device,
+ * so a scan stopped here resumes where it left off instead of re-buying what
+ * it already has.
+ */
+const DAILY_QUOTA = Number(Deno.env.get('CLASSIFY_DAILY_QUOTA') ?? '500') || 500;
 
 /** Resolves the calling user's id, or null when the token isn't a signed-in user. */
 async function authenticatedUserId(req: Request): Promise<string | null> {
