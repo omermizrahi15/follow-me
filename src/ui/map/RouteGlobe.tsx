@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import type { FeedPosting } from '../data/feed';
+// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): displaySizedUri is a pure URL transform with no I/O — it belongs in a UI media helper, not in infrastructure. Waived until it is moved.
 import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
 import { buildTravelRoute, type TravelRouteInput } from '../../domain/services/travelRoute';
 import { buildGlobeHtml, toScriptLiteral, type GlobeMessage } from './globeHtml';

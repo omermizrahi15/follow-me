@@ -13,6 +13,19 @@ module.exports = {
     'plugin:@typescript-eslint/recommended',
     'plugin:@typescript-eslint/recommended-requiring-type-checking',
   ],
+  settings: {
+    // Without a TypeScript-aware resolver the `import` plugin cannot resolve
+    // `.ts`/`.tsx` files, every path silently fails to resolve, and the
+    // architecture rules below never fire. Do not remove.
+    'import/resolver': {
+      typescript: {
+        project: './tsconfig.json',
+      },
+      node: {
+        extensions: ['.js', '.jsx', '.ts', '.tsx'],
+      },
+    },
+  },
   rules: {
     // ── TypeScript safety ──────────────────────────────────────────
     '@typescript-eslint/no-explicit-any': 'error',

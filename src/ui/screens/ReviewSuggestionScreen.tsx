@@ -14,7 +14,9 @@ import { useSuggestedPhotos } from '../hooks/useSuggestedPhotos';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { usePublisherId } from '../context/AuthContext';
+// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): the suggestion cache is read straight from the UI because no use case fronts it yet. Waived until one exists.
 import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
+// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): local-asset resolution is not yet behind a use case. Waived until it is.
 import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
 import { resolvePlaceForCoordinates, loadConfig } from '../../composition/container';
 import * as MediaLibrary from 'expo-media-library';

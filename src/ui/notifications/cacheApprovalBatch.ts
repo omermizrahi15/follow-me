@@ -1,3 +1,4 @@
+// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): the suggestion cache is read straight from the UI because no use case fronts it yet. Waived until one exists.
 import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
 import { fetchApprovalBatch } from '../../composition/container';
 

@@ -14,6 +14,7 @@ import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import { MAX_PHOTOS_PER_POST } from '../../domain/entities/PublisherConfig';
 import { isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
 import type { Coordinate } from '../../domain/interfaces';
+// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): local-asset resolution is not yet behind a use case. Waived until it is.
 import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
 import { coordinateFor, coordinatesFor } from '../data/photoCoordinates';
 

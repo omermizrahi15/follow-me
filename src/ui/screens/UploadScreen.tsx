@@ -14,6 +14,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import type { RootNavigationProp } from '../navigation/types';
 import { coordinatesForPickedAssets } from '../../domain/services/pickedAssetCoordinates';
+// eslint-disable-next-line import/no-restricted-paths -- pre-existing violation (#107): local-asset resolution is not yet behind a use case. Waived until it is.
 import { mediaLibraryAssetLocation } from '../../infrastructure/media/assetLocation';
 import type { Coordinate } from '../../domain/interfaces';
 import { resolvePlaceForCoordinates } from '../../composition/container';

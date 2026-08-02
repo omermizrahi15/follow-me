@@ -39,6 +39,10 @@ The ESLint config enforces these rules and will fail the build if violated:
 - **UI** must not import from infrastructure directly — only through hooks that call use cases
 - **Screens** must not import use cases directly — go through a hook
 
+Enforcement depends on `eslint-import-resolver-typescript` being wired through `settings['import/resolver']` in `.eslintrc.js`. Without it the `import` plugin cannot resolve `.ts`/`.tsx` paths, every restricted import silently fails to resolve, and the zones match nothing while lint stays green — which is exactly what happened up to #107. `src/layerBoundaries.test.ts` guards that wiring; don't delete it.
+
+You will find `// eslint-disable-next-line import/no-restricted-paths` on a handful of imports, each with a written reason. Those are the pre-existing breaches that the resolver exposed when it was turned on, waived individually so new code is guarded while the backlog is worked down. They are debt to be paid, not precedent to copy — a new violation should be fixed, not waived.
+
 If you need to add a new delivery mechanism (email, push notifications, etc.), implement the `INotifier` interface in `infrastructure/notifiers/`. Do not modify any use case.
 
 ## Verifying the auth deep link manually
