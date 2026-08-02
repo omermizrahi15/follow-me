@@ -16,7 +16,7 @@ import { GeminiPhotoClassifier } from '../infrastructure/classifiers/GeminiPhoto
 import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri, expoResolveAssetLocation } from '../infrastructure/media/ExpoMediaLibrary';
 import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotificationScheduler';
 import { registerExpoPushToken } from '../infrastructure/notifiers/ExpoPushToken';
-import type { Coordinate, ISentPhotoTracker } from '../domain/interfaces';
+import type { Coordinate, ISentPhotoTracker, PhotoSyncState } from '../domain/interfaces';
 import { resolvePostingPlace } from '../application/services/resolvePostingPlace';
 import { ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
 import { WhatsAppEdgeNotifier } from '../infrastructure/notifiers/WhatsAppEdgeNotifier';
@@ -144,13 +144,15 @@ export const syncCandidatePhotos = monitored('sync_candidate_photos', new SyncCa
   expoResolveAssetLocation,
 ));
 /**
- * Device heartbeat for the server's posting job (issue #97): "this phone synced
- * its photos just now". Written after every successful sync, including one that
- * uploaded nothing — the absence of a recent heartbeat is the signal.
+ * Tells the server's posting job what this device's photo sync is doing
+ * (issue #97): `active` is the heartbeat, written after every successful sync
+ * including one that uploaded nothing; `paused`/`no-consent` say upload is
+ * switched off, so the job stops waiting for photos that will never arrive.
  */
-export const recordCandidateSync = monitored(
-  'record_candidate_sync',
-  (publisherId: string): Promise<void> => configRepo.recordCandidateSync(publisherId, new Date()),
+export const recordSyncState = monitored(
+  'record_sync_state',
+  (publisherId: string, state: PhotoSyncState): Promise<void> =>
+    configRepo.recordSyncState(publisherId, state, new Date()),
 );
 export const saveProfile = monitored('save_profile', new SaveProfileUseCase(profileRepo));
 export const loadProfile = monitored('load_profile', new LoadProfileUseCase(profileRepo));

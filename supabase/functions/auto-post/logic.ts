@@ -28,7 +28,7 @@ export function approvalPushContent(
 }
 
 /** Why the pipeline fell back to a pick-manually reminder instead of a photo batch. */
-export type ReminderReason = 'no-candidates' | 'empty-batch' | 'stale-client';
+export type ReminderReason = 'no-candidates' | 'empty-batch' | 'stale-client' | 'sync-off';
 
 /**
  * Title/body for the fallback reminder push. The failure modes need different
@@ -41,6 +41,14 @@ export type ReminderReason = 'no-candidates' | 'empty-batch' | 'stale-client';
  */
 export function reminderPushContent(reason: ReminderReason): { title: string; body: string } {
   switch (reason) {
+    case 'sync-off':
+      // The device told us upload is switched off (paused by a cloud-photo wipe,
+      // or never consented to). "Open the app" is useless advice here — it was
+      // opened plenty; the flag kept sync off regardless. Name the actual fix.
+      return {
+        title: 'Photo upload is switched off',
+        body: 'Turn it back on in Auto-posting settings so Follow Me can prepare your next post.',
+      };
     case 'stale-client':
       // The phone hasn't checked in, so we can't know whether there are photos.
       // Don't accuse the user of having nothing — ask them to open the app.
@@ -85,6 +93,12 @@ export interface SyncGraceInput {
   lastWakePushAt: Date | null;
   /** Last successful client sync (heartbeat), used to word the give-up reminder. */
   lastClientSyncAt: Date | null;
+  /**
+   * What the device last said its photo sync was doing (migration 20240027).
+   * `null` is a device predating the column — fall back to heartbeat-only
+   * reasoning so old builds keep behaving as they did.
+   */
+  syncState: 'active' | 'paused' | 'no-consent' | null;
   now: Date;
 }
 
@@ -102,7 +116,15 @@ export type SyncGraceDecision =
  * ever sees anything.
  */
 export function syncGraceDecision(input: SyncGraceInput): SyncGraceDecision {
-  const { pendingSince, lastWakePushAt, lastClientSyncAt, now } = input;
+  const { pendingSince, lastWakePushAt, lastClientSyncAt, syncState, now } = input;
+
+  // Upload is switched off on the device. Waiting four hours and spending
+  // background push budget waking a phone that will decline to sync is theatre:
+  // no photo can arrive until the user turns it back on, so say so immediately.
+  if (syncState === 'paused' || syncState === 'no-consent') {
+    return { kind: 'give-up', reason: 'sync-off' };
+  }
+
   const elapsed = pendingSince != null ? now.getTime() - pendingSince.getTime() : 0;
 
   if (elapsed >= SYNC_GRACE_MS) {

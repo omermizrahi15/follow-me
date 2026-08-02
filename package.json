@@ -50,6 +50,7 @@
     "@sentry/react-native": "~7.2.0",
     "@supabase/supabase-js": "^2.108.0",
     "expo": "~54.0.0",
+    "expo-background-task": "~1.0.10",
     "expo-blur": "~15.0.8",
     "expo-dev-client": "~6.0.21",
     "expo-file-system": "~19.0.23",

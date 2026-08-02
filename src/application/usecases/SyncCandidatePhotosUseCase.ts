@@ -45,15 +45,25 @@ export class SyncCandidatePhotosUseCase {
    * it, the batches still in flight when the user hit "Remove my photos from
    * the cloud" would commit their rows *after* the delete and quietly bring
    * the cloud set back.
+   *
+   * `onProgress` reports `(uploaded, total)` — once with `(0, total)` before the
+   * first batch, then after each commit. A first sync over a wide lookback is
+   * minutes of work at three photos at a time, and without this the UI has
+   * nothing to show for it but a spinner (which is how a working sync got
+   * mistaken for a hung one and force-quit).
    */
   async execute(
     publisherId: string,
     lookbackDays: number,
     shouldStop?: () => Promise<boolean>,
+    onProgress?: (uploaded: number, total: number) => void,
   ): Promise<CandidatePhoto[]> {
     const candidates = await this.mediaLibrary.recentPhotos(lookbackDays);
     const existing = await this.candidateRepo.existingAssetIds(publisherId);
     const fresh = candidates.filter(c => !existing.has(c.id));
+    // Reported even when there is nothing to do, so the caller can distinguish
+    // "finished, zero new photos" from "never started".
+    onProgress?.(0, fresh.length);
     if (fresh.length === 0) return [];
 
     // Each batch is saved before the next starts, so an interrupted sync (app
@@ -72,7 +82,12 @@ export class SyncCandidatePhotosUseCase {
         return row;
       },
       {
-        onBatch: batch => this.candidateRepo.saveMany(batch),
+        onBatch: async (batch, startIndex): Promise<void> => {
+          await this.candidateRepo.saveMany(batch);
+          // After the save, not before: progress means "in the cloud", which is
+          // what the next sync's dedupe and the server's posting job both see.
+          onProgress?.(startIndex + batch.length, fresh.length);
+        },
         ...(shouldStop != null ? { shouldStop } : {}),
       },
     );

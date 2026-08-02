@@ -14,6 +14,7 @@ import type {
   INotifier,
   IStorageService,
   IPublisherConfigRepository,
+  PhotoSyncState,
   IPublisherProfileRepository,
   IConfirmationSender,
   IMediaLibrary,
@@ -291,11 +292,14 @@ export class InMemoryPublisherConfigRepository implements IPublisherConfigReposi
     return Promise.resolve(this.store.get(publisherId) ?? null);
   }
 
-  /** Last device sync heartbeat per publisher — assert on it directly. */
+  /** Last reported sync state per publisher — assert on it directly. */
+  readonly syncStates: Map<string, PhotoSyncState> = new Map();
+  /** Last device sync heartbeat per publisher. Only `active` moves it. */
   readonly candidateSyncs: Map<string, Date> = new Map();
 
-  async recordCandidateSync(publisherId: string, at: Date): Promise<void> {
-    this.candidateSyncs.set(publisherId, at);
+  async recordSyncState(publisherId: string, state: PhotoSyncState, at: Date): Promise<void> {
+    this.syncStates.set(publisherId, state);
+    if (state === 'active') this.candidateSyncs.set(publisherId, at);
     return Promise.resolve();
   }
 }

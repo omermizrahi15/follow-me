@@ -63,6 +63,13 @@ interface ConfigRow {
   post_pending_since: string | null;
   last_wake_push_at: string | null;
   last_candidate_sync_at: string | null;
+  // Whether the device is uploading photos at all — see migration 20240027.
+  photo_sync_state: string | null;
+}
+
+/** Narrow the free-text column to the states the decision logic knows about. */
+function parseSyncState(value: string | null): 'active' | 'paused' | 'no-consent' | null {
+  return value === 'active' || value === 'paused' || value === 'no-consent' ? value : null;
 }
 
 function parseDate(value: string | null): Date | null {
@@ -209,6 +216,7 @@ async function holdForSync(config: ConfigRow, now: Date, stamp: () => Promise<vo
     pendingSince: parseDate(config.post_pending_since),
     lastWakePushAt: parseDate(config.last_wake_push_at),
     lastClientSyncAt: parseDate(config.last_candidate_sync_at),
+    syncState: parseSyncState(config.photo_sync_state),
     now,
   });
 
@@ -546,7 +554,7 @@ Deno.serve(async (req: Request) => {
   const { data: configs, error } = await supabase
     .from('publisher_config')
     .select(
-      'publisher_id, require_approval, photos_per_post, notify_day_of_week, notify_time, enabled_categories, lookback_days, min_quality, timezone, expo_push_token, last_auto_post_at, post_pending_since, last_wake_push_at, last_candidate_sync_at',
+      'publisher_id, require_approval, photos_per_post, notify_day_of_week, notify_time, enabled_categories, lookback_days, min_quality, timezone, expo_push_token, last_auto_post_at, post_pending_since, last_wake_push_at, last_candidate_sync_at, photo_sync_state',
     );
   if (error != null) return json({ error: error.message }, 500);
 

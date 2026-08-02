@@ -25,4 +25,8 @@ export type {
   ResolveLocalUri,
   ResolveAssetLocation,
 } from './photoSuggestions';
-export type { IPublisherConfigRepository, IPublisherProfileRepository } from './publisher';
+export type {
+  IPublisherConfigRepository,
+  IPublisherProfileRepository,
+  PhotoSyncState,
+} from './publisher';

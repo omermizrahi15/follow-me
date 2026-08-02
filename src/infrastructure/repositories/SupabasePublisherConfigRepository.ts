@@ -1,5 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
-import type { IPublisherConfigRepository } from '../../domain/interfaces';
+import type { IPublisherConfigRepository, PhotoSyncState } from '../../domain/interfaces';
 import { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../domain/entities/PublisherConfig';
 import type { PhotoCategory } from '../../domain/entities/PhotoClassification';
@@ -20,6 +20,8 @@ type ConfigColumns = {
   last_auto_post_at: string | null;
   /** Device heartbeat for the auto-post grace window — see migration 20240026. */
   last_candidate_sync_at: string | null;
+  /** Whether the device is uploading photos at all — see migration 20240027. */
+  photo_sync_state: string | null;
 };
 
 interface Database {
@@ -28,12 +30,16 @@ interface Database {
       publisher_config: {
         Row: ConfigColumns;
         // last_auto_post_at is server-managed (the cron owns it); the app never
-        // writes it. last_candidate_sync_at is the mirror image — device-written,
-        // server-read — and never part of a config save.
-        Insert: Omit<ConfigColumns, 'expo_push_token' | 'last_auto_post_at' | 'last_candidate_sync_at'> & {
+        // writes it. last_candidate_sync_at and photo_sync_state are the mirror
+        // image — device-written, server-read — and never part of a config save.
+        Insert: Omit<
+          ConfigColumns,
+          'expo_push_token' | 'last_auto_post_at' | 'last_candidate_sync_at' | 'photo_sync_state'
+        > & {
           expo_push_token?: string | null;
           last_auto_post_at?: string | null;
           last_candidate_sync_at?: string | null;
+          photo_sync_state?: string | null;
         };
         Update: Partial<ConfigColumns>;
         Relationships: [];
@@ -116,14 +122,20 @@ export class SupabasePublisherConfigRepository implements IPublisherConfigReposi
   }
 
   /**
-   * Updates only the heartbeat column, and only for an existing row — an upsert
-   * here could resurrect a config the user deleted, or write a half-populated
-   * row for a publisher who never finished setup.
+   * Updates only the sync-state columns, and only for an existing row — an
+   * upsert here could resurrect a config the user deleted, or write a
+   * half-populated row for a publisher who never finished setup.
+   *
+   * The heartbeat moves only for `active`: a paused device has not synced, and
+   * stamping it would tell the server the opposite of what happened.
    */
-  async recordCandidateSync(publisherId: string, at: Date): Promise<void> {
+  async recordSyncState(publisherId: string, state: PhotoSyncState, at: Date): Promise<void> {
     const { error } = await this.client
       .from('publisher_config')
-      .update({ last_candidate_sync_at: at.toISOString() })
+      .update({
+        photo_sync_state: state,
+        ...(state === 'active' ? { last_candidate_sync_at: at.toISOString() } : {}),
+      })
       .eq('publisher_id', publisherId);
     if (error != null) throw new Error(error.message);
   }

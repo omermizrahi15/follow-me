@@ -24,14 +24,39 @@ export async function isPhotoSyncPaused(): Promise<boolean> {
   return stored != null;
 }
 
-/** Suspend background auto-sync — called right after the cloud wipe succeeds. */
+/** Suspend photo sync — called right after the cloud wipe succeeds. */
 export async function pausePhotoSync(): Promise<void> {
   await AsyncStorage.setItem(SYNC_PAUSED_KEY, new Date().toISOString()).catch(() => undefined);
 }
 
-/** Resume background auto-sync — called when the user next saves their settings. */
+/** Resume photo sync. */
 export async function resumePhotoSync(): Promise<void> {
   await AsyncStorage.removeItem(SYNC_PAUSED_KEY).catch(() => undefined);
+}
+
+/**
+ * Whether photo sync will actually run right now — consent given AND not paused.
+ * The two gates fail identically from the user's point of view ("my photos
+ * aren't uploading"), so the UI asks this one question rather than both.
+ */
+export async function isPhotoSyncEnabled(): Promise<boolean> {
+  return (await hasPhotoSyncConsent()) && !(await isPhotoSyncPaused());
+}
+
+/**
+ * Turn photo sync on, prompting for consent the first time. Resolves false if
+ * the user declines the prompt, in which case nothing changes.
+ *
+ * This is the ONLY way sync comes back after a wipe. It used to be a side
+ * effect of pressing Save in the auto-posting settings, which meant a publisher
+ * whose sync was paused had no way to discover it, no indication anything was
+ * off, and no obvious action to take — sync stayed off for a week and every
+ * scheduled post fell through to a "couldn't prepare your post" push.
+ */
+export async function enablePhotoSync(): Promise<boolean> {
+  if (!(await confirmPhotoSync())) return false;
+  await resumePhotoSync();
+  return true;
 }
 
 /**
