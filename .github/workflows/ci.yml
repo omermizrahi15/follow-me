@@ -34,8 +34,12 @@ on:
       - '.github/workflows/ci.yml'
 
 jobs:
+  # Named `validate`, not something prettier: main's branch protection requires a
+  # status check by that exact name, and GitHub matches on the job's display
+  # name. Renaming this job silently un-protects main — every PR then reports a
+  # context nothing requires, and the required one never arrives at all.
   validate:
-    name: Typecheck, Lint, Test
+    name: validate
     runs-on: ubuntu-latest
 
     steps:
