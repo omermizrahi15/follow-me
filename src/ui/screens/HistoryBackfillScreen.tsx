@@ -156,6 +156,19 @@ function SetupStep({ onStart, initialStartDate = null, gapCount = null, bottomIn
   );
 }
 
+/**
+ * "12 photos scanned · 3 duplicates removed" — the same accounting the live
+ * review screen gives, so a stretch that produced few photos says whether that
+ * is all there was or all that survived deduplication.
+ */
+function scanSummary(scanned: { found: number; unique: number }): string {
+  const duplicates = Math.max(0, scanned.found - scanned.unique);
+  const photos = `${scanned.found} ${scanned.found === 1 ? 'photo' : 'photos'} scanned`;
+  return duplicates > 0
+    ? `${photos} · ${duplicates} duplicate${duplicates === 1 ? '' : 's'} removed`
+    : photos;
+}
+
 /** Publish-this-one control, with whatever state that posting is in. */
 function PublishOne({ posting, onPublish }: {
   posting: ReviewablePosting;
@@ -338,6 +351,7 @@ function ScanningStep({ current, total, window, classified, of, batch, done, onS
                   {shown.length} {shown.length === 1 ? 'photo' : 'photos'}
                   {posting.place !== '' ? ` · ${posting.place}` : ''}
                 </Text>
+                <Text style={styles.scanSummary}>{scanSummary(posting.draft.scanned)}</Text>
               </View>
               <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={colors.textSecondary} />
             </TouchableOpacity>
@@ -390,6 +404,7 @@ function PostingCard({ posting, photos, onToggle, onPlace, onSwap, onPublishOne 
           <Text style={styles.cardCount}>
             {posting.slots.length} {posting.slots.length === 1 ? 'photo' : 'photos'}
           </Text>
+          <Text style={styles.scanSummary}>{scanSummary(posting.draft.scanned)}</Text>
         </View>
         <TouchableOpacity
           testID={`backfill-toggle-${posting.id}`}
@@ -848,6 +863,7 @@ const styles = StyleSheet.create({
   publishFailed: { ...typography.caption, fontSize: 11, color: colors.danger },
   doneWhen: { ...typography.heading, fontSize: 15, color: colors.text },
   doneCount: { ...typography.caption, fontSize: 11, color: colors.textMuted },
+  scanSummary: { ...typography.caption, fontSize: 11, color: colors.textMuted },
 
   card: {
     backgroundColor: colors.surface,

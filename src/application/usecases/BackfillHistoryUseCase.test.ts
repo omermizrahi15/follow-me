@@ -239,6 +239,46 @@ describe('BackfillHistoryUseCase — pause (issue #81)', () => {
   });
 });
 
+describe('BackfillHistoryUseCase — what the scan found', () => {
+  it('carries each stretch’s scan onto its draft', async () => {
+    const { useCase } = makeSut();
+
+    const { drafts } = await useCase.execute(input);
+
+    // One photo per week here, none of them near-duplicates.
+    expect(drafts[0]?.scanned).toEqual({ found: 1, unique: 1 });
+  });
+
+  it('counts the duplicates deduplication removed', async () => {
+    // Three shots seconds apart in week 1: a burst, collapsed to one.
+    const burst = [
+      candidate('burst-a', '2026-06-04T12:00:00Z'),
+      candidate('burst-b', '2026-06-04T12:00:05Z'),
+      candidate('burst-c', '2026-06-04T12:00:10Z'),
+    ];
+    const { useCase } = makeSut(burst);
+
+    const { drafts } = await useCase.execute(input);
+
+    const week1 = drafts[0];
+    expect(week1?.scanned.found).toBe(3);
+    expect(week1?.scanned.unique).toBe(1);
+  });
+
+  it('reports the scan per window, not for the run as a whole', async () => {
+    const { useCase } = makeSut();
+    const seen: { index: number; found: number }[] = [];
+
+    await useCase.execute(input, {
+      onWindowScanned: (index, _total, scan) => seen.push({ index, found: scan.found }),
+    });
+
+    // Three windows, each reporting only its own photos.
+    expect(seen).toHaveLength(3);
+    expect(seen.every(s => s.found === 1)).toBe(true);
+  });
+});
+
 describe('BackfillHistoryUseCase — progress', () => {
   it('reports the plan before scanning starts', async () => {
     const { useCase } = makeSut();

@@ -26,7 +26,7 @@ import { HistoryBackfillContent } from './HistoryBackfillScreen';
 import { FollowersSection } from './sections/FollowersSection';
 import { useInviteLink } from '../hooks/useInviteLink';
 import { useFeed } from '../hooks/useFeed';
-import { confirmMoveToTrash } from '../hooks/useTrash';
+import { moveToTrash } from '../hooks/useTrash';
 import { useProfile } from '../hooks/useProfile';
 import { useHistoryGaps } from '../hooks/useHistoryGaps';
 import { useSubscribers } from '../hooks/useSubscribers';
@@ -63,6 +63,9 @@ export function HomeScreen(): React.JSX.Element {
   const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings);
   const [section, setSection] = useState<HomeSection>('me');
   const [showingSuggestions, setShowingSuggestions] = useState(false);
+  // Which feed card has its Delete revealed — at most one, the way an iOS
+  // list only ever keeps a single row open.
+  const [swipedPostId, setSwipedPostId] = useState<string | null>(null);
   const [suggestionKey, setSuggestionKey] = useState(0);
 
   // Real profile when set up; gracefully fall back when name/photo are missing.
@@ -207,9 +210,14 @@ export function HomeScreen(): React.JSX.Element {
                 <PostCard
                   posting={item}
                   onPress={() => navigation.navigate('Posting', { posting: item })}
-                  // Long-press is the shortcut; the story viewer has the
-                  // explicit button for anyone who never discovers it.
-                  onLongPress={() => confirmMoveToTrash(publisherId, item, () => void reloadFeed())}
+                  // Swipe left to reveal Delete; the story viewer keeps an
+                  // explicit button for anyone who never discovers the swipe.
+                  onDelete={() => {
+                    setSwipedPostId(null);
+                    moveToTrash(publisherId, item, () => void reloadFeed());
+                  }}
+                  isSwipedOpen={swipedPostId === item.id}
+                  onSwipeStateChange={open => setSwipedPostId(open ? item.id : null)}
                 />
               )}
               // Fixed-height cards, so the list can skip measuring and mount
