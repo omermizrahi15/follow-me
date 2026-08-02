@@ -8,6 +8,9 @@ on:
   push:
     branches: [main]
     paths: ['supabase/migrations/**']
+  pull_request:
+    branches: [main]
+    paths: ['supabase/migrations/**', '.github/workflows/deploy-db.yml']
   workflow_dispatch:
     inputs:
       environment:
@@ -21,8 +24,53 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  # A migration's version is its numeric prefix, and `supabase db push` refuses
+  # to apply one that sorts at or below what the remote has already run. Two
+  # branches opened at the same time naturally pick the same next number, so the
+  # collision only appears once both are merged — on main, in CD, after the fact.
+  # Catching it on the PR is the whole point of this job.
+  check:
+    name: Check migration order
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Versions are unique and sort after the base branch
+        env:
+          BASE: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          version() { basename "$1" | cut -d_ -f1; }
+
+          dupes=$(for f in supabase/migrations/*.sql; do version "$f"; done | sort | uniq -d)
+          if [ -n "$dupes" ]; then
+            echo "::error::Two migrations share a version prefix: $(echo $dupes | tr '\n' ' ')"
+            echo "Renumber the one that has not been applied yet."
+            exit 1
+          fi
+
+          git fetch --no-tags origin "$BASE"
+          base_max=$(git ls-tree --name-only "origin/$BASE" supabase/migrations/ \
+            | sed -n 's|.*/\([0-9]*\)_.*|\1|p' | sort | tail -1)
+          # -M so a renumbering reads as a rename, not an addition: renumbering a
+          # migration the remote has not run yet is the fix for this error, and
+          # the new number is legitimately below the newest one on the branch.
+          added=$(git diff -M --name-only --diff-filter=A "origin/$BASE...HEAD" -- 'supabase/migrations/*.sql')
+          status=0
+          for f in $added; do
+            v=$(version "$f")
+            if [ "$v" -le "$base_max" ]; then
+              echo "::error file=$f::$v does not sort after $base_max, the newest migration on $BASE. Renumber it."
+              status=1
+            fi
+          done
+          exit $status
+
   migrate:
     name: Migrate ${{ github.event.inputs.environment || 'staging' }}
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment: ${{ github.event.inputs.environment || 'staging' }}
     steps:
