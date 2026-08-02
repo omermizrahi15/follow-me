@@ -22,14 +22,19 @@ public launch.
 ## RLS hardening — TODO(production)
 
 Current dev posture: `candidate_photos`, `publisher_config`, `subscribers`,
-`notification_deliveries`, `posts` (select) allow the **anon** role. Anyone with the anon key can read and
-(for some tables) write rows. Acceptable for a closed dev instance, unsafe for
-production.
+`notification_deliveries`, `posts` (select) allow the **anon** and
+**authenticated** roles alike, `using (true)`. Anyone with the anon key can read
+and (for some tables) write rows. Acceptable for a closed dev instance, unsafe
+for production.
 
 Plan:
-1. App clients authenticate today (Supabase phone auth) but the repositories
-   construct **separate anon clients**. Refactor the repositories to share the
-   authed client from `SupabaseAuthService` so `auth.uid()` is available to RLS.
+1. ~~App clients authenticate today (Supabase phone auth) but the repositories
+   construct **separate anon clients**.~~ Done (issue #115): every repository is
+   injected with the one authenticated client from
+   `src/infrastructure/supabase/client.ts`, so a signed-in user's queries carry
+   their JWT and `auth.uid()` is available to RLS. Migration 20240031 widened the
+   `dev_allow_*` policies to `authenticated` so the app kept working in the
+   meantime — those policies are still `using (true)` and still have to go.
 2. Apply the policies below (and drop every `dev_allow_*` policy).
 3. `posts` keeps anon **select only** (the public gallery page reads it); ids
    are unguessable 20-hex-char hashes.

@@ -35,28 +35,24 @@ import { CloudinaryStorageService } from '../infrastructure/storage/CloudinarySt
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
 import { monitored, reportMessage } from '../infrastructure/monitoring/sentry';
+import { requireEnv } from '../infrastructure/env';
+import { supabase } from '../infrastructure/supabase/client';
 import Constants from 'expo-constants';
 
-/**
- * Asserts an EXPO_PUBLIC_* build-time variable is present. Callers MUST pass the
- * value via a static `process.env.EXPO_PUBLIC_X` reference (never a dynamic
- * `process.env[key]`): Expo only inlines static references into the production
- * bundle, so a dynamic lookup is `undefined` at runtime and blanks the app.
- */
-function requireEnv(value: string | undefined, name: string): string {
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
-  return value;
-}
-
+// Edge Functions are called over plain `fetch`, so the project URL and anon key
+// are still needed here; the client itself reads them for its own construction.
 const supabaseUrl = requireEnv(process.env.EXPO_PUBLIC_SUPABASE_URL as string | undefined, 'EXPO_PUBLIC_SUPABASE_URL');
-const supabaseKey = requireEnv(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string | undefined, 'EXPO_PUBLIC_SUPABASE_ANON_KEY');
+const supabaseAnonKey = requireEnv(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string | undefined, 'EXPO_PUBLIC_SUPABASE_ANON_KEY');
 
-const mediaRepo = new SupabaseMediaRepository(supabaseUrl, supabaseKey);
-const subscriberRepo = new SupabaseSubscriberRepository(supabaseUrl, supabaseKey);
-const configRepo = new SupabasePublisherConfigRepository(supabaseUrl, supabaseKey);
-const candidateRepo = new SupabaseCandidatePhotoRepository(supabaseUrl, supabaseKey);
-const profileRepo = new SupabasePublisherProfileRepository(supabaseUrl, supabaseKey);
-const approvalBatchRepo = new SupabaseApprovalBatchRepository(supabaseUrl, supabaseKey);
+// One client for the whole app (issue #115): every repository below queries
+// through the same instance `authService` signs in on, so their reads and
+// writes carry the signed-in user's JWT instead of running as `anon`.
+const mediaRepo = new SupabaseMediaRepository(supabase);
+const subscriberRepo = new SupabaseSubscriberRepository(supabase);
+const configRepo = new SupabasePublisherConfigRepository(supabase);
+const candidateRepo = new SupabaseCandidatePhotoRepository(supabase);
+const profileRepo = new SupabasePublisherProfileRepository(supabase);
+const approvalBatchRepo = new SupabaseApprovalBatchRepository(supabase);
 // Shared photo uploader (Cloudinary) — used for posts and profile avatars.
 // The optional folder isolates staging uploads from production assets.
 const storageService = new CloudinaryStorageService(
@@ -73,9 +69,9 @@ export const storage = monitored('photo_upload', storageService);
 // subscribe / join-webhook functions); the in-app sender below is dev-only.
 // Delivery tracking (issue #11): every send is logged per (photo, subscriber)
 // in notification_deliveries, and failures retry with 1s/4s/16s backoff.
-const deliveryLog = new SupabaseNotificationDeliveryRepository(supabaseUrl, supabaseKey);
+const deliveryLog = new SupabaseNotificationDeliveryRepository(supabase);
 const notifier = new RetryingNotifier(
-  new WhatsAppEdgeNotifier(`${supabaseUrl}/functions/v1/send-post`, supabaseKey),
+  new WhatsAppEdgeNotifier(`${supabaseUrl}/functions/v1/send-post`, supabaseAnonKey),
   {
     onAttempt: (subscriber, media, attempt) =>
       deliveryLog.recordAttempt(media.map(m => m.id), subscriber.id, attempt),
@@ -86,7 +82,7 @@ const confirmationSender = new ConsoleConfirmationSender();
 const mediaLibrary = new ExpoMediaLibrary();
 const photoClassifier = new GeminiPhotoClassifier(
   requireEnv(process.env.EXPO_PUBLIC_CLASSIFY_FN_URL as string | undefined, 'EXPO_PUBLIC_CLASSIFY_FN_URL'),
-  supabaseKey,
+  supabaseAnonKey,
   expoResolvePayload,
   // The classify function requires a signed-in user's JWT (anon key rejected).
   // authService is declared below — the closure runs long after module init.
@@ -125,7 +121,7 @@ export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(m
 export const subscribe = monitored('subscribe', new SubscribeUseCase(subscriberRepo, confirmationSender));
 export const listSubscribers = monitored('list_subscribers', new ListSubscribersUseCase(subscriberRepo));
 export const removeSubscriber = monitored('remove_subscriber', new RemoveSubscriberUseCase(subscriberRepo));
-export const authService = new SupabaseAuthService(supabaseUrl, supabaseKey);
+export const authService = new SupabaseAuthService(supabase);
 export const saveConfig = monitored('save_config', new SaveConfigUseCase(configRepo));
 export const loadConfig = monitored('load_config', new LoadConfigUseCase(configRepo));
 // The grade store is what makes grading the whole window affordable: a photo is
@@ -255,7 +251,7 @@ export const publishApprovalBatch = monitored(
     if (token == null) throw new Error('Not signed in');
     const res = await fetch(`${supabaseUrl}/functions/v1/post-batch`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, apikey: supabaseKey, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ batchId }),
     });
     if (!res.ok) throw new Error(`Post failed (${res.status}): ${await res.text()}`);
@@ -273,7 +269,7 @@ export const deleteUploadedPhotos = monitored('delete_uploaded_photos', async ()
   if (token == null) throw new Error('Not signed in');
   const res = await fetch(`${supabaseUrl}/functions/v1/delete-candidates`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, apikey: supabaseKey },
+    headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey },
   });
   if (!res.ok) throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
   return (await res.json()) as { deletedRows: number };

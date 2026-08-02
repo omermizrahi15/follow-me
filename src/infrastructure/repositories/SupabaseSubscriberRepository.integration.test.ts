@@ -60,7 +60,9 @@ describeIf(RUN)('SupabaseSubscriberRepository — anon SELECT policy (integratio
   });
 
   function makeRepo(): SupabaseSubscriberRepository {
-    return new SupabaseSubscriberRepository(supabaseUrl!, anonKey!);
+    return new SupabaseSubscriberRepository(
+      createClient(supabaseUrl!, anonKey!, { auth: { persistSession: false } }),
+    );
   }
 
   it('the anon client can read a publisher\'s active subscribers (select policy)', async (): Promise<void> => {
@@ -89,7 +91,9 @@ const ID_B = '00000000-0000-4000-8000-0000000015b2';
 
 describeIf(RUN)('SupabaseSubscriberRepository.findByContactHandle (integration)', () => {
   function makeRepo(): SupabaseSubscriberRepository {
-    return new SupabaseSubscriberRepository(supabaseUrl!, serviceKey!);
+    return new SupabaseSubscriberRepository(
+      createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false } }),
+    );
   }
 
   beforeEach(async (): Promise<void> => {

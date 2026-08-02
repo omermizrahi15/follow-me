@@ -29,7 +29,9 @@ const TEST_PUBLISHER = 'integration-test-publisher';
 
 describeIf(RUN)('SupabaseNotificationLogRepository (integration)', () => {
   function makeRepo(): SupabaseNotificationLogRepository {
-    return new SupabaseNotificationLogRepository(supabaseUrl!, serviceKey!);
+    return new SupabaseNotificationLogRepository(
+      createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false } }),
+    );
   }
 
   // Append-only table: clear the test rows before each run so counts are exact.

@@ -11,6 +11,7 @@
   close(): void {}
 };
 
+import { createClient } from '@supabase/supabase-js';
 import { SupabasePublisherConfigRepository } from './SupabasePublisherConfigRepository';
 import { PublisherConfig } from '../../domain/entities/PublisherConfig';
 
@@ -25,7 +26,9 @@ const TEST_PUBLISHER_ID = 'integration-test-publisher';
 
 describeIf(RUN)('SupabasePublisherConfigRepository (integration)', () => {
   function makeRepo(): SupabasePublisherConfigRepository {
-    return new SupabasePublisherConfigRepository(supabaseUrl!, supabaseKey!);
+    return new SupabasePublisherConfigRepository(
+      createClient(supabaseUrl!, supabaseKey!, { auth: { persistSession: false } }),
+    );
   }
 
   it('inserts a config and reads it back (insert + select policies)', async (): Promise<void> => {

@@ -21,6 +21,7 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
 };
 
 import { SupabaseAuthService } from './SupabaseAuthService';
+import { createSupabaseClient } from '../supabase/client';
 
 const supabaseUrl = process.env['EXPO_PUBLIC_SUPABASE_URL'] as string | undefined;
 const supabaseKey = process.env['EXPO_PUBLIC_SUPABASE_ANON_KEY'] as string | undefined;
@@ -33,7 +34,7 @@ const RUN = supabaseUrl && supabaseKey;
 const describeIf = (cond: unknown): jest.Describe => (cond ? describe : describe.skip);
 
 function makeService(): SupabaseAuthService {
-  return new SupabaseAuthService(supabaseUrl!, supabaseKey!);
+  return new SupabaseAuthService(createSupabaseClient(supabaseUrl!, supabaseKey!));
 }
 
 describeIf(RUN)('SupabaseAuthService (integration)', () => {

@@ -1,49 +1,11 @@
-import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../supabase/database';
 import type {
   DeliveryStatus,
   INotificationLogger,
   NotificationDelivery,
   RecordedNotificationDelivery,
 } from '../../domain/interfaces';
-
-interface Database {
-  public: {
-    Tables: {
-      notification_deliveries: {
-        Row: {
-          id: string;
-          photo_id: string;
-          subscriber_id: string;
-          publisher_id: string;
-          status: string;
-          attempts: number;
-          last_attempted_at: string | null;
-          created_at: string;
-        };
-        Insert: {
-          id?: string;
-          photo_id: string;
-          subscriber_id: string;
-          publisher_id: string;
-          status?: string;
-          attempts?: number;
-          last_attempted_at?: string | null;
-          created_at?: string;
-        };
-        Update: {
-          status?: string;
-          attempts?: number;
-          last_attempted_at?: string | null;
-        };
-        Relationships: [];
-      };
-    };
-    Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
-    Enums: { [_ in never]: never };
-    CompositeTypes: { [_ in never]: never };
-  };
-}
 
 type DeliveryRow = Database['public']['Tables']['notification_deliveries']['Row'];
 
@@ -64,11 +26,7 @@ function rowToDelivery(row: DeliveryRow): RecordedNotificationDelivery {
  * compliance audit in notification_log.
  */
 export class SupabaseNotificationDeliveryRepository implements INotificationLogger {
-  private client: ReturnType<typeof createClient<Database>>;
-
-  constructor(url: string, key: string) {
-    this.client = createClient<Database>(url, key, { auth: { persistSession: false } });
-  }
+  constructor(private readonly client: SupabaseClient<Database>) {}
 
   async logPending(deliveries: NotificationDelivery[]): Promise<void> {
     if (deliveries.length === 0) return;

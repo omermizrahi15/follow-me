@@ -1,24 +1,8 @@
-import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../supabase/database';
 import type { ISubscriberRepository } from '../../domain/interfaces';
 import { Subscriber } from '../../domain/entities/Subscriber';
 import type { SubscriptionStatus } from '../../domain/entities/Subscriber';
-
-interface Database {
-  public: {
-    Tables: {
-      subscribers: {
-        Row: { id: string; publisher_id: string; contact_handle: string; status: string };
-        Insert: { id: string; publisher_id: string; contact_handle: string; status: string };
-        Update: { id?: string; publisher_id?: string; contact_handle?: string; status?: string };
-        Relationships: [];
-      };
-    };
-    Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
-    Enums: { [_ in never]: never };
-    CompositeTypes: { [_ in never]: never };
-  };
-}
 
 type SubscriberRow = Database['public']['Tables']['subscribers']['Row'];
 
@@ -32,11 +16,7 @@ function rowToSubscriber(row: SubscriberRow): Subscriber {
 }
 
 export class SupabaseSubscriberRepository implements ISubscriberRepository {
-  private client: ReturnType<typeof createClient<Database>>;
-
-  constructor(url: string, anonKey: string) {
-    this.client = createClient<Database>(url, anonKey, { auth: { persistSession: false } });
-  }
+  constructor(private readonly client: SupabaseClient<Database>) {}
 
   async save(subscriber: Subscriber): Promise<void> {
     const { error } = await this.client.from('subscribers').upsert({

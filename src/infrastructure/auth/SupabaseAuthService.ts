@@ -1,19 +1,9 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClient, type Session, type AuthChangeEvent } from '@supabase/supabase-js';
+import type { Session, AuthChangeEvent, SupabaseClient } from '@supabase/supabase-js';
 
 export class SupabaseAuthService {
-  private client: ReturnType<typeof createClient>;
-
-  constructor(url: string, anonKey: string) {
-    this.client = createClient(url, anonKey, {
-      auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: false,
-      },
-    });
-  }
+  // The same client the repositories query with, so signing in here is what
+  // makes their reads and writes carry the user's JWT (issue #115).
+  constructor(private readonly client: SupabaseClient) {}
 
   async signInWithPhoneOtp(phone: string): Promise<void> {
     const { error } = await this.client.auth.signInWithOtp({

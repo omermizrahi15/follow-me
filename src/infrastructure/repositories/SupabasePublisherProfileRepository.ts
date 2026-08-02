@@ -1,23 +1,7 @@
-import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../supabase/database';
 import type { IPublisherProfileRepository } from '../../domain/interfaces';
 import { PublisherProfile } from '../../domain/entities/PublisherProfile';
-
-interface Database {
-  public: {
-    Tables: {
-      publisher_profile: {
-        Row: { publisher_id: string; display_name: string; avatar_url: string | null; trip_start_date: string | null };
-        Insert: { publisher_id: string; display_name: string; avatar_url: string | null; trip_start_date?: string | null };
-        Update: { publisher_id?: string; display_name?: string; avatar_url?: string | null; trip_start_date?: string | null };
-        Relationships: [];
-      };
-    };
-    Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
-    Enums: { [_ in never]: never };
-    CompositeTypes: { [_ in never]: never };
-  };
-}
 
 type ProfileRow = Database['public']['Tables']['publisher_profile']['Row'];
 
@@ -46,11 +30,7 @@ function rowToProfile(row: ProfileRow): PublisherProfile {
 }
 
 export class SupabasePublisherProfileRepository implements IPublisherProfileRepository {
-  private client: ReturnType<typeof createClient<Database>>;
-
-  constructor(url: string, anonKey: string) {
-    this.client = createClient<Database>(url, anonKey, { auth: { persistSession: false } });
-  }
+  constructor(private readonly client: SupabaseClient<Database>) {}
 
   async save(profile: PublisherProfile): Promise<void> {
     const { error } = await this.client.from('publisher_profile').upsert({

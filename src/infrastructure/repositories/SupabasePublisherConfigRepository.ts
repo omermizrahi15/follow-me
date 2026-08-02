@@ -1,56 +1,10 @@
-import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { Database } from '../supabase/database';
 import type { IPublisherConfigRepository, PhotoSyncState } from '../../domain/interfaces';
 import { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../domain/entities/PublisherConfig';
 import type { PhotoCategory } from '../../domain/entities/PhotoClassification';
 import { SELECTABLE_CATEGORIES } from '../../domain/entities/PhotoClassification';
-
-type ConfigColumns = {
-  publisher_id: string;
-  frequency: string;
-  photos_per_post: number;
-  require_approval: boolean;
-  notify_day_of_week: number;
-  notify_time: string;
-  enabled_categories: string[];
-  lookback_days: number;
-  min_quality: number;
-  timezone: string;
-  expo_push_token: string | null;
-  last_auto_post_at: string | null;
-  /** Device heartbeat for the auto-post grace window — see migration 20240026. */
-  last_candidate_sync_at: string | null;
-  /** Whether the device is uploading photos at all — see migration 20240027. */
-  photo_sync_state: string | null;
-};
-
-interface Database {
-  public: {
-    Tables: {
-      publisher_config: {
-        Row: ConfigColumns;
-        // last_auto_post_at is server-managed (the cron owns it); the app never
-        // writes it. last_candidate_sync_at and photo_sync_state are the mirror
-        // image — device-written, server-read — and never part of a config save.
-        Insert: Omit<
-          ConfigColumns,
-          'expo_push_token' | 'last_auto_post_at' | 'last_candidate_sync_at' | 'photo_sync_state'
-        > & {
-          expo_push_token?: string | null;
-          last_auto_post_at?: string | null;
-          last_candidate_sync_at?: string | null;
-          photo_sync_state?: string | null;
-        };
-        Update: Partial<ConfigColumns>;
-        Relationships: [];
-      };
-    };
-    Views: { [_ in never]: never };
-    Functions: { [_ in never]: never };
-    Enums: { [_ in never]: never };
-    CompositeTypes: { [_ in never]: never };
-  };
-}
 
 type ConfigRow = Database['public']['Tables']['publisher_config']['Row'];
 
@@ -88,11 +42,7 @@ function rowToConfig(row: ConfigRow): PublisherConfig {
 }
 
 export class SupabasePublisherConfigRepository implements IPublisherConfigRepository {
-  private client: ReturnType<typeof createClient<Database>>;
-
-  constructor(url: string, anonKey: string) {
-    this.client = createClient<Database>(url, anonKey, { auth: { persistSession: false } });
-  }
+  constructor(private readonly client: SupabaseClient<Database>) {}
 
   async save(config: PublisherConfig): Promise<void> {
     const { error } = await this.client.from('publisher_config').upsert({

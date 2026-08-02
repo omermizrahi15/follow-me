@@ -34,7 +34,9 @@ const SUB_B = '00000000-0000-4000-8000-00000000000b';
 
 describeIf(RUN)('SupabaseNotificationDeliveryRepository (integration)', () => {
   function makeRepo(): SupabaseNotificationDeliveryRepository {
-    return new SupabaseNotificationDeliveryRepository(supabaseUrl!, anonKey!);
+    return new SupabaseNotificationDeliveryRepository(
+      createClient(supabaseUrl!, anonKey!, { auth: { persistSession: false } }),
+    );
   }
 
   beforeEach(async (): Promise<void> => {
