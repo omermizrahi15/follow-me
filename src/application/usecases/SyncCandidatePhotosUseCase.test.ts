@@ -184,4 +184,68 @@ describe('SyncCandidatePhotosUseCase', () => {
     expect(rows[0]?.location).toEqual(preset);
     expect(resolveLocation).not.toHaveBeenCalled();
   });
+
+  describe('progress reporting', () => {
+    // A first sync over a wide lookback is minutes of work at three photos at a
+    // time. Without progress the UI has only a spinner to show for it, which is
+    // how a working sync got mistaken for a hung one and force-quit halfway.
+    it('reports 0-of-total before the first upload, then after each committed batch', async () => {
+      const { useCase } = makeSut(['a', 'b', 'c', 'd'].map(candidate));
+      const progress: [number, number][] = [];
+
+      await useCase.execute('pub-1', 7, undefined, (uploaded, total) =>
+        progress.push([uploaded, total]),
+      );
+
+      // Batch size is 3, so: the opening report, then 3, then the last one.
+      expect(progress).toEqual([
+        [0, 4],
+        [3, 4],
+        [4, 4],
+      ]);
+    });
+
+    it('counts only photos that still need uploading, not the whole library', async () => {
+      const { useCase } = makeSut([candidate('a'), candidate('b')]);
+      await useCase.execute('pub-1', 7);
+
+      const progress: [number, number][] = [];
+      await useCase.execute('pub-1', 7, undefined, (uploaded, total) =>
+        progress.push([uploaded, total]),
+      );
+
+      // Everything is already synced — "0 of 0", not "0 of 2". A total that
+      // counts already-uploaded photos would show a bar that never fills.
+      expect(progress).toEqual([[0, 0]]);
+    });
+
+    it('reports progress even when there is nothing to do, so the caller can tell it finished', async () => {
+      const { useCase } = makeSut([]);
+      const progress: [number, number][] = [];
+
+      await useCase.execute('pub-1', 7, undefined, (uploaded, total) =>
+        progress.push([uploaded, total]),
+      );
+
+      expect(progress).toEqual([[0, 0]]);
+    });
+
+    it('reports only what was committed when the run is stopped early', async () => {
+      const { useCase } = makeSut(['a', 'b', 'c', 'd', 'e', 'f'].map(candidate));
+      const progress: [number, number][] = [];
+      let batches = 0;
+      // Stop after the first batch commits — the shape of a cloud wipe landing
+      // mid-sync, or an iOS background window expiring.
+      const shouldStop = (): Promise<boolean> => Promise.resolve(batches++ >= 1);
+
+      await useCase.execute('pub-1', 7, shouldStop, (uploaded, total) =>
+        progress.push([uploaded, total]),
+      );
+
+      expect(progress).toEqual([
+        [0, 6],
+        [3, 6],
+      ]);
+    });
+  });
 });

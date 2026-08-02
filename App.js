@@ -6,6 +6,8 @@ import { registerNotificationCategories } from './src/infrastructure/notifiers/N
 import { cacheBatchFromNotification } from './src/ui/notifications/cacheApprovalBatch';
 import { handlePostNowResponse } from './src/ui/notifications/postNow';
 import { registerBackgroundSyncTask } from './src/ui/notifications/backgroundSync';
+import { registerPeriodicSync } from './src/ui/data/periodicSync';
+import { restoreLastSyncedAt } from './src/ui/data/syncStatus';
 
 // Crash reporting first, before the root component mounts — everything that
 // fails past this line (JS exceptions, native crashes) is captured. No-op in
@@ -31,6 +33,17 @@ void registerNotificationCategories();
 // reason as the "Post now" handler below: iOS may launch us in the background
 // purely to deliver it, long before React mounts.
 registerBackgroundSyncTask();
+
+// The same sync, but on iOS's own schedule rather than the server's — it runs
+// while the app is closed, typically overnight on charge, so the cloud photo
+// set stays fresh without the user ever opening the app or pressing anything.
+// Registered at module scope for the same reason: iOS launches us straight into
+// the task, with no React in sight.
+registerPeriodicSync();
+
+// "Last synced" is shown in the settings UI and outlives the process that wrote
+// it, so it is read back from storage before anything can render.
+void restoreLastSyncedAt();
 
 // When a server push arrives (foreground), resolve the batch into the cache
 // (by batchId — see issue #71) so the review screen can skip scanning when the

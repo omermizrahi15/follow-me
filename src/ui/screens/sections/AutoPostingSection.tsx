@@ -29,8 +29,15 @@ import { PublisherConfig, FREQUENCY_DAYS } from '../../../domain/entities/Publis
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
 import { isWeekdayCadence } from '../../../domain/services/autoPostSchedule';
 import { assetIdsNeedingLookup, resolveChosenGalleryUrls } from '../../../domain/services/notificationGallery';
-import { confirmPhotoSync, pausePhotoSync, resumePhotoSync } from '../../data/photoSyncConsent';
+import {
+  confirmPhotoSync,
+  enablePhotoSync,
+  hasPhotoSyncConsent,
+  isPhotoSyncEnabled,
+  pausePhotoSync,
+} from '../../data/photoSyncConsent';
 import { runCandidateSyncQuietly } from '../../data/candidateSync';
+import { PhotoSyncStatus } from './PhotoSyncStatus';
 import { showDevTools } from '../../data/devTools';
 import { SELECTABLE_CATEGORIES } from '../../../domain/entities/PhotoClassification';
 import type { PhotoCategory } from '../../../domain/entities/PhotoClassification';
@@ -274,13 +281,25 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         setPushToken(token);
         const config = buildCurrentConfig(token);
         await saveConfig.execute(config);
-        if (await confirmPhotoSync()) {
-          // Saving is the explicit re-opt-in after a cloud-photo wipe — lift the
-          // pause so this sync (and future foreground syncs) run again.
-          await resumePhotoSync();
-          await runCandidateSyncQuietly(publisherId, 'settings_sync_candidates', config.lookbackDays);
-          // Re-uploading may have re-populated the cloud — refresh the removal affordance.
-          void refreshHasCloudPhotos();
+
+        // First run only: setting up auto-posting is the natural moment to ask
+        // for photo upload. Saving does NOT lift a pause, though — that was the
+        // hidden coupling behind a week of silently-off sync, where the only way
+        // back was a button nobody could know to press. Turning upload back on
+        // is now its own visible action in PhotoSyncStatus.
+        if (!(await hasPhotoSyncConsent())) await confirmPhotoSync();
+
+        // Kicked off, not awaited. A lookback change should take effect now, but
+        // a first sync is minutes of uploads at three photos at a time and the
+        // save itself finished a second ago — blocking the button on the backlog
+        // made a working sync look like a hang (and get force-quit halfway).
+        // Progress is visible in PhotoSyncStatus instead.
+        if (await isPhotoSyncEnabled()) {
+          void runCandidateSyncQuietly(
+            publisherId,
+            'settings_sync_candidates',
+            config.lookbackDays,
+          ).then(refreshHasCloudPhotos);
         }
         if (token !== '') {
           // Server owns the reminder — cancel the local one to avoid double-notifying.
@@ -484,10 +503,27 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
     }
   }
 
+  /** Turn photo sync back on (prompting for consent if needed) and start a run. */
+  function handleEnableSync(): void {
+    void (async (): Promise<void> => {
+      if (!(await enablePhotoSync())) return;
+      await runCandidateSyncQuietly(publisherId, 'settings_enable_sync');
+      void refreshHasCloudPhotos();
+    })();
+  }
+
+  /** Retry after a failed sync. Same call as every other trigger — nothing special. */
+  function handleRetrySync(): void {
+    void (async (): Promise<void> => {
+      await runCandidateSyncQuietly(publisherId, 'settings_retry_sync');
+      void refreshHasCloudPhotos();
+    })();
+  }
+
   function handleDeleteUploaded(): void {
     Alert.alert(
       'Remove your photos from the cloud?',
-      'This deletes every private copy the app has uploaded for auto-posting. Photos on your phone and posts already sent are untouched. Auto-posting will re-upload on your next Save.',
+      'This deletes every private copy the app has uploaded for auto-posting, and switches photo upload off. Photos on your phone and posts already sent are untouched. You can turn upload back on any time from the photo status above.',
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -679,6 +715,11 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           ios_backgroundColor={colors.border}
         />
       </View>
+
+      {/* What photo sync is doing right now. Always shown: "nothing is
+          happening and nothing will" is exactly the state that used to be
+          invisible, and it is the one the user has to act on. */}
+      <PhotoSyncStatus onEnable={handleEnableSync} onRetry={handleRetrySync} />
 
       {/* Privacy: user-initiated wipe of the cloud photo pool. Only shown when
           there's actually something in the cloud to remove. */}

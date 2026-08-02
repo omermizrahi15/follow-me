@@ -67,7 +67,7 @@ Deno.test('reminderPushContent — distinct copy per fallback reason', () => {
 Deno.test('reminderPushContent — never reuses the "batch is ready" framing (issue #97)', () => {
   // The bug was a fallback push indistinguishable from the real post
   // notification. No fallback title may promise photos.
-  for (const reason of ['no-candidates', 'empty-batch', 'stale-client'] as const) {
+  for (const reason of ['no-candidates', 'empty-batch', 'stale-client', 'sync-off'] as const) {
     const { title } = reminderPushContent(reason);
     assertEquals(title.includes('ready to post'), false, `"${title}" reads like a real batch push`);
     assertEquals(title.includes('📸'), false, `"${title}" reads like a real batch push`);
@@ -84,6 +84,7 @@ const grace = (over: Partial<Parameters<typeof syncGraceDecision>[0]> = {}) =>
     pendingSince: null,
     lastWakePushAt: null,
     lastClientSyncAt: null,
+    syncState: null,
     now: NOW,
     ...over,
   });
@@ -132,4 +133,46 @@ Deno.test('syncGraceDecision — blames the phone only when it has not checked i
     kind: 'give-up',
     reason: 'stale-client',
   });
+});
+
+Deno.test('syncGraceDecision — does not wait at all when upload is switched off', () => {
+  // The grace window exists to give a phone time to sync. A phone that has told
+  // us upload is off will never sync, so waiting four hours and burning
+  // background push budget on it achieves nothing but a delayed wrong message.
+  for (const syncState of ['paused', 'no-consent'] as const) {
+    assertEquals(grace({ syncState }), { kind: 'give-up', reason: 'sync-off' });
+    // Even on the very first sighting, and even mid-window.
+    assertEquals(grace({ syncState, pendingSince: ago(1000) }), {
+      kind: 'give-up',
+      reason: 'sync-off',
+    });
+  }
+});
+
+Deno.test('syncGraceDecision — an active device still gets the full grace window', () => {
+  assertEquals(grace({ syncState: 'active' }), { kind: 'wait', nudge: true });
+  assertEquals(grace({ syncState: 'active', pendingSince: ago(SYNC_GRACE_MS) }), {
+    kind: 'give-up',
+    reason: 'stale-client',
+  });
+});
+
+Deno.test('syncGraceDecision — a null sync state behaves exactly as before 20240027', () => {
+  // Devices on builds that predate photo_sync_state never write the column.
+  // They must keep getting the heartbeat-based reasoning, not be mistaken for
+  // having upload switched off.
+  assertEquals(grace({ syncState: null }), { kind: 'wait', nudge: true });
+  assertEquals(
+    grace({ syncState: null, pendingSince: ago(SYNC_GRACE_MS), lastClientSyncAt: ago(60 * 1000) }),
+    { kind: 'give-up', reason: 'no-candidates' },
+  );
+});
+
+Deno.test('reminderPushContent — the switched-off reminder names the fix, not "open the app"', () => {
+  // The bug this exists for: a user opened the app daily for a week while sync
+  // was paused, and every cycle told them to open the app so photos could upload.
+  const { title, body } = reminderPushContent('sync-off');
+  assertEquals(body.toLowerCase().includes('open follow me'), false);
+  assertEquals(title.toLowerCase().includes('off'), true);
+  assertEquals(body.toLowerCase().includes('settings'), true);
 });

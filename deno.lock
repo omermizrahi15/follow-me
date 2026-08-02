@@ -54,6 +54,7 @@
         "npm:dotenv@^17.4.2",
         "npm:eslint-plugin-import@^2.29.0",
         "npm:eslint@8",
+        "npm:expo-background-task@~1.0.10",
         "npm:expo-blur@~15.0.8",
         "npm:expo-dev-client@~6.0.21",
         "npm:expo-file-system@~19.0.23",

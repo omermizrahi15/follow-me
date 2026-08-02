@@ -20,12 +20,14 @@
         "ITSAppUsesNonExemptEncryption": false,
         "NSPhotoLibraryUsageDescription": "Follow Me scans your recent photos to suggest a batch for your next post.",
         "UIBackgroundModes": [
-          "remote-notification"
+          "remote-notification",
+          "processing"
         ]
       }
     },
     "plugins": [
       "expo-notifications",
+      "expo-background-task",
       [
         "expo-media-library",
         {
