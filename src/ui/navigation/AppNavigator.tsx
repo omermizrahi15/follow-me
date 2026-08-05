@@ -16,6 +16,8 @@ import { PostingDetailScreen } from '../screens/PostingDetailScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
 import { TrashScreen } from '../screens/TrashScreen';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
+import { SetupRequiredScreen } from '../screens/SetupRequiredScreen';
+import { envSetupMessage } from '../../composition/env';
 import { AuthProvider, useAuth } from '../context/AuthContext';
 import { useAutoSync } from '../hooks/useAutoSync';
 import { useOnboarding } from '../hooks/useOnboarding';
@@ -134,6 +136,17 @@ function RootNavigator(): React.JSX.Element {
 }
 
 export function AppNavigator(): React.JSX.Element {
+  // Unconfigured clone: show what is missing instead of mounting anything that
+  // would talk to a backend that does not exist (issue #110). This sits above
+  // AuthProvider deliberately — signing in is the first thing that would fail.
+  if (envSetupMessage != null) {
+    return (
+      <SafeAreaProvider>
+        <SetupRequiredScreen message={envSetupMessage} />
+      </SafeAreaProvider>
+    );
+  }
+
   return (
     // Screens can render outside the NavigationContainer (splash, onboarding),
     // so the safe-area provider must sit above everything — the container only

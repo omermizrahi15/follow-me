@@ -35,21 +35,17 @@ import { CloudinaryStorageService } from '../infrastructure/storage/CloudinarySt
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
 import { monitored, reportMessage } from '../infrastructure/monitoring/sentry';
+import { env } from './env';
 import Constants from 'expo-constants';
 
-/**
- * Asserts an EXPO_PUBLIC_* build-time variable is present. Callers MUST pass the
- * value via a static `process.env.EXPO_PUBLIC_X` reference (never a dynamic
- * `process.env[key]`): Expo only inlines static references into the production
- * bundle, so a dynamic lookup is `undefined` at runtime and blanks the app.
- */
-function requireEnv(value: string | undefined, name: string): string {
-  if (!value) throw new Error(`Missing required environment variable: ${name}`);
-  return value;
-}
-
-const supabaseUrl = requireEnv(process.env.EXPO_PUBLIC_SUPABASE_URL as string | undefined, 'EXPO_PUBLIC_SUPABASE_URL');
-const supabaseKey = requireEnv(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string | undefined, 'EXPO_PUBLIC_SUPABASE_ANON_KEY');
+// Configuration is read and checked in ./env — as a set, once, without
+// throwing, so an unconfigured clone gets one message naming every missing
+// variable instead of a blank screen and whichever check happened to run first
+// (issue #110). While anything is missing these are inert placeholders and the
+// UI renders the setup message instead of the navigator, so none of the wiring
+// below is ever reached.
+const supabaseUrl = env.supabaseUrl;
+const supabaseKey = env.supabaseAnonKey;
 
 const mediaRepo = new SupabaseMediaRepository(supabaseUrl, supabaseKey);
 const subscriberRepo = new SupabaseSubscriberRepository(supabaseUrl, supabaseKey);
@@ -60,9 +56,9 @@ const approvalBatchRepo = new SupabaseApprovalBatchRepository(supabaseUrl, supab
 // Shared photo uploader (Cloudinary) — used for posts and profile avatars.
 // The optional folder isolates staging uploads from production assets.
 const storageService = new CloudinaryStorageService(
-  requireEnv(process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME as string | undefined, 'EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
-  requireEnv(process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET as string | undefined, 'EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
-  process.env.EXPO_PUBLIC_CLOUDINARY_FOLDER as string | undefined,
+  env.cloudinaryCloudName,
+  env.cloudinaryUploadPreset,
+  env.cloudinaryFolder,
 );
 // Direct UI uploads (avatars) get their own Sentry tag; use cases below hold
 // the raw service so their failures are tagged with the use case's operation
@@ -85,7 +81,7 @@ const confirmationSender = new ConsoleConfirmationSender();
 
 const mediaLibrary = new ExpoMediaLibrary();
 const photoClassifier = new GeminiPhotoClassifier(
-  requireEnv(process.env.EXPO_PUBLIC_CLASSIFY_FN_URL as string | undefined, 'EXPO_PUBLIC_CLASSIFY_FN_URL'),
+  env.classifyFnUrl,
   supabaseKey,
   expoResolvePayload,
   // The classify function requires a signed-in user's JWT (anon key rejected).
@@ -108,9 +104,7 @@ const geocoder = new BigDataCloudGeocoder();
 // Place search for batches with no GPS. Shares the globe's MapTiler key: a
 // handful of calls per post, against a quota the map tiles dominate. Unset key
 // simply yields no suggestions (see MapTilerPlaceSearch).
-export const placeSearch = new MapTilerPlaceSearch(
-  (process.env.EXPO_PUBLIC_MAPTILER_KEY as string | undefined) ?? '',
-);
+export const placeSearch = new MapTilerPlaceSearch(env.maptilerKey);
 
 /** Pre-resolves the posting's place so the review screen can show/edit it. */
 export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<string | null> =>

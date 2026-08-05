@@ -39,19 +39,117 @@ For a full walkthrough of the structure and the reasoning behind each file, brow
 
 ## Getting started
 
+Clone → configure → app on a simulator. The tests need none of this — `npm install && npm test` passes on a bare clone — but the app needs a backend, so there are two ways to get one:
+
+| | **A · Everything local** | **B · Your own cloud project** |
+|---|---|---|
+| Backend | Supabase in Docker on your machine | a free Supabase project |
+| Accounts to create | Cloudinary, Google AI Studio | Cloudinary, Google AI Studio, Supabase |
+| Sign-in | fixed test number, no SMS | a test OTP you add in the dashboard |
+| Data | throwaway, reset with one command | yours, persists |
+| Setup time | ~20 min (plus image downloads) | ~25 min |
+
+**Take option A.** It is faster, it resets in seconds, and — the real reason — nobody's first day should include write access to a shared project holding real publisher photos and real follower phone numbers.
+
+Neither option involves the production or staging projects. If you have been handed credentials for those, you do not need them to develop.
+
+### 1 · Install the tooling — once per machine
+
+| Tool | Install | Roughly |
+|---|---|---|
+| Node 20+ | nodejs.org or `brew install node` | 2 min |
+| Xcode + CocoaPods | see [Running on iOS](#running-on-ios) below | 30–60 min, mostly downloading Xcode |
+| Supabase CLI | `brew install supabase/tap/supabase` | 1 min |
+| Docker Desktop | docker.com — option A only, it is what `supabase start` runs in | 5 min |
+
+### 2 · Clone and install — 2 min
+
 ```bash
 git clone https://github.com/omermizrahi15/follow-me.git
 cd follow-me
 npm install
+cp .env.example .env
 ```
 
-Copy `.env.example` to `.env` and fill in your credentials — the file documents every variable and which service it belongs to.
+`npm test` works from here on — 600+ unit tests, no network, no credentials. Everything below is only needed to *run* the app.
+
+### 3 · Create the two accounts the app can't fake — ~5 min
+
+Both are free, neither asks for a card.
+
+- **Cloudinary** ([cloudinary.com](https://cloudinary.com)) — photo hosting. Copy the **cloud name** from the dashboard, then **Settings → Upload → Add upload preset**, set Signing Mode to **Unsigned**, and copy its name. Into `.env` as `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` / `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET`. There is no local stand-in for this — the device uploads straight to Cloudinary.
+- **Google AI Studio** ([aistudio.google.com](https://aistudio.google.com)) — an API key for Gemini, which grades photos. Into `.env` as `GEMINI_API_KEY` (no `EXPO_PUBLIC_` prefix: it stays server-side, in the Edge Function). Skip it and the app still runs; the suggestion screen just comes back empty, because nothing can rank the photos.
+
+**Not needed to run the app**, whatever `.env.example` might tempt you into: MapTiler (the globe falls back to plain demo tiles), Sentry (off outside EAS builds), Twilio (only the final WhatsApp send needs it). Section 2 of `.env.example` is the full list of what degrades and how.
+
+### 4a · Option A — everything local
 
 ```bash
-cp .env.example .env
-npm test                  # unit tests — fast, no network required
-npm run test:integration  # requires real credentials in .env
+supabase start     # first run downloads ~2 GB of images; later starts take seconds
 ```
+
+It applies all of [`supabase/migrations/`](supabase/migrations) and then [`supabase/seed.sql`](supabase/seed.sql), and prints an **API URL** and an **anon key**. Put those in `.env` as `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` (`supabase status` reprints them any time).
+
+In a second terminal, serve the Edge Functions:
+
+```bash
+supabase functions serve --env-file .env
+```
+
+That publishes every function under `http://127.0.0.1:54321/functions/v1/<name>` — including the one the app requires, which is already the default in `.env.example`:
+
+```
+EXPO_PUBLIC_CLASSIFY_FN_URL=http://127.0.0.1:54321/functions/v1/classify-photos
+```
+
+Now run the app (first build takes a while — see [Running on iOS](#running-on-ios)):
+
+```bash
+npx expo run:ios
+```
+
+**Sign in with phone `+1 500 555 0006`, code `123456`.** No SMS is sent: [`supabase/config.toml`](supabase/config.toml) registers that pair as a test OTP, and `seed.sql` has already created the publisher it resolves to.
+
+Useful while you work:
+
+```bash
+supabase db reset   # re-apply every migration + the seed — a clean database in seconds
+supabase stop       # free the containers, keep the data (--no-backup to discard it)
+```
+
+Supabase Studio — tables, auth users, SQL editor — is at <http://127.0.0.1:54323>.
+
+`127.0.0.1` works because the iOS simulator shares your Mac's network. On a *physical* device it points at the phone, so swap both URLs for your Mac's LAN address (`ipconfig getifaddr en0`).
+
+Three things the local stack cannot do, all of them at the very end of a flow: photos still upload to the real Cloudinary, the WhatsApp send needs Twilio credentials, and push notifications need an EAS dev build. Everything up to the send works offline.
+
+### 4b · Option B — your own cloud project
+
+Create a project at [supabase.com](https://supabase.com) (provisioning takes a few minutes), then:
+
+```bash
+supabase link --project-ref <your-project-ref>
+supabase db push                       # apply supabase/migrations to it
+supabase functions deploy classify-photos
+supabase secrets set --project-ref <ref> GEMINI_API_KEY=...
+```
+
+Fill `.env` from **Project Settings → Data API** (URL) and **API Keys** (anon), and set `EXPO_PUBLIC_CLASSIFY_FN_URL` to the deployed function's endpoint. Sign-in needs a test OTP — **Authentication → Providers → Phone → Test OTPs**, add e.g. `+15005550006` → `123456` — or a real SMS provider. Then `npx expo run:ios`.
+
+Note that `seed.sql` is deliberately local-only: `db push` never carries it, so a cloud project starts empty.
+
+### If the app opens on a "Setup needed" screen
+
+That is the configuration check ([`src/composition/env.ts`](src/composition/env.ts)) telling you what is still missing — all of it at once, with the account each value comes from. Fix `.env`, then restart Metro with `npx expo start -c`: `EXPO_PUBLIC_*` values are baked into the bundle at build time, so a plain reload keeps the old ones.
+
+### Integration tests
+
+```bash
+npm test                  # unit tests — fast, no network, no credentials
+npm run test:integration  # needs real credentials in .env (section 3 of .env.example)
+```
+
+Each integration suite skips itself when its variables are unset, so a half-filled `.env` never breaks `npm test`.
 
 ---
 

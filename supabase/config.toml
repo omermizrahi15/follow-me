@@ -22,3 +22,44 @@ verify_jwt = false
 # Called by pg_cron; authenticated by the x-cron-secret header.
 [functions.auto-post]
 verify_jwt = false
+
+# ── Local stack only (`supabase start`) ──────────────────────────────────────
+# The hosted projects are configured in their dashboards; nothing below is ever
+# pushed (`supabase config push` is not part of any workflow). It exists so a
+# fresh clone can run the whole app without an account anywhere (issue #110).
+
+# Stated rather than left to the CLI default, so it is obvious that
+# `supabase start` / `supabase db reset` run the seed — and that `db push`,
+# which never reads this file's seed setting, does not.
+[db.seed]
+enabled = true
+sql_paths = ["./seed.sql"]
+
+[auth]
+enabled = true
+# The app's deep link, so a magic link opens the app rather than a web page.
+site_url = "followme://auth"
+additional_redirect_urls = ["followme://auth"]
+
+[auth.sms]
+enable_signup = true
+enable_confirmations = false
+
+# A provider has to be declared or the CLI turns phone login off entirely
+# ("WARN: no SMS provider is enabled. Disabling phone login") and the test OTP
+# below never gets a chance to match. These are placeholders and stay
+# placeholders: a number listed in [auth.sms.test_otp] is answered locally and
+# no request is ever made to Twilio. Only a number NOT listed there would try,
+# and fail — which is the intended behaviour locally.
+[auth.sms.twilio]
+enabled = true
+account_sid = "local-dev-unused"
+message_service_sid = "local-dev-unused"
+auth_token = "local-dev-unused"
+
+# Sign in with this number/code pair as typed — accepted without sending
+# anything, and resolves to the publisher created in seed.sql. Keys here are
+# digits only, no "+". Same number the Maestro auth flows use against the
+# hosted projects (docs/E2E.md), so there is one pair to remember.
+[auth.sms.test_otp]
+"15005550006" = "123456"
