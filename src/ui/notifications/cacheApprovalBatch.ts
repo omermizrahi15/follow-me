@@ -1,5 +1,4 @@
-import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
-import { fetchApprovalBatch } from '../../composition/container';
+import { SuggestionCache, fetchApprovalBatch } from '../../composition/container';
 
 /** The subset of an approval push's `data` the app needs to resolve the batch. */
 export interface ReviewNotificationData {

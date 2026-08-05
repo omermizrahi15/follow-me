@@ -1,4 +1,4 @@
-import { displaySizedUri } from './cloudinaryDelivery';
+import { displaySizedUri } from './mediaDisplayUri';
 
 describe('displaySizedUri', () => {
   it('inserts the resize transform after /upload/', () => {

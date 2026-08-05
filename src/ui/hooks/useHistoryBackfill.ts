@@ -5,6 +5,7 @@ import {
   shareMedia,
   suggestPhotos,
   resolvePlaceForCoordinates,
+  expoResolveLocalUri,
 } from '../../composition/container';
 import type { BackfillDraft } from '../../application/usecases/BackfillHistoryUseCase';
 import type { HistoryWindow, HistoryWindowPlan } from '../../domain/services/historyWindows';
@@ -14,7 +15,6 @@ import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import { MAX_PHOTOS_PER_POST } from '../../domain/entities/PublisherConfig';
 import { isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
 import type { Coordinate } from '../../domain/interfaces';
-import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
 import { coordinateFor, coordinatesFor } from '../data/photoCoordinates';
 
 export type BackfillPhase = 'setup' | 'scanning' | 'review' | 'publishing' | 'done' | 'error';
