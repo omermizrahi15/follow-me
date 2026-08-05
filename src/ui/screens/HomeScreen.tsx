@@ -43,6 +43,32 @@ const SNAPS = [SMALL_H, MEDIUM_H, FULL_H];
 const NAV_BAR_H = 56;
 
 /**
+ * The sheet is always FULL_H tall and slides down to shrink, instead of being
+ * a short view whose `height` animates.
+ *
+ * Animating `height` is a layout property, which forces `useNativeDriver:
+ * false`: every frame of the drag and every spring step round-trips through the
+ * JS bridge, and `onPanResponderMove` pushed one per touch event on top of
+ * that. With the WebView globe compositing behind it that is what dropped
+ * frames. A `translateY` on a fixed-height view is a transform, so the whole
+ * gesture runs on the UI thread and never touches JS — the same thing
+ * PostingDetailScreen already does for its drag-to-dismiss.
+ *
+ * The cost is that the part hanging below the screen is real, laid-out sheet,
+ * so the content inside has to be padded past it — see `bottomInset`.
+ */
+const SHEET_H = FULL_H;
+/** How far the sheet is pushed down to show `visible` points of it. */
+function offsetFor(visible: number): number {
+  return SHEET_H - visible;
+}
+
+/** Keeps a drag between the smallest peek and the fully open sheet. */
+function clampOffset(offset: number): number {
+  return Math.min(offsetFor(SMALL_H), Math.max(offsetFor(FULL_H), offset));
+}
+
+/**
  * The "Me" page. The photo feed scrolls behind as the immersive background; a
  * draggable bottom sheet sits over it whose content switches between Me /
  * Auto-posting / Followers via the floating segmented nav (the feed and header
@@ -72,14 +98,17 @@ export function HomeScreen(): React.JSX.Element {
   const displayName = profile?.displayName ?? 'Your name';
   const avatarUrl = profile?.avatarUrl ?? null;
 
-  const heightAnim = useRef(new Animated.Value(MEDIUM_H)).current;
-  const heightRef = useRef(MEDIUM_H);
-  const startRef = useRef(MEDIUM_H);
-
-  useEffect(() => {
-    const id = heightAnim.addListener(({ value }) => { heightRef.current = value; });
-    return () => heightAnim.removeListener(id);
-  }, [heightAnim]);
+  // How far the sheet is pushed down. Driven natively, so JS never sees the
+  // frames — hence the two plain refs below instead of an Animated listener,
+  // which would put every frame back on the bridge and undo the point of it.
+  const dragY = useRef(new Animated.Value(offsetFor(MEDIUM_H))).current;
+  /** Where the sheet came to rest, i.e. where the next drag starts from. */
+  const restOffsetRef = useRef(offsetFor(MEDIUM_H));
+  /** Where this drag started. */
+  const grabOffsetRef = useRef(offsetFor(MEDIUM_H));
+  // Only the resting height is state: it feeds the content inset, and nothing
+  // needs to re-render mid-drag.
+  const [visibleH, setVisibleH] = useState(MEDIUM_H);
 
   // Honour a deep-linked section (e.g. "Manage followers" from the post-share prompt).
   useEffect(() => {
@@ -100,26 +129,37 @@ export function HomeScreen(): React.JSX.Element {
   );
 
   function snapTo(h: number): void {
-    Animated.spring(heightAnim, { toValue: h, useNativeDriver: false, bounciness: 2, speed: 14 }).start();
+    restOffsetRef.current = offsetFor(h);
+    setVisibleH(h);
+    Animated.spring(dragY, { toValue: offsetFor(h), useNativeDriver: true, bounciness: 2, speed: 14 }).start();
   }
 
   const panResponder = useRef(
     PanResponder.create({
       onStartShouldSetPanResponder: () => true,
       onMoveShouldSetPanResponder: (_, g) => Math.abs(g.dy) > 2,
-      onPanResponderGrant: () => { startRef.current = heightRef.current; },
+      onPanResponderGrant: () => {
+        grabOffsetRef.current = restOffsetRef.current;
+        // Grabbing the handle mid-spring should continue from where the sheet
+        // actually is, not from where it was heading. This is the one place
+        // that asks the native side for the live value, and it costs a single
+        // round trip per gesture rather than one per frame.
+        dragY.stopAnimation(value => { grabOffsetRef.current = value; });
+      },
       onPanResponderMove: (_, g) => {
-        const next = Math.min(FULL_H, Math.max(SMALL_H, startRef.current - g.dy));
-        heightAnim.setValue(next);
+        dragY.setValue(clampOffset(grabOffsetRef.current + g.dy));
       },
       onPanResponderRelease: (_, g) => {
-        const cur = heightRef.current;
+        const cur = SHEET_H - clampOffset(grabOffsetRef.current + g.dy);
         let target: number;
         if (g.vy < -0.5) target = SNAPS.find(s => s > cur + 4) ?? FULL_H;
         else if (g.vy > 0.5) target = [...SNAPS].reverse().find(s => s < cur - 4) ?? SMALL_H;
         else target = SNAPS.reduce((a, b) => (Math.abs(b - cur) < Math.abs(a - cur) ? b : a));
-        Animated.spring(heightAnim, { toValue: target, useNativeDriver: false, bounciness: 2, speed: 14 }).start();
+        snapTo(target);
       },
+      // A gesture taken away mid-drag (the FlatList claiming the scroll) would
+      // otherwise leave the sheet parked between snap points.
+      onPanResponderTerminate: () => { snapTo(SHEET_H - restOffsetRef.current); },
     }),
   ).current;
 
@@ -155,7 +195,10 @@ export function HomeScreen(): React.JSX.Element {
   // The sheet stays docked to the bottom; its lowest band (behind the nav) is left
   // glassy (no white wash) so the nav reads as glass while content stays clean white.
   const glassBand = insets.bottom + NAV_BAR_H;
-  const bottomInset = glassBand + spacing.md;
+  // Everything below the fold is real sheet that happens to hang off the bottom
+  // of the screen (see SHEET_H), so the content has to be padded past it as
+  // well as past the nav — otherwise the last post sits under the bezel.
+  const bottomInset = offsetFor(visibleH) + glassBand + spacing.md;
 
   // The header always floats over the dark globe now, so it is always white.
   const headerTint = '#fff';
@@ -197,7 +240,7 @@ export function HomeScreen(): React.JSX.Element {
       </View>
 
       {/* Draggable sheet — solid white all the way down */}
-      <Animated.View style={[styles.sheet, { height: heightAnim }]}>
+      <Animated.View style={[styles.sheet, { transform: [{ translateY: dragY }] }]}>
         <View testID="home-sheet-handle" style={styles.handleArea} {...panResponder.panHandlers}>
           <View style={styles.handle} />
         </View>
@@ -357,6 +400,7 @@ const styles = StyleSheet.create({
     left: 0,
     right: 0,
     bottom: 0,
+    height: SHEET_H,
     backgroundColor: colors.surface,
     borderTopLeftRadius: radius.sheet,
     borderTopRightRadius: radius.sheet,
