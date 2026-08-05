@@ -90,16 +90,16 @@ supabase start     # first run downloads ~2 GB of images; later starts take seco
 
 It applies all of [`supabase/migrations/`](supabase/migrations) and then [`supabase/seed.sql`](supabase/seed.sql), and prints an **API URL** and an **anon key**. Put those in `.env` as `EXPO_PUBLIC_SUPABASE_URL` and `EXPO_PUBLIC_SUPABASE_ANON_KEY` (`supabase status` reprints them any time).
 
-In a second terminal, serve the Edge Functions:
-
-```bash
-supabase functions serve --env-file .env
-```
-
-That publishes every function under `http://127.0.0.1:54321/functions/v1/<name>` — including the one the app requires, which is already the default in `.env.example`:
+That already serves every Edge Function at `http://127.0.0.1:54321/functions/v1/<name>` — no second terminal needed for the URL to resolve. It is the one the app requires, and it is already the default in `.env.example`:
 
 ```
 EXPO_PUBLIC_CLASSIFY_FN_URL=http://127.0.0.1:54321/functions/v1/classify-photos
+```
+
+What that bundled runtime does *not* have is your `.env`, so `classify-photos` answers `{"error":"Server not configured"}` until it gets a `GEMINI_API_KEY`. Run it yourself when you want your secrets loaded — and for hot reload while editing a function:
+
+```bash
+supabase functions serve --env-file .env
 ```
 
 Now run the app (first build takes a while — see [Running on iOS](#running-on-ios)):
@@ -256,15 +256,32 @@ sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 brew install cocoapods   # if `pod --version` fails
 ```
 
+**Check your locale before the first build**, because this is the failure that looks like a broken repo rather than a broken shell:
+
+```bash
+locale   # LANG and LC_CTYPE must be UTF-8, not "" or "C"
+```
+
+CocoaPods is Ruby, and it dies part-way through `pod install` on a non-UTF-8 locale (`Unicode Normalization not appropriate for ASCII-8BIT`). `pod --version` warns about it too. If yours is unset, export it in this shell — and in `~/.zshrc` so it survives:
+
+```bash
+export LANG=en_US.UTF-8
+export LC_ALL=en_US.UTF-8
+```
+
+CI sets exactly this on the macOS runner ([`e2e-ui.yml`](.github/workflows/e2e-ui.yml)).
+
 Then, from the project root, with `.env` already filled in:
 
 ```bash
-npx expo prebuild --platform ios   # generates the native ios/ project
-cd ios && pod install && cd ..
-npx expo run:ios                   # builds, boots a simulator, and launches the app
+npx expo run:ios   # prebuild + pod install + build + boot a simulator + launch
 ```
 
+One command is enough — it generates the native `ios/` project and runs `pod install` for you, which is how CI builds the app too. Run the steps separately (`npx expo prebuild --platform ios`, then `cd ios && pod install`) only when you want to stop between them.
+
 Re-run `expo prebuild --clean` (then `pod install` again) whenever `app.json` or a native dependency in `package.json` changes — the generated `ios/` folder doesn't auto-update otherwise.
+
+You do **not** need `npm run setup:ios-extensions` to run the app. That script wires the notification extensions into a signed build and is part of the release path only — see [`docs/PRODUCTION.md`](docs/PRODUCTION.md).
 
 To work in Xcode directly, open `ios/FollowMe.xcworkspace` (not the `.xcodeproj`) after `pod install`, pick a simulator from the scheme toolbar, and hit Run. Metro needs to be running for this to work — `npx expo start` in another terminal, or just use `npx expo run:ios` instead, which starts it for you.
 
