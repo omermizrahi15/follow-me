@@ -39,6 +39,7 @@ jest.mock('@supabase/supabase-js', () => {
   };
 });
 
+import type { AppSupabaseClient } from '../supabase/types';
 import { SupabaseCandidatePhotoRepository } from './SupabaseCandidatePhotoRepository';
 import * as supabase from '@supabase/supabase-js';
 
@@ -52,7 +53,11 @@ const state = (supabase as unknown as {
 }).__state;
 
 function makeRepo(): SupabaseCandidatePhotoRepository {
-  return new SupabaseCandidatePhotoRepository('https://example.supabase.co', 'anon-key');
+  // The repository takes a client rather than building one (issue #115), so the
+  // mock above is now just a factory for the fake we hand it.
+  return new SupabaseCandidatePhotoRepository(
+    supabase.createClient('https://example.supabase.co', 'anon-key') as AppSupabaseClient,
+  );
 }
 
 beforeEach(() => {

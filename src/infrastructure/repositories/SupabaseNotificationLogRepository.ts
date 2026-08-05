@@ -1,4 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AppSupabaseClient } from '../supabase/types';
 import type {
   INotificationLog,
   NotificationLogEntry,
@@ -53,12 +54,13 @@ function rowToEntry(row: LogRow): RecordedNotificationLogEntry {
 }
 
 export class SupabaseNotificationLogRepository implements INotificationLog {
-  private client: ReturnType<typeof createClient<Database>>;
+  private readonly client: SupabaseClient<Database>;
 
-  // Accepts the service-role key in production (the edge function writes with it,
-  // bypassing RLS); the integration test uses the anon key against a dev policy.
-  constructor(url: string, key: string) {
-    this.client = createClient<Database>(url, key, { auth: { persistSession: false } });
+  // `notification_log` has no policy for any client-side role — the production
+  // writer is the edge function's service-role client, which bypasses RLS. The
+  // integration test builds a service-role client and passes it in here.
+  constructor(client: AppSupabaseClient) {
+    this.client = client as unknown as SupabaseClient<Database>;
   }
 
   async record(entry: NotificationLogEntry): Promise<void> {

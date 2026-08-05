@@ -1,19 +1,13 @@
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { createClient, type Session, type AuthChangeEvent } from '@supabase/supabase-js';
+import type { Session, AuthChangeEvent } from '@supabase/supabase-js';
+import type { AppSupabaseClient } from '../supabase/types';
 
 export class SupabaseAuthService {
-  private client: ReturnType<typeof createClient>;
-
-  constructor(url: string, anonKey: string) {
-    this.client = createClient(url, anonKey, {
-      auth: {
-        storage: AsyncStorage,
-        autoRefreshToken: true,
-        persistSession: true,
-        detectSessionInUrl: false,
-      },
-    });
-  }
+  /**
+   * The shared client from `infrastructure/supabase/client` — the same instance
+   * the repositories query through, so signing in here immediately authenticates
+   * their requests too (issue #115).
+   */
+  constructor(private readonly client: AppSupabaseClient) {}
 
   async signInWithPhoneOtp(phone: string): Promise<void> {
     const { error } = await this.client.auth.signInWithOtp({

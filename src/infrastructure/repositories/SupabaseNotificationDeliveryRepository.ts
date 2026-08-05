@@ -1,4 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AppSupabaseClient } from '../supabase/types';
 import type {
   DeliveryStatus,
   INotificationLogger,
@@ -64,10 +65,12 @@ function rowToDelivery(row: DeliveryRow): RecordedNotificationDelivery {
  * compliance audit in notification_log.
  */
 export class SupabaseNotificationDeliveryRepository implements INotificationLogger {
-  private client: ReturnType<typeof createClient<Database>>;
+  private readonly client: SupabaseClient<Database>;
 
-  constructor(url: string, key: string) {
-    this.client = createClient<Database>(url, key, { auth: { persistSession: false } });
+  // Takes the shared authenticated client (issue #115): its session is what puts
+  // `auth.uid()` behind every query, which is what the RLS policies match on.
+  constructor(client: AppSupabaseClient) {
+    this.client = client as unknown as SupabaseClient<Database>;
   }
 
   async logPending(deliveries: NotificationDelivery[]): Promise<void> {
