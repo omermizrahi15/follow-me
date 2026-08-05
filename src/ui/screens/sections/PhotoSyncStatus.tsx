@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSyncStatus } from '../../data/syncStatus';
 import { syncStatusCopy } from '../../../domain/services/photoSyncCopy';
 import { colors, radius, spacing, typography } from '../../theme/theme';

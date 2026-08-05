@@ -12,7 +12,7 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import { saveProfile, storage } from '../../../composition/container';
 import { PublisherProfile } from '../../../domain/entities/PublisherProfile';

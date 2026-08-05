@@ -10,7 +10,7 @@ import {
   SafeAreaView,
   useWindowDimensions,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import type { RootNavigationProp } from '../navigation/types';
 import { coordinatesForPickedAssets } from '../../domain/services/pickedAssetCoordinates';
