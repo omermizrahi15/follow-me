@@ -3,13 +3,13 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Image,
   ScrollView,
   ActivityIndicator,
   StyleSheet,
   SafeAreaView,
   useWindowDimensions,
 } from 'react-native';
+import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import type { RootNavigationProp } from '../navigation/types';
@@ -267,8 +267,11 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
               {pickedAssets.map((asset, i) => (
                 <Image
                   key={`${asset.assetId ?? asset.uri}-${i}`}
-                  source={{ uri: asset.uri }}
+                  source={asset.uri}
                   style={[styles.gridThumb, { width: tileSize, height: tileSize }]}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  recyclingKey={asset.assetId ?? asset.uri}
                 />
               ))}
             </ScrollView>

@@ -2,13 +2,13 @@ import React, { useCallback, useEffect, useRef } from 'react';
 import {
   View,
   Text,
-  Image,
   TouchableOpacity,
   Dimensions,
   StyleSheet,
   Animated,
   PanResponder,
 } from 'react-native';
+import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { displaySizedUri } from '../../domain/services/mediaDisplayUri';
@@ -176,7 +176,16 @@ export function PostCard({
             : {})}
         >
           {cover != null ? (
-            <Image source={{ uri: cover }} style={styles.image} resizeMode="cover" />
+            <Image
+              source={cover}
+              style={styles.image}
+              contentFit="cover"
+              cachePolicy="memory-disk"
+              // The feed recycles cards as it scrolls; without this a reused
+              // card shows the previous post's photo until the new one loads.
+              recyclingKey={cover}
+              transition={120}
+            />
           ) : (
             <View style={[styles.image, styles.placeholder]}>
               <Ionicons name="image-outline" size={28} color={colors.textMuted} />

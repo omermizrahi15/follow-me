@@ -10,6 +10,10 @@ import {
   Animated,
   PanResponder,
 } from 'react-native';
+// The bundled logo stays on React Native's Image — it is already in the
+// binary, so there is nothing to cache, and it is tinted per screen. Only the
+// avatar comes off the network.
+import { Image as RemoteImage } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
@@ -297,7 +301,13 @@ export function HomeScreen(): React.JSX.Element {
                 <View style={styles.profile}>
                   <View style={styles.avatar}>
                     {avatarUrl != null ? (
-                      <Image source={{ uri: avatarUrl }} style={styles.avatarImage} />
+                      <RemoteImage
+                        source={avatarUrl}
+                        style={styles.avatarImage}
+                        contentFit="cover"
+                        cachePolicy="memory-disk"
+                        recyclingKey={avatarUrl}
+                      />
                     ) : (
                       <Ionicons name="camera" size={26} color={colors.accent} />
                     )}

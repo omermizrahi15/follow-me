@@ -3,13 +3,13 @@ import {
   View,
   Text,
   TouchableOpacity,
-  Image,
   ScrollView,
   ActivityIndicator,
   StyleSheet,
   SafeAreaView,
   Alert,
 } from 'react-native';
+import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
@@ -441,7 +441,14 @@ function ScanningStep({ current, total, window, classified, of, batch, done, con
             ) : (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
                 {shown.map(c => (
-                  <Image key={c.candidate.id} source={{ uri: c.candidate.uri }} style={styles.photo} />
+                  <Image
+                    key={c.candidate.id}
+                    source={c.candidate.uri}
+                    style={styles.photo}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    recyclingKey={c.candidate.id}
+                  />
                 ))}
               </ScrollView>
             )}
@@ -513,7 +520,13 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
               accessibilityLabel="Suggest a different photo"
               accessibilityHint="Replaces this photo with another from the same stretch"
             >
-              <Image source={{ uri: photo.candidate.uri }} style={styles.photo} />
+              <Image
+                source={photo.candidate.uri}
+                style={styles.photo}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                recyclingKey={photo.candidate.id}
+              />
               {/* The swap can need an AI round-trip once the scan's spares are
                   used up; without this the tap looks like it did nothing. */}
               {busy && (

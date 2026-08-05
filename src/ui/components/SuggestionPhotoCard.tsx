@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, Image, StyleSheet, ActivityIndicator } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
+import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { colors, radius, spacing, typography } from '../theme/theme';
@@ -35,7 +36,17 @@ export function SuggestionPhotoCard({ photo, onSwap, busy = false, width = '47%'
       {/* Positioned against the IMAGE, not the card: anchoring to the card
           meant offsetting by a magic number that only held at one card size. */}
       <View style={styles.imageWrap}>
-        <Image source={{ uri: photo.candidate.uri }} style={styles.photo} />
+        {/* The uri is a ph:// library handle as often as an https one — both
+            go through expo-image's own loaders. `recyclingKey` matters here:
+            swapping a photo replaces the source in place. */}
+        <Image
+          source={photo.candidate.uri}
+          style={styles.photo}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={photo.candidate.id}
+          transition={120}
+        />
         <TouchableOpacity
           style={[styles.chip, !swappable && styles.chipDisabled]}
           onPress={onSwap ?? undefined}

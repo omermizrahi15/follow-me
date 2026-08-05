@@ -5,13 +5,13 @@ import {
   TextInput,
   TouchableOpacity,
   StyleSheet,
-  Image,
   ActivityIndicator,
   SafeAreaView,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
 } from 'react-native';
+import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import { saveProfile, storage } from '../../../composition/container';
@@ -135,7 +135,13 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
           <View style={styles.avatarRow}>
             <TouchableOpacity style={styles.avatar} onPress={handlePickAvatar} activeOpacity={0.8}>
               {avatarUri != null ? (
-                <Image source={{ uri: avatarUri }} style={styles.avatarImage} />
+                <Image
+                  source={avatarUri}
+                  style={styles.avatarImage}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  recyclingKey={avatarUri}
+                />
               ) : (
                 <Ionicons name="camera" size={26} color={colors.accent} />
               )}
