@@ -40,7 +40,7 @@ export class SyncCandidatePhotosUseCase {
   ) {}
 
   /**
-   * `shouldStop` is polled between batches so a sync that is already running
+   * `shouldStop` is polled before each photo so a sync that is already running
    * can be abandoned. The caller uses it to honour a cloud-photo wipe: without
    * it, the batches still in flight when the user hit "Remove my photos from
    * the cloud" would commit their rows *after* the delete and quietly bring
@@ -66,9 +66,9 @@ export class SyncCandidatePhotosUseCase {
     onProgress?.(0, fresh.length);
     if (fresh.length === 0) return [];
 
-    // Each batch is saved before the next starts, so an interrupted sync (app
-    // backgrounded or killed) resumes where it left off instead of retrying —
-    // and re-decoding — every photo on the next launch.
+    // Each upload is saved before its slot takes another photo, so an
+    // interrupted sync (app backgrounded or killed) resumes where it left off
+    // instead of retrying — and re-decoding — every photo on the next launch.
     return mapInBatches(
       fresh,
       PHOTO_UPLOAD_BATCH_SIZE,
@@ -82,11 +82,14 @@ export class SyncCandidatePhotosUseCase {
         return row;
       },
       {
-        onBatch: async (batch, startIndex): Promise<void> => {
-          await this.candidateRepo.saveMany(batch);
+        onCommit: async (rows, done): Promise<void> => {
+          await this.candidateRepo.saveMany(rows);
           // After the save, not before: progress means "in the cloud", which is
           // what the next sync's dedupe and the server's posting job both see.
-          onProgress?.(startIndex + batch.length, fresh.length);
+          // `done` counts saved rows rather than positions — uploads finish in
+          // whatever order the network returns them, so a position would make
+          // the count jump around.
+          onProgress?.(done, fresh.length);
         },
         ...(shouldStop != null ? { shouldStop } : {}),
       },
