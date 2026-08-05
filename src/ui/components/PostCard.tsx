@@ -11,7 +11,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
-import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
+import { displaySizedUri } from '../../domain/services/mediaDisplayUri';
 import type { FeedPosting } from '../data/feed';
 import { colors, radius, spacing } from '../theme/theme';
 

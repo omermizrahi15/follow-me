@@ -14,9 +14,12 @@ import { useSuggestedPhotos } from '../hooks/useSuggestedPhotos';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { usePublisherId } from '../context/AuthContext';
-import { SuggestionCache } from '../../infrastructure/cache/SuggestionCache';
-import { expoResolveLocalUri } from '../../infrastructure/media/ExpoMediaLibrary';
-import { resolvePlaceForCoordinates, loadConfig } from '../../composition/container';
+import {
+  SuggestionCache,
+  expoResolveLocalUri,
+  resolvePlaceForCoordinates,
+  loadConfig,
+} from '../../composition/container';
 import * as MediaLibrary from 'expo-media-library';
 import type { Coordinate } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';

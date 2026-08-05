@@ -24,6 +24,7 @@ import {
   candidateUrlsByAssetIds,
   saveTestApprovalBatch,
   deleteUploadedPhotos,
+  SuggestionCache,
 } from '../../../composition/container';
 import { PublisherConfig, FREQUENCY_DAYS } from '../../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
@@ -41,7 +42,6 @@ import { PhotoSyncStatus } from './PhotoSyncStatus';
 import { showDevTools } from '../../data/devTools';
 import { SELECTABLE_CATEGORIES } from '../../../domain/entities/PhotoClassification';
 import type { PhotoCategory } from '../../../domain/entities/PhotoClassification';
-import { SuggestionCache } from '../../../infrastructure/cache/SuggestionCache';
 import { colors, radius, spacing, typography } from '../../theme/theme';
 
 interface Props {

@@ -1,7 +1,6 @@
 import * as Notifications from 'expo-notifications';
 import * as TaskManager from 'expo-task-manager';
-import { authService } from '../../composition/container';
-import { reportError } from '../../infrastructure/monitoring/sentry';
+import { authService, reportError } from '../../composition/container';
 import { runCandidateSyncQuietly } from '../data/candidateSync';
 import { isSyncWakePayload } from '../../domain/services/syncWake';
 

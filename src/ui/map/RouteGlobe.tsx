@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { View, Text, ActivityIndicator, StyleSheet } from 'react-native';
 import { WebView, type WebViewMessageEvent } from 'react-native-webview';
 import type { FeedPosting } from '../data/feed';
-import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
+import { displaySizedUri } from '../../domain/services/mediaDisplayUri';
 import { buildTravelRoute, type TravelRouteInput } from '../../domain/services/travelRoute';
 import { buildGlobeHtml, toScriptLiteral, type GlobeMessage } from './globeHtml';
 import { globeStyleUrl } from './styleUrl';

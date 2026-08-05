@@ -1,10 +1,20 @@
 import React from 'react';
 import { View, Image, Text, StyleSheet } from 'react-native';
-import type { MediaDto } from '../../application/dtos';
 import { colors, radius, spacing, shadow } from '../theme/theme';
 
+/**
+ * Only what the card actually renders — deliberately structural rather than
+ * `MediaDto`, so a presentational component carries no dependency on the
+ * application layer (#107). Any DTO with these two fields still satisfies it.
+ */
+interface CardPhoto {
+  url: string;
+  /** ISO string. */
+  createdAt: string;
+}
+
 interface Props {
-  photo: MediaDto;
+  photo: CardPhoto;
 }
 
 export function PhotoCard({ photo }: Props): React.JSX.Element {

@@ -1,7 +1,6 @@
 import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
-import { authService } from '../../composition/container';
-import { reportError, reportMessage } from '../../infrastructure/monitoring/sentry';
+import { authService, reportError, reportMessage } from '../../composition/container';
 import { runCandidateSyncQuietly } from './candidateSync';
 
 /**
