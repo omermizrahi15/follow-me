@@ -70,10 +70,14 @@ export function isAllowedUrl(url: string): boolean {
 export function RouteGlobe({ postings, onPressPosting, bottomPadding }: Props): React.JSX.Element {
   const [ready, setReady] = useState(false);
   const webRef = useRef<WebView>(null);
-  // The postings are captured when the HTML is built; keep a live map from id
-  // back to the posting so a tap always opens the current object.
-  const byId = useRef(new Map<string, FeedPosting>());
-  byId.current = new Map(postings.map(p => [p.id, p]));
+  // The page only ever sends back an id — it holds the route, not the
+  // postings — so a tap has to be resolved against the current list here.
+  //
+  // Derived, not a ref written during render: a render is allowed to be
+  // discarded, and an assignment inside one is a side effect that would
+  // survive it. Under concurrent rendering that means a lookup table built
+  // from postings React ended up throwing away.
+  const byId = useMemo(() => new Map(postings.map(p => [p.id, p])), [postings]);
 
   // The route as a JS literal, ready either to bake into the page or to push
   // into the live one. Comparing these strings is also how "did the route
@@ -141,7 +145,7 @@ export function RouteGlobe({ postings, onPressPosting, bottomPadding }: Props): 
       if (__DEV__) console.warn('[globe]', message.message);
     }
     if (message.type === 'openPosting') {
-      const posting = byId.current.get(message.id);
+      const posting = byId.get(message.id);
       if (posting != null) onPressPosting(posting);
     }
   }
