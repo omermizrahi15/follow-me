@@ -7,6 +7,16 @@
  * the effects (HTTP call, dedupe, fallback notification) stay in the UI layer.
  */
 
+/**
+ * The action identifier iOS reports when the "Post now" button is pressed.
+ *
+ * Owned here, not by the notifier that registers the category: it is the shared
+ * vocabulary between the code that *declares* the button and the code that
+ * *reacts* to it, and the reacting side lives in the UI layer, which must not
+ * reach into infrastructure to learn it (#107).
+ */
+export const POST_NOW_ACTION = 'POST_NOW';
+
 /** The payload fields the decision depends on. */
 export interface PostNowNotification {
   /** Which button was pressed, or the tap-the-body identifier. */

@@ -23,7 +23,7 @@ import { toFeedPosting, type FeedMedia, type FeedPosting } from '../data/feed';
 import { usePublisherId } from '../context/AuthContext';
 import { confirmMoveToTrash } from '../hooks/useTrash';
 import { listFeed } from '../../composition/container';
-import { displaySizedUri } from '../../infrastructure/storage/cloudinaryDelivery';
+import { displaySizedUri } from '../../domain/services/mediaDisplayUri';
 import { colors, radius, spacing } from '../theme/theme';
 
 /** Fraction of the page width that counts as the "go back" tap zone. */

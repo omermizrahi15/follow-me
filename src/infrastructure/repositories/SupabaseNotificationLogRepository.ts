@@ -1,10 +1,43 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '../supabase/database';
+import type { AppSupabaseClient } from '../supabase/types';
 import type {
   INotificationLog,
   NotificationLogEntry,
   RecordedNotificationLogEntry,
 } from '../../domain/interfaces';
+
+interface Database {
+  public: {
+    Tables: {
+      notification_log: {
+        Row: {
+          id: string;
+          subscriber_id: string | null;
+          publisher_id: string;
+          contact_handle: string;
+          event: string;
+          detail: string | null;
+          created_at: string;
+        };
+        Insert: {
+          id?: string;
+          subscriber_id?: string | null;
+          publisher_id: string;
+          contact_handle: string;
+          event: string;
+          detail?: string | null;
+          created_at?: string;
+        };
+        Update: { [_ in never]: never };
+        Relationships: [];
+      };
+    };
+    Views: { [_ in never]: never };
+    Functions: { [_ in never]: never };
+    Enums: { [_ in never]: never };
+    CompositeTypes: { [_ in never]: never };
+  };
+}
 
 type LogRow = Database['public']['Tables']['notification_log']['Row'];
 
@@ -21,9 +54,14 @@ function rowToEntry(row: LogRow): RecordedNotificationLogEntry {
 }
 
 export class SupabaseNotificationLogRepository implements INotificationLog {
-  // Takes a service-role client in production (the edge function writes with it,
-  // bypassing RLS); the integration test passes one built from the anon key.
-  constructor(private readonly client: SupabaseClient<Database>) {}
+  private readonly client: SupabaseClient<Database>;
+
+  // `notification_log` has no policy for any client-side role — the production
+  // writer is the edge function's service-role client, which bypasses RLS. The
+  // integration test builds a service-role client and passes it in here.
+  constructor(client: AppSupabaseClient) {
+    this.client = client as unknown as SupabaseClient<Database>;
+  }
 
   async record(entry: NotificationLogEntry): Promise<void> {
     const { error } = await this.client.from('notification_log').insert({

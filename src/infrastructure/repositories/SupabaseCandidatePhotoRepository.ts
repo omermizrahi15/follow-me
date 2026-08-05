@@ -1,10 +1,43 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '../supabase/database';
+import type { AppSupabaseClient } from '../supabase/types';
 import type { ICandidatePhotoRepository } from '../../domain/interfaces';
 import type { CandidatePhoto } from '../../domain/entities/CandidatePhoto';
 
+type CandidateRow = {
+  publisher_id: string;
+  asset_id: string;
+  url: string;
+  created_at: string;
+  synced_at: string;
+  latitude: number | null;
+  longitude: number | null;
+};
+
+interface Database {
+  public: {
+    Tables: {
+      candidate_photos: {
+        Row: CandidateRow;
+        Insert: Omit<CandidateRow, 'synced_at'> & { synced_at?: string };
+        Update: Partial<CandidateRow>;
+        Relationships: [];
+      };
+    };
+    Views: { [_ in never]: never };
+    Functions: { [_ in never]: never };
+    Enums: { [_ in never]: never };
+    CompositeTypes: { [_ in never]: never };
+  };
+}
+
 export class SupabaseCandidatePhotoRepository implements ICandidatePhotoRepository {
-  constructor(private readonly client: SupabaseClient<Database>) {}
+  private readonly client: SupabaseClient<Database>;
+
+  // Takes the shared authenticated client (issue #115): its session is what puts
+  // `auth.uid()` behind every query, which is what the RLS policies match on.
+  constructor(client: AppSupabaseClient) {
+    this.client = client as unknown as SupabaseClient<Database>;
+  }
 
   async saveMany(photos: CandidatePhoto[]): Promise<void> {
     if (photos.length === 0) return;

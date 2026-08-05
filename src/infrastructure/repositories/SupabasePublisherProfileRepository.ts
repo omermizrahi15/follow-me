@@ -1,7 +1,24 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '../supabase/database';
+import type { AppSupabaseClient } from '../supabase/types';
 import type { IPublisherProfileRepository } from '../../domain/interfaces';
 import { PublisherProfile } from '../../domain/entities/PublisherProfile';
+
+interface Database {
+  public: {
+    Tables: {
+      publisher_profile: {
+        Row: { publisher_id: string; display_name: string; avatar_url: string | null; trip_start_date: string | null };
+        Insert: { publisher_id: string; display_name: string; avatar_url: string | null; trip_start_date?: string | null };
+        Update: { publisher_id?: string; display_name?: string; avatar_url?: string | null; trip_start_date?: string | null };
+        Relationships: [];
+      };
+    };
+    Views: { [_ in never]: never };
+    Functions: { [_ in never]: never };
+    Enums: { [_ in never]: never };
+    CompositeTypes: { [_ in never]: never };
+  };
+}
 
 type ProfileRow = Database['public']['Tables']['publisher_profile']['Row'];
 
@@ -30,7 +47,13 @@ function rowToProfile(row: ProfileRow): PublisherProfile {
 }
 
 export class SupabasePublisherProfileRepository implements IPublisherProfileRepository {
-  constructor(private readonly client: SupabaseClient<Database>) {}
+  private readonly client: SupabaseClient<Database>;
+
+  // Takes the shared authenticated client (issue #115): its session is what puts
+  // `auth.uid()` behind every query, which is what the RLS policies match on.
+  constructor(client: AppSupabaseClient) {
+    this.client = client as unknown as SupabaseClient<Database>;
+  }
 
   async save(profile: PublisherProfile): Promise<void> {
     const { error } = await this.client.from('publisher_profile').upsert({

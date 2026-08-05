@@ -34,19 +34,22 @@ import { SupabaseApprovalBatchRepository, type ApprovalBatch } from '../infrastr
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
-import { monitored, reportMessage } from '../infrastructure/monitoring/sentry';
+import { monitored, reportError, reportMessage } from '../infrastructure/monitoring/sentry';
+import { mediaLibraryAssetLocation } from '../infrastructure/media/assetLocation';
+import {
+  SuggestionCache,
+  cachedPhotoToClassification,
+  classificationToCachedPhoto,
+  type CachedPhoto,
+  type CachedSuggestion,
+} from '../infrastructure/cache/SuggestionCache';
+import { supabase, supabaseUrl, supabaseAnonKey } from '../infrastructure/supabase/client';
 import { requireEnv } from '../infrastructure/env';
-import { supabase } from '../infrastructure/supabase/client';
 import Constants from 'expo-constants';
 
-// Edge Functions are called over plain `fetch`, so the project URL and anon key
-// are still needed here; the client itself reads them for its own construction.
-const supabaseUrl = requireEnv(process.env.EXPO_PUBLIC_SUPABASE_URL as string | undefined, 'EXPO_PUBLIC_SUPABASE_URL');
-const supabaseAnonKey = requireEnv(process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string | undefined, 'EXPO_PUBLIC_SUPABASE_ANON_KEY');
-
-// One client for the whole app (issue #115): every repository below queries
-// through the same instance `authService` signs in on, so their reads and
-// writes carry the signed-in user's JWT instead of running as `anon`.
+// One client for the whole app (issue #115). Every repository below shares it,
+// so a signed-in user's JWT rides along on every query and the `auth.uid()` RLS
+// policies (migration 20240031) resolve to that user.
 const mediaRepo = new SupabaseMediaRepository(supabase);
 const subscriberRepo = new SupabaseSubscriberRepository(supabase);
 const configRepo = new SupabasePublisherConfigRepository(supabase);
@@ -274,3 +277,31 @@ export const deleteUploadedPhotos = monitored('delete_uploaded_photos', async ()
   if (!res.ok) throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
   return (await res.json()) as { deletedRows: number };
 });
+
+// ── Infrastructure the UI binds to here, not by reaching across the boundary ──
+//
+// These are not use cases, so there is nothing to wrap: they are device and
+// platform capabilities the UI genuinely needs (an on-device cache, the photo
+// library, the crash reporter). Naming them here keeps the composition root the
+// single place that knows which implementation is in play — swapping Sentry for
+// another reporter, or the cache for a different store, stays a one-line change
+// and no screen has to be touched. Screens importing them from
+// `infrastructure/` directly is the boundary breach that #107 uncovered.
+
+/** Crash and event reporting. Callers pass the operation name that failed. */
+export { reportError, reportMessage };
+
+/** Local URI for a media-library asset, and that asset's recorded GPS fix. */
+export { expoResolveLocalUri, mediaLibraryAssetLocation };
+
+/**
+ * On-device cache of the last photo suggestion, so a reminder tapped hours
+ * later shows the same batch the server picked.
+ */
+export {
+  SuggestionCache,
+  cachedPhotoToClassification,
+  classificationToCachedPhoto,
+  type CachedPhoto,
+  type CachedSuggestion,
+};

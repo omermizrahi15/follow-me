@@ -1,9 +1,13 @@
-import type { Session, AuthChangeEvent, SupabaseClient } from '@supabase/supabase-js';
+import type { Session, AuthChangeEvent } from '@supabase/supabase-js';
+import type { AppSupabaseClient } from '../supabase/types';
 
 export class SupabaseAuthService {
-  // The same client the repositories query with, so signing in here is what
-  // makes their reads and writes carry the user's JWT (issue #115).
-  constructor(private readonly client: SupabaseClient) {}
+  /**
+   * The shared client from `infrastructure/supabase/client` — the same instance
+   * the repositories query through, so signing in here immediately authenticates
+   * their requests too (issue #115).
+   */
+  constructor(private readonly client: AppSupabaseClient) {}
 
   async signInWithPhoneOtp(phone: string): Promise<void> {
     const { error } = await this.client.auth.signInWithOtp({

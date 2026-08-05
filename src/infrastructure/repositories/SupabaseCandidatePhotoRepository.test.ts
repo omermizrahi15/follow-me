@@ -3,21 +3,73 @@
 // iOS `ph://` uris, which are useless to a notification extension; the uploaded
 // Cloudinary copy is keyed by the same asset id in `candidate_photos` (issue #85).
 
-import { SupabaseCandidatePhotoRepository } from './SupabaseCandidatePhotoRepository';
-import { recordingClient, type RecordedQuery } from '../../test-support/supabase';
+jest.mock('@supabase/supabase-js', () => {
+  const state: {
+    result: { data: unknown; error: unknown };
+    table: string | null;
+    eqCalls: Array<[string, unknown]>;
+    inCalls: Array<[string, unknown]>;
+  } = { result: { data: [], error: null }, table: null, eqCalls: [], inCalls: [] };
+  interface QueryBuilder {
+    select: () => QueryBuilder;
+    eq: (column: string, value: unknown) => QueryBuilder;
+    in: (column: string, values: unknown) => QueryBuilder;
+    then: (resolve: (v: unknown) => void) => void;
+  }
+  const builder: QueryBuilder = {
+    select: () => builder,
+    eq: (column, value) => {
+      state.eqCalls.push([column, value]);
+      return builder;
+    },
+    in: (column, values) => {
+      state.inCalls.push([column, values]);
+      return builder;
+    },
+    then: (resolve): void => resolve(state.result),
+  };
+  return {
+    createClient: () => ({
+      from: (table: string) => {
+        state.table = table;
+        return builder;
+      },
+    }),
+    __state: state,
+  };
+});
 
-let recorded: RecordedQuery;
+import type { AppSupabaseClient } from '../supabase/types';
+import { SupabaseCandidatePhotoRepository } from './SupabaseCandidatePhotoRepository';
+import * as supabase from '@supabase/supabase-js';
+
+const state = (supabase as unknown as {
+  __state: {
+    result: { data: unknown; error: unknown };
+    table: string | null;
+    eqCalls: Array<[string, unknown]>;
+    inCalls: Array<[string, unknown]>;
+  };
+}).__state;
 
 function makeRepo(): SupabaseCandidatePhotoRepository {
-  const fake = recordingClient();
-  recorded = fake.recorded;
-  return new SupabaseCandidatePhotoRepository(fake.client);
+  // The repository takes a client rather than building one (issue #115), so the
+  // mock above is now just a factory for the fake we hand it.
+  return new SupabaseCandidatePhotoRepository(
+    supabase.createClient('https://example.supabase.co', 'anon-key') as AppSupabaseClient,
+  );
 }
+
+beforeEach(() => {
+  state.result = { data: [], error: null };
+  state.table = null;
+  state.eqCalls = [];
+  state.inCalls = [];
+});
 
 describe('SupabaseCandidatePhotoRepository.urlsByAssetIds', () => {
   it('maps asset ids to their uploaded urls, scoped to the publisher', async () => {
-    const repo = makeRepo();
-    recorded.result = {
+    state.result = {
       data: [
         { asset_id: 'a', url: 'https://cdn/a.jpg' },
         { asset_id: 'b', url: 'https://cdn/b.jpg' },
@@ -25,20 +77,19 @@ describe('SupabaseCandidatePhotoRepository.urlsByAssetIds', () => {
       error: null,
     };
 
-    const urls = await repo.urlsByAssetIds('pub-1', ['a', 'b']);
+    const urls = await makeRepo().urlsByAssetIds('pub-1', ['a', 'b']);
 
-    expect(recorded.table).toBe('candidate_photos');
-    expect(recorded.eqCalls).toContainEqual(['publisher_id', 'pub-1']);
-    expect(recorded.inCalls).toContainEqual(['asset_id', ['a', 'b']]);
+    expect(state.table).toBe('candidate_photos');
+    expect(state.eqCalls).toContainEqual(['publisher_id', 'pub-1']);
+    expect(state.inCalls).toContainEqual(['asset_id', ['a', 'b']]);
     expect(urls.get('a')).toBe('https://cdn/a.jpg');
     expect(urls.get('b')).toBe('https://cdn/b.jpg');
   });
 
   it('omits ids with no uploaded copy rather than inventing one', async () => {
-    const repo = makeRepo();
-    recorded.result = { data: [{ asset_id: 'a', url: 'https://cdn/a.jpg' }], error: null };
+    state.result = { data: [{ asset_id: 'a', url: 'https://cdn/a.jpg' }], error: null };
 
-    const urls = await repo.urlsByAssetIds('pub-1', ['a', 'missing']);
+    const urls = await makeRepo().urlsByAssetIds('pub-1', ['a', 'missing']);
 
     expect(urls.get('a')).toBe('https://cdn/a.jpg');
     expect(urls.has('missing')).toBe(false);
@@ -46,18 +97,15 @@ describe('SupabaseCandidatePhotoRepository.urlsByAssetIds', () => {
   });
 
   it('short-circuits without querying when given no ids', async () => {
-    const repo = makeRepo();
-
-    const urls = await repo.urlsByAssetIds('pub-1', []);
+    const urls = await makeRepo().urlsByAssetIds('pub-1', []);
 
     expect(urls.size).toBe(0);
-    expect(recorded.table).toBeNull();
+    expect(state.table).toBeNull();
   });
 
   it('throws when the query fails, so callers do not treat it as "no photos"', async () => {
-    const repo = makeRepo();
-    recorded.result = { data: null, error: { message: 'boom' } };
+    state.result = { data: null, error: { message: 'boom' } };
 
-    await expect(repo.urlsByAssetIds('pub-1', ['a'])).rejects.toThrow('boom');
+    await expect(makeRepo().urlsByAssetIds('pub-1', ['a'])).rejects.toThrow('boom');
   });
 });

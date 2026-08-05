@@ -1,10 +1,11 @@
-// Hits the real Supabase project with the ANON key — the same path the app
-// uses when it tracks deliveries around a share (dev anon policies, like the
-// other publisher-facing tables).
+// Hits the real Supabase project as a SIGNED-IN user — the same path the app
+// uses when it tracks deliveries around a share. The owner-only policy from
+// 20240031 matches `auth.uid() = publisher_id`, so the rows are keyed on the
+// test user's id rather than a made-up publisher string.
 //
-// Skipped automatically unless EXPO_PUBLIC_SUPABASE_URL and
-// EXPO_PUBLIC_SUPABASE_ANON_KEY are set, so it never breaks the normal suite.
-// Run locally with: npm run test:integration
+// Skipped automatically unless the creds are set, so it never breaks the
+// normal suite. Run locally with:
+//   AUTH_TEST_PHONE=... AUTH_TEST_OTP=... npm run test:integration
 //
 // Verifies what unit tests can't: that notification_deliveries exists with the
 // expected columns, the (photo_id, subscriber_id) upsert resets rows, and the
@@ -15,17 +16,19 @@
   close(): void {}
 };
 
-import { createClient } from '@supabase/supabase-js';
+import type { AppSupabaseClient } from '../supabase/types';
 import { SupabaseNotificationDeliveryRepository } from './SupabaseNotificationDeliveryRepository';
+import { signedInClient } from '../supabase/testing/clients';
 
 const supabaseUrl = process.env['EXPO_PUBLIC_SUPABASE_URL'] as string | undefined;
 const anonKey = process.env['EXPO_PUBLIC_SUPABASE_ANON_KEY'] as string | undefined;
-const RUN = supabaseUrl && anonKey;
+const testPhone = process.env['AUTH_TEST_PHONE'] as string | undefined;
+const testOtp = process.env['AUTH_TEST_OTP'] as string | undefined;
+const RUN = supabaseUrl && anonKey && testPhone && testOtp;
 
 const describeIf = (cond: unknown): jest.Describe => (cond ? describe : describe.skip);
 
 // Dedicated markers so the test never collides with real delivery data.
-const TEST_PUBLISHER = 'integration-test-deliveries';
 const TEST_PHOTO = 'integration-test-photo-1';
 const TEST_PHOTO_2 = 'integration-test-photo-2';
 // subscriber_id is a uuid column — fixed valid uuids for the test rows.
@@ -33,14 +36,26 @@ const SUB_A = '00000000-0000-4000-8000-00000000000a';
 const SUB_B = '00000000-0000-4000-8000-00000000000b';
 
 describeIf(RUN)('SupabaseNotificationDeliveryRepository (integration)', () => {
+  let client: AppSupabaseClient;
+  // The publisher IS the signed-in user — RLS admits no other value.
+  let TEST_PUBLISHER: string;
+
   function makeRepo(): SupabaseNotificationDeliveryRepository {
-    return new SupabaseNotificationDeliveryRepository(
-      createClient(supabaseUrl!, anonKey!, { auth: { persistSession: false } }),
-    );
+    return new SupabaseNotificationDeliveryRepository(client);
   }
 
+  beforeAll(async (): Promise<void> => {
+    ({ client, userId: TEST_PUBLISHER } = await signedInClient(
+      supabaseUrl!, anonKey!, testPhone!, testOtp!,
+    ));
+  });
+
+  afterAll(async (): Promise<void> => {
+    await client.from('notification_deliveries').delete().eq('publisher_id', TEST_PUBLISHER);
+    await client.auth.signOut();
+  });
+
   beforeEach(async (): Promise<void> => {
-    const client = createClient(supabaseUrl!, anonKey!, { auth: { persistSession: false } });
     await client.from('notification_deliveries').delete().eq('publisher_id', TEST_PUBLISHER);
   });
 

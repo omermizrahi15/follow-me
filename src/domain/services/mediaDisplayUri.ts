@@ -1,6 +1,11 @@
 /**
  * URL helpers for Cloudinary-hosted media delivery. Pure string transforms —
  * safe to call with any URL; non-Cloudinary URLs pass through untouched.
+ *
+ * Lives in domain rather than infrastructure despite the vendor-shaped URL: it
+ * performs no I/O, imports nothing, and every caller is a component deciding
+ * how large an image to request while rendering. Under `infrastructure/` it was
+ * unreachable from the UI without breaching a layer boundary (#107).
  */
 
 const UPLOAD_SEGMENT = '/upload/';

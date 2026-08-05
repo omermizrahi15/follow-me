@@ -1,8 +1,58 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
-import type { Database } from '../supabase/database';
+import type { AppSupabaseClient } from '../supabase/types';
 import type { IMediaRepository } from '../../domain/interfaces';
 import { Media } from '../../domain/entities/Media';
 import { validCoordinate } from '../../domain/services/coordinate';
+
+interface Database {
+  public: {
+    Tables: {
+      media: {
+        Row: {
+          id: string;
+          owner_id: string;
+          url: string;
+          created_at: string;
+          posting_id: string | null;
+          location: string | null;
+          latitude: number | null;
+          longitude: number | null;
+          deleted_at: string | null;
+          backfilled: boolean | null;
+        };
+        Insert: {
+          id: string;
+          owner_id: string;
+          url: string;
+          created_at: string;
+          posting_id?: string | null;
+          location?: string | null;
+          latitude?: number | null;
+          longitude?: number | null;
+          deleted_at?: string | null;
+          backfilled?: boolean | null;
+        };
+        Update: {
+          id?: string;
+          owner_id?: string;
+          url?: string;
+          created_at?: string;
+          posting_id?: string | null;
+          location?: string | null;
+          latitude?: number | null;
+          longitude?: number | null;
+          deleted_at?: string | null;
+          backfilled?: boolean | null;
+        };
+        Relationships: [];
+      };
+    };
+    Views: { [_ in never]: never };
+    Functions: { [_ in never]: never };
+    Enums: { [_ in never]: never };
+    CompositeTypes: { [_ in never]: never };
+  };
+}
 
 type MediaRow = Database['public']['Tables']['media']['Row'];
 
@@ -30,7 +80,13 @@ function rowToMedia(row: MediaRow): Media {
 }
 
 export class SupabaseMediaRepository implements IMediaRepository {
-  constructor(private readonly client: SupabaseClient<Database>) {}
+  private readonly client: SupabaseClient<Database>;
+
+  // Takes the shared authenticated client (issue #115): its session is what puts
+  // `auth.uid()` behind every query, which is what the RLS policies match on.
+  constructor(client: AppSupabaseClient) {
+    this.client = client as unknown as SupabaseClient<Database>;
+  }
 
   async save(media: Media): Promise<void> {
     const { error } = await this.client.from('media').upsert({

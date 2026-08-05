@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { loadConfig, suggestPhotos } from '../../composition/container';
+import {
+  loadConfig,
+  suggestPhotos,
+  SuggestionCache,
+  cachedPhotoToClassification,
+  classificationToCachedPhoto,
+} from '../../composition/container';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
-import { SuggestionCache, cachedPhotoToClassification, classificationToCachedPhoto } from '../../infrastructure/cache/SuggestionCache';
 
 export type SuggestPhase = 'loading' | 'scanning' | 'classifying' | 'done' | 'error';
 
