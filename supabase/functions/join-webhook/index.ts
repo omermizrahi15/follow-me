@@ -19,13 +19,13 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
+import { formToParams } from '../_shared/twilioWebhook.ts';
+import { parseInboundCommand } from '../../../src/domain/services/inboundCommand.ts';
 import {
-  parseInboundCommand,
-  composeUnsubscribeConfirmation,
   composeResubscribeConfirmation,
-  formToParams,
-  verifyTwilioSignature,
-} from '../_shared/optOut.ts';
+  composeUnsubscribeConfirmation,
+} from '../../../src/domain/services/optOutMessages.ts';
+import { verifyTwilioSignature } from '../../../src/infrastructure/notifiers/twilioSignature.ts';
 import { publisherDisplayName } from '../_shared/publisher.ts';
 import { contactHandleFromWhatsApp, twiml } from './logic.ts';
 
