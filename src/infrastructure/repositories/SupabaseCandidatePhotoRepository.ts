@@ -1,4 +1,5 @@
-import { createClient } from '@supabase/supabase-js';
+import type { SupabaseClient } from '@supabase/supabase-js';
+import type { AppSupabaseClient } from '../supabase/types';
 import type { ICandidatePhotoRepository } from '../../domain/interfaces';
 import type { CandidatePhoto } from '../../domain/entities/CandidatePhoto';
 
@@ -30,10 +31,12 @@ interface Database {
 }
 
 export class SupabaseCandidatePhotoRepository implements ICandidatePhotoRepository {
-  private client: ReturnType<typeof createClient<Database>>;
+  private readonly client: SupabaseClient<Database>;
 
-  constructor(url: string, anonKey: string) {
-    this.client = createClient<Database>(url, anonKey, { auth: { persistSession: false } });
+  // Takes the shared authenticated client (issue #115): its session is what puts
+  // `auth.uid()` behind every query, which is what the RLS policies match on.
+  constructor(client: AppSupabaseClient) {
+    this.client = client as unknown as SupabaseClient<Database>;
   }
 
   async saveMany(photos: CandidatePhoto[]): Promise<void> {

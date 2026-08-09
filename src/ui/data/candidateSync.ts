@@ -1,5 +1,9 @@
-import { loadConfig, recordSyncState, syncCandidatePhotos } from '../../composition/container';
-import { reportError } from '../../infrastructure/monitoring/sentry';
+import {
+  loadConfig,
+  recordSyncState,
+  reportError,
+  syncCandidatePhotos,
+} from '../../composition/container';
 import { singleFlight } from '../../application/services/singleFlight';
 import { hasPhotoSyncConsent, isPhotoSyncPaused } from './photoSyncConsent';
 import { syncBlocked, syncFailed, syncFinished, syncProgressed, syncStarted } from './syncStatus';

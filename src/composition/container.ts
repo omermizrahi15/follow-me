@@ -34,25 +34,33 @@ import { SupabaseApprovalBatchRepository, type ApprovalBatch } from '../infrastr
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
-import { monitored, reportMessage } from '../infrastructure/monitoring/sentry';
-import { env } from './env';
+import { monitored, reportError, reportMessage } from '../infrastructure/monitoring/sentry';
+import { mediaLibraryAssetLocation } from '../infrastructure/media/assetLocation';
+import {
+  SuggestionCache,
+  cachedPhotoToClassification,
+  classificationToCachedPhoto,
+  type CachedPhoto,
+  type CachedSuggestion,
+} from '../infrastructure/cache/SuggestionCache';
+import { supabase, supabaseUrl, supabaseAnonKey } from '../infrastructure/supabase/client';
+import { env } from '../infrastructure/env';
 import Constants from 'expo-constants';
 
-// Configuration is read and checked in ./env — as a set, once, without
-// throwing, so an unconfigured clone gets one message naming every missing
-// variable instead of a blank screen and whichever check happened to run first
-// (issue #110). While anything is missing these are inert placeholders and the
-// UI renders the setup message instead of the navigator, so none of the wiring
-// below is ever reached.
-const supabaseUrl = env.supabaseUrl;
-const supabaseKey = env.supabaseAnonKey;
-
-const mediaRepo = new SupabaseMediaRepository(supabaseUrl, supabaseKey);
-const subscriberRepo = new SupabaseSubscriberRepository(supabaseUrl, supabaseKey);
-const configRepo = new SupabasePublisherConfigRepository(supabaseUrl, supabaseKey);
-const candidateRepo = new SupabaseCandidatePhotoRepository(supabaseUrl, supabaseKey);
-const profileRepo = new SupabasePublisherProfileRepository(supabaseUrl, supabaseKey);
-const approvalBatchRepo = new SupabaseApprovalBatchRepository(supabaseUrl, supabaseKey);
+// One client for the whole app (issue #115). Every repository below shares it,
+// so a signed-in user's JWT rides along on every query and the `auth.uid()` RLS
+// policies (migration 20240031) resolve to that user.
+//
+// Its url/key come from ../infrastructure/env, which checks every required
+// variable as a set and never throws (issue #110): while anything is missing
+// they are inert placeholders and the UI renders the setup message rather than
+// the navigator, so none of the wiring below is ever reached.
+const mediaRepo = new SupabaseMediaRepository(supabase);
+const subscriberRepo = new SupabaseSubscriberRepository(supabase);
+const configRepo = new SupabasePublisherConfigRepository(supabase);
+const candidateRepo = new SupabaseCandidatePhotoRepository(supabase);
+const profileRepo = new SupabasePublisherProfileRepository(supabase);
+const approvalBatchRepo = new SupabaseApprovalBatchRepository(supabase);
 // Shared photo uploader (Cloudinary) — used for posts and profile avatars.
 // The optional folder isolates staging uploads from production assets.
 const storageService = new CloudinaryStorageService(
@@ -69,9 +77,9 @@ export const storage = monitored('photo_upload', storageService);
 // subscribe / join-webhook functions); the in-app sender below is dev-only.
 // Delivery tracking (issue #11): every send is logged per (photo, subscriber)
 // in notification_deliveries, and failures retry with 1s/4s/16s backoff.
-const deliveryLog = new SupabaseNotificationDeliveryRepository(supabaseUrl, supabaseKey);
+const deliveryLog = new SupabaseNotificationDeliveryRepository(supabase);
 const notifier = new RetryingNotifier(
-  new WhatsAppEdgeNotifier(`${supabaseUrl}/functions/v1/send-post`, supabaseKey),
+  new WhatsAppEdgeNotifier(`${supabaseUrl}/functions/v1/send-post`, supabaseAnonKey),
   {
     onAttempt: (subscriber, media, attempt) =>
       deliveryLog.recordAttempt(media.map(m => m.id), subscriber.id, attempt),
@@ -82,7 +90,7 @@ const confirmationSender = new ConsoleConfirmationSender();
 const mediaLibrary = new ExpoMediaLibrary();
 const photoClassifier = new GeminiPhotoClassifier(
   env.classifyFnUrl,
-  supabaseKey,
+  supabaseAnonKey,
   expoResolvePayload,
   // The classify function requires a signed-in user's JWT (anon key rejected).
   // authService is declared below — the closure runs long after module init.
@@ -119,7 +127,7 @@ export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(m
 export const subscribe = monitored('subscribe', new SubscribeUseCase(subscriberRepo, confirmationSender));
 export const listSubscribers = monitored('list_subscribers', new ListSubscribersUseCase(subscriberRepo));
 export const removeSubscriber = monitored('remove_subscriber', new RemoveSubscriberUseCase(subscriberRepo));
-export const authService = new SupabaseAuthService(supabaseUrl, supabaseKey);
+export const authService = new SupabaseAuthService(supabase);
 export const saveConfig = monitored('save_config', new SaveConfigUseCase(configRepo));
 export const loadConfig = monitored('load_config', new LoadConfigUseCase(configRepo));
 // The grade store is what makes grading the whole window affordable: a photo is
@@ -249,7 +257,7 @@ export const publishApprovalBatch = monitored(
     if (token == null) throw new Error('Not signed in');
     const res = await fetch(`${supabaseUrl}/functions/v1/post-batch`, {
       method: 'POST',
-      headers: { Authorization: `Bearer ${token}`, apikey: supabaseKey, 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ batchId }),
     });
     if (!res.ok) throw new Error(`Post failed (${res.status}): ${await res.text()}`);
@@ -267,8 +275,36 @@ export const deleteUploadedPhotos = monitored('delete_uploaded_photos', async ()
   if (token == null) throw new Error('Not signed in');
   const res = await fetch(`${supabaseUrl}/functions/v1/delete-candidates`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, apikey: supabaseKey },
+    headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey },
   });
   if (!res.ok) throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
   return (await res.json()) as { deletedRows: number };
 });
+
+// ── Infrastructure the UI binds to here, not by reaching across the boundary ──
+//
+// These are not use cases, so there is nothing to wrap: they are device and
+// platform capabilities the UI genuinely needs (an on-device cache, the photo
+// library, the crash reporter). Naming them here keeps the composition root the
+// single place that knows which implementation is in play — swapping Sentry for
+// another reporter, or the cache for a different store, stays a one-line change
+// and no screen has to be touched. Screens importing them from
+// `infrastructure/` directly is the boundary breach that #107 uncovered.
+
+/** Crash and event reporting. Callers pass the operation name that failed. */
+export { reportError, reportMessage };
+
+/** Local URI for a media-library asset, and that asset's recorded GPS fix. */
+export { expoResolveLocalUri, mediaLibraryAssetLocation };
+
+/**
+ * On-device cache of the last photo suggestion, so a reminder tapped hours
+ * later shows the same batch the server picked.
+ */
+export {
+  SuggestionCache,
+  cachedPhotoToClassification,
+  classificationToCachedPhoto,
+  type CachedPhoto,
+  type CachedSuggestion,
+};

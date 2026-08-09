@@ -140,7 +140,7 @@ Note that `seed.sql` is deliberately local-only: `db push` never carries it, so 
 
 ### If the app opens on a "Setup needed" screen
 
-That is the configuration check ([`src/composition/env.ts`](src/composition/env.ts)) telling you what is still missing — all of it at once, with the account each value comes from. Fix `.env`, then restart Metro with `npx expo start -c`: `EXPO_PUBLIC_*` values are baked into the bundle at build time, so a plain reload keeps the old ones.
+That is the configuration check ([`src/infrastructure/env.ts`](src/infrastructure/env.ts)) telling you what is still missing — all of it at once, with the account each value comes from. Fix `.env`, then restart Metro with `npx expo start -c`: `EXPO_PUBLIC_*` values are baked into the bundle at build time, so a plain reload keeps the old ones.
 
 ### Integration tests
 

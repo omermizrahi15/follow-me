@@ -14,8 +14,8 @@
   close(): void {}
 };
 
-import { createClient } from '@supabase/supabase-js';
 import { SupabaseNotificationLogRepository } from './SupabaseNotificationLogRepository';
+import { serviceRoleClient } from '../supabase/testing/clients';
 
 const supabaseUrl = process.env['EXPO_PUBLIC_SUPABASE_URL'] as string | undefined;
 const serviceKey = process.env['SUPABASE_SERVICE_ROLE_KEY'] as string | undefined;
@@ -28,14 +28,17 @@ const TEST_CONTACT = '+19998887766';
 const TEST_PUBLISHER = 'integration-test-publisher';
 
 describeIf(RUN)('SupabaseNotificationLogRepository (integration)', () => {
+  // describe.skip still evaluates this body, and createClient throws on a
+  // missing key — guard so absent creds skip the suite instead of failing it.
+  const admin = RUN ? serviceRoleClient(supabaseUrl, serviceKey) : (null as never);
+
   function makeRepo(): SupabaseNotificationLogRepository {
-    return new SupabaseNotificationLogRepository(supabaseUrl!, serviceKey!);
+    return new SupabaseNotificationLogRepository(admin);
   }
 
   // Append-only table: clear the test rows before each run so counts are exact.
   beforeEach(async (): Promise<void> => {
-    const client = createClient(supabaseUrl!, serviceKey!, { auth: { persistSession: false } });
-    await client.from('notification_log').delete().eq('contact_handle', TEST_CONTACT);
+    await admin.from('notification_log').delete().eq('contact_handle', TEST_CONTACT);
   });
 
   it('records an opt_out event and reads it back', async (): Promise<void> => {

@@ -20,6 +20,8 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   close(): void {}
 };
 
+import { createClient } from '@supabase/supabase-js';
+import type { AppSupabaseClient } from '../supabase/types';
 import { SupabaseAuthService } from './SupabaseAuthService';
 
 const supabaseUrl = process.env['EXPO_PUBLIC_SUPABASE_URL'] as string | undefined;
@@ -32,8 +34,19 @@ const RUN = supabaseUrl && supabaseKey;
 
 const describeIf = (cond: unknown): jest.Describe => (cond ? describe : describe.skip);
 
+// The service now takes the client rather than building one (issue #115). Each
+// call gets a fresh client so a test that signs in cannot leak its session into
+// the next — the AsyncStorage mock above is cleared between tests to match.
 function makeService(): SupabaseAuthService {
-  return new SupabaseAuthService(supabaseUrl!, supabaseKey!);
+  const client = createClient(supabaseUrl!, supabaseKey!, {
+    auth: {
+      storage: inMemoryStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      detectSessionInUrl: false,
+    },
+  }) as AppSupabaseClient;
+  return new SupabaseAuthService(client);
 }
 
 describeIf(RUN)('SupabaseAuthService (integration)', () => {
