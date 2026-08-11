@@ -3,7 +3,6 @@ import {
   ActivityIndicator,
   View,
   Text,
-  Image,
   FlatList,
   Pressable,
   TouchableOpacity,
@@ -14,7 +13,8 @@ import {
   useWindowDimensions,
   type ViewToken,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
@@ -123,7 +123,16 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
           }}
         >
           {uri != null ? (
-            <Image source={{ uri }} style={styles.photo} resizeMode="contain" />
+            <Image
+              source={uri}
+              style={styles.photo}
+              contentFit="contain"
+              // Disk only: these are full-screen 1080px renditions, and a
+              // memory cache of a long story is the kind of growth the
+              // watchdog kills the app for (#77).
+              cachePolicy="disk"
+              recyclingKey={uri}
+            />
           ) : (
             <View style={[styles.photo, styles.placeholder]}>
               <Ionicons name="image-outline" size={40} color={colors.textMuted} />
