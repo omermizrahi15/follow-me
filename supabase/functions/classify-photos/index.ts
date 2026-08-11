@@ -11,13 +11,22 @@
  *
  * Auth: requires a signed-in user's JWT (the anon key alone is rejected) —
  * the endpoint is quota/cost-sensitive. Per-user daily quota enforced via
- * increment_classify_quota() (migration 20240015).
+ * increment_classify_quota() (migration 20240015). `auto-post` calls this from a
+ * cron tick, where there is no user session to borrow: it presents the
+ * service-role key and names the publisher in `x-publisher-id`. See
+ * authenticatedUserId.
  *
  * Env: GEMINI_API_KEY (required), GEMINI_MODEL (optional, default gemini-3.5-flash),
  *      SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (auto-injected).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { bytesToBase64, CATEGORIES, type Classification, parseClassification } from './logic.ts';
+import {
+  bytesToBase64,
+  CATEGORIES,
+  type Classification,
+  classifyCaller,
+  parseClassification,
+} from './logic.ts';
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 /**
@@ -50,12 +59,21 @@ const MAX_PHOTOS_PER_REQUEST = 3;
  */
 const DAILY_QUOTA = Number(Deno.env.get('CLASSIFY_DAILY_QUOTA') ?? '500') || 500;
 
-/** Resolves the calling user's id, or null when the token isn't a signed-in user. */
+/**
+ * Resolves the id whose quota this request spends, or null when the caller is
+ * neither a signed-in user nor an attributable server call. See classifyCaller
+ * for which callers exist and why the service-role key is one of them.
+ */
 async function authenticatedUserId(req: Request): Promise<string | null> {
-  const token = (req.headers.get('Authorization') ?? '').replace(/^Bearer\s+/i, '');
-  if (token === '') return null;
+  const caller = classifyCaller(
+    req.headers.get('Authorization'),
+    req.headers.get('x-publisher-id'),
+    SERVICE_KEY,
+  );
+  if (caller.kind === 'rejected') return null;
+  if (caller.kind === 'service') return caller.userId;
   try {
-    const { data } = await admin.auth.getUser(token);
+    const { data } = await admin.auth.getUser(caller.token);
     return data.user?.id ?? null;
   } catch {
     return null;
