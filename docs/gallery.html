@@ -180,9 +180,55 @@
   </div>
 
   <script>
-    const SUPABASE_URL = 'https://eigvoazyrimzbzcjlscp.supabase.co';
-    const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpZ3ZvYXp5cmltemJ6Y2psc2NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMDEwMjQsImV4cCI6MjA5NjU3NzAyNH0.IS5azZCKMuEnxyZKMPgoV1lePyg4rpvPu8rt1q85yCA';
-    const HEADERS = { apikey: ANON_KEY, Authorization: 'Bearer ' + ANON_KEY };
+    // One page, two backends. A post lives in whichever Supabase project
+    // created it, and the staging app links here too — this file used to query
+    // production only, so every staging post rendered "not found".
+    //
+    // Anon keys are publishable by design: this page is unauthenticated, and
+    // `posts` / `publisher_profile` stay anon-readable through the RLS
+    // hardening (20240031) precisely so it can read them.
+    const PROJECTS = {
+      production: {
+        url: 'https://eigvoazyrimzbzcjlscp.supabase.co',
+        key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVpZ3ZvYXp5cmltemJ6Y2psc2NwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwMDEwMjQsImV4cCI6MjA5NjU3NzAyNH0.IS5azZCKMuEnxyZKMPgoV1lePyg4rpvPu8rt1q85yCA',
+      },
+      staging: {
+        url: 'https://xszvrvnxduwpymyabvcg.supabase.co',
+        key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzenZydm54ZHV3cHlteWFidmNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MDgwNDcsImV4cCI6MjA5ODk4NDA0N30.ey2NHiMJ07q5iwZuVMTWpGjABfHhz6s8XRTiIfhMtVk',
+      },
+    };
+
+    // Repointed by resolveProject() before anything else is fetched.
+    let SUPABASE_URL = PROJECTS.production.url;
+    let HEADERS = { apikey: PROJECTS.production.key, Authorization: 'Bearer ' + PROJECTS.production.key };
+
+    function useProject(name) {
+      const project = PROJECTS[name];
+      SUPABASE_URL = project.url;
+      HEADERS = { apikey: project.key, Authorization: 'Bearer ' + project.key };
+    }
+
+    /**
+     * Points the page at the project that actually holds this link's data and
+     * returns the probe's rows, so the caller doesn't fetch them twice.
+     *
+     * `?env=` pins a project outright; otherwise production is tried first and
+     * staging second. The fallback is what keeps links that were already sent
+     * working — they carry no env marker, and the sender has no way to add one
+     * retroactively.
+     */
+    async function resolveProject(probePath) {
+      const forced = new URLSearchParams(location.search).get('env');
+      const names = PROJECTS[forced] != null ? [forced] : Object.keys(PROJECTS);
+      for (const name of names) {
+        useProject(name);
+        const rows = await fetchJson(probePath);
+        if (rows.length > 0) return rows;
+      }
+      // Nothing anywhere — report it against the first project we tried.
+      useProject(names[0]);
+      return [];
+    }
 
     // Cloudinary display renditions — bounded width, auto format/quality.
     function sizedUrl(url, width) {
@@ -516,7 +562,7 @@
       if (id) {
         // Land on the linked post first — it's what the follower tapped — then
         // seed history so back reaches the feed, and fill the feed behind it.
-        const rows = await fetchJson('posts?id=eq.' + encodeURIComponent(id) + '&select=*');
+        const rows = await resolveProject('posts?id=eq.' + encodeURIComponent(id) + '&select=*');
         const post = rows[0];
         if (!post) return fail('This post was not found or has expired.');
         publisherId = post.publisher_id;
@@ -539,6 +585,10 @@
       }
 
       publisherId = user;
+      // A publisher-feed link carries no post id, so probe on the publisher.
+      await resolveProject(
+        'publisher_profile?publisher_id=eq.' + encodeURIComponent(user) + '&select=publisher_id&limit=1',
+      );
       await loadPublisher();
       await loadPosts();
       history.replaceState({ v: 'feed' }, '', feedUrl());

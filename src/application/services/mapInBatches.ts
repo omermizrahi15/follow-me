@@ -24,15 +24,19 @@ export const PHOTO_METADATA_BATCH_SIZE = 8;
 
 export interface BatchOptions<R> {
   /**
-   * Runs after each batch settles, before the next one starts — use it to
-   * commit progress so an interrupted run resumes instead of restarting.
+   * Runs as results land, before the slot that produced them takes another
+   * item — use it to commit progress so an interrupted run resumes instead of
+   * restarting. Commits never overlap: anything that finishes while one is in
+   * flight is handed to the next call, so a slow commit coalesces rather than
+   * queueing up round trips. `done` counts results committed so far including
+   * this call's, and only ever rises.
    */
-  onBatch?: (results: R[], startIndex: number) => Promise<void>;
+  onCommit?: (results: R[], done: number) => Promise<void>;
   /**
-   * Checked before each batch. Returning true ends the run early and yields
-   * only what has been processed so far. Long batched runs can outlive the
-   * reason they were started (see SyncCandidatePhotosUseCase, where a cloud
-   * wipe must not be undone by a sync that was already in flight).
+   * Checked before each item is picked up. Returning true stops new items from
+   * starting and yields only what has been processed so far. Long runs can
+   * outlive the reason they were started (see SyncCandidatePhotosUseCase, where
+   * a cloud wipe must not be undone by a sync that was already in flight).
    */
   shouldStop?: () => Promise<boolean>;
 }
@@ -40,28 +44,90 @@ export interface BatchOptions<R> {
 /**
  * Like `Promise.all(items.map(fn))`, but with at most `size` calls running at
  * once. Results come back in input order. An empty `items` resolves to `[]`
- * without calling `fn`, `onBatch` or `shouldStop`.
+ * without calling `fn`, `onCommit` or `shouldStop`.
  *
- * A rejection (from `fn` or `onBatch`) propagates immediately and no further
- * batches start, leaving whatever `onBatch` already committed intact.
+ * A sliding window, not a barrier: a slot takes the next item the moment its
+ * own finishes, so one slow photo (an iCloud original coming down over a bad
+ * connection) no longer leaves the other slots idle waiting for it. Peak
+ * concurrency is unchanged, which is the whole point of the ceiling — see
+ * PHOTO_UPLOAD_BATCH_SIZE.
+ *
+ * A rejection (from `fn` or `onCommit`) propagates immediately and no further
+ * items are picked up, leaving whatever `onCommit` already committed intact.
+ * Items already in flight are awaited rather than abandoned — they hold native
+ * bitmaps, and the ceiling only means anything if it counts them.
  */
 export async function mapInBatches<T, R>(
   items: readonly T[],
   size: number,
   fn: (item: T, index: number) => Promise<R>,
-  { onBatch, shouldStop }: BatchOptions<R> = {},
+  { onCommit, shouldStop }: BatchOptions<R> = {},
 ): Promise<R[]> {
   // A size of 0 would loop forever; a negative one would run backwards. Both
   // are caller bugs, and both are quieter to debug as a throw than as a hang.
   if (!Number.isInteger(size) || size < 1) {
     throw new Error(`mapInBatches: size must be a positive integer, got ${size}`);
   }
-  const all: R[] = [];
-  for (let i = 0; i < items.length; i += size) {
-    if (await shouldStop?.()) break;
-    const batch = await Promise.all(items.slice(i, i + size).map((item, n) => fn(item, i + n)));
-    await onBatch?.(batch, i);
-    all.push(...batch);
+  if (items.length === 0) return [];
+
+  // Written by index rather than pushed, so the returned order is the input
+  // order however the completions interleave.
+  const results: R[] = [];
+  let nextIndex = 0;
+  let stopped = false;
+
+  // Results waiting to be committed, in completion order, plus the chain that
+  // drains them one commit at a time.
+  let pending: R[] = [];
+  let committed = 0;
+  let commits: Promise<void> = Promise.resolve();
+
+  function commit(result: R): Promise<void> {
+    if (onCommit == null) return Promise.resolve();
+    pending.push(result);
+    commits = commits.then(async () => {
+      // An earlier link already took this result along with its own.
+      if (pending.length === 0) return;
+      const batch = pending;
+      pending = [];
+      committed += batch.length;
+      await onCommit(batch, committed);
+    });
+    const link = commits;
+    // The awaiting worker is what surfaces a failed commit; this only keeps the
+    // chain itself from counting as an unhandled rejection.
+    link.catch(() => {});
+    return link;
   }
-  return all;
+
+  async function worker(): Promise<void> {
+    for (;;) {
+      if (stopped) return;
+      if (await shouldStop?.()) {
+        stopped = true;
+        return;
+      }
+      const index = nextIndex++;
+      if (index >= items.length) return;
+      // `noUncheckedIndexedAccess` can't see that the bound above makes this
+      // safe, and `items` may legitimately hold undefined values.
+      const item = items[index] as T;
+      try {
+        const result = await fn(item, index);
+        results[index] = result;
+        await commit(result);
+      } catch (err) {
+        // Whatever went wrong, nothing new should start behind it.
+        stopped = true;
+        throw err;
+      }
+    }
+  }
+
+  await Promise.all(Array.from({ length: Math.min(size, items.length) }, worker));
+  // The last slot can finish while its commit is still draining.
+  await commits;
+  // Dense again: `results` is a prefix of `items` (workers take indices in
+  // order), so an early stop leaves a shorter list, never a hole.
+  return results.slice(0, Math.min(nextIndex, items.length));
 }
