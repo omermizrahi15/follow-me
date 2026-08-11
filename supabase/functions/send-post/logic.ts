@@ -7,6 +7,13 @@ export interface SendPostRequest {
   to: string;
   mediaUrls: string[];
   place?: string;
+  /**
+   * The batch id the app stamped on this posting's `media` rows. Optional: it
+   * only reached the body with the delete fix, and a build that predates it
+   * still sends fine — its gallery row just carries no posting id, so it can't
+   * be trashed with the post.
+   */
+  postingId?: string;
 }
 
 export type SendPostValidation =
@@ -15,14 +22,14 @@ export type SendPostValidation =
 
 /** Validates the POST body: requires publisherId, to, and a non-empty array of https media URLs. */
 export function validateSendPost(
-  body: { publisherId?: string; to?: string; mediaUrls?: unknown; place?: string },
+  body: { publisherId?: string; to?: string; mediaUrls?: unknown; place?: string; postingId?: string },
 ): SendPostValidation {
-  const { publisherId, to, mediaUrls, place } = body;
+  const { publisherId, to, mediaUrls, place, postingId } = body;
   if (!publisherId || !to || !Array.isArray(mediaUrls) || mediaUrls.length === 0) {
     return { ok: false, error: 'publisherId, to and non-empty mediaUrls are required' };
   }
   if (mediaUrls.some((u) => typeof u !== 'string' || !u.startsWith('https://'))) {
     return { ok: false, error: 'mediaUrls must be https URLs' };
   }
-  return { ok: true, value: { publisherId, to, mediaUrls: mediaUrls as string[], place } };
+  return { ok: true, value: { publisherId, to, mediaUrls: mediaUrls as string[], place, postingId } };
 }

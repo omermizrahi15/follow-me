@@ -4,9 +4,23 @@
 // Storage HTML as text/plain (anti-phishing), so it can't host pages itself
 // (same constraint that made /join a redirect).
 
-/** Override with the GALLERY_BASE_URL secret (e.g. after moving to a custom domain). */
-const GALLERY_BASE_URL = Deno.env.get('GALLERY_BASE_URL')
-  ?? 'https://omermizrahi15.github.io/follow-me/gallery.html';
+const DEFAULT_GALLERY_BASE_URL = 'https://omermizrahi15.github.io/follow-me/gallery.html';
+
+/**
+ * Override with the GALLERY_BASE_URL secret (e.g. after moving to a custom
+ * domain). Read per call rather than at module load: the pre-commit and CI
+ * gates run `deno test` without --allow-env, and a top-level Deno.env.get
+ * throws on import — before any test can grant permission.
+ */
+function galleryBaseUrl(): string {
+  try {
+    return Deno.env.get('GALLERY_BASE_URL') ?? DEFAULT_GALLERY_BASE_URL;
+  } catch {
+    // Reading it is what needs the permission, so the catch is the unit-test
+    // path, not an error case — the default is what production uses anyway.
+    return DEFAULT_GALLERY_BASE_URL;
+  }
+}
 
 // deno-lint-ignore no-explicit-any
 type SupabaseClient = any;
@@ -30,20 +44,34 @@ async function postId(publisherId: string, mediaUrls: string[]): Promise<string>
  * `place` is stored so the gallery's post list can label each card the way the
  * app's feed does; it is the same label the message names, and null when the
  * batch had no location.
+ *
+ * `postingId` is the batch id the same send stamps on its `media` rows. It is
+ * what lets the publisher deleting a post hide it from followers: without it
+ * the two tables share no key, and trashed posts stayed visible in the gallery.
  */
 export async function savePostGallery(
   supabase: SupabaseClient,
   publisherId: string,
   mediaUrls: string[],
   place: string | null = null,
+  postingId: string | null = null,
 ): Promise<string | null> {
   try {
     const id = await postId(publisherId, mediaUrls);
-    const { error } = await supabase
+    const row = { id, publisher_id: publisherId, media_urls: mediaUrls, place };
+    let { error } = await supabase
       .from('posts')
-      .upsert({ id, publisher_id: publisherId, media_urls: mediaUrls, place });
+      .upsert(postingId != null ? { ...row, posting_id: postingId } : row);
+    // `posting_id` arrives with migration 20240032. Against an environment the
+    // migration hasn't reached, naming the column 400s the upsert and every
+    // message loses its gallery link — so fall back to the row without it. The
+    // post is then untrashable until the migration runs, which beats sending
+    // linkless messages in the meantime.
+    if (error != null && postingId != null) {
+      ({ error } = await supabase.from('posts').upsert(row));
+    }
     if (error != null) throw new Error(error.message);
-    return `${GALLERY_BASE_URL}?id=${id}`;
+    return `${galleryBaseUrl()}?id=${id}`;
   } catch (err) {
     console.error('savePostGallery failed:', err);
     return null;
