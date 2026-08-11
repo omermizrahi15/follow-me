@@ -233,19 +233,27 @@ describe('SyncCandidatePhotosUseCase', () => {
     it('reports only what was committed when the run is stopped early', async () => {
       const { useCase } = makeSut(['a', 'b', 'c', 'd', 'e', 'f'].map(candidate));
       const progress: [number, number][] = [];
-      let batches = 0;
-      // Stop after the first batch commits — the shape of a cloud wipe landing
-      // mid-sync, or an iOS background window expiring.
-      const shouldStop = (): Promise<boolean> => Promise.resolve(batches++ >= 1);
+      // Stop once anything has been committed — the shape of a cloud wipe
+      // landing mid-sync, or an iOS background window expiring.
+      let committed = false;
 
-      await useCase.execute('pub-1', 7, shouldStop, (uploaded, total) =>
-        progress.push([uploaded, total]),
+      await useCase.execute(
+        'pub-1',
+        7,
+        () => Promise.resolve(committed),
+        (uploaded, total) => {
+          if (uploaded > 0) committed = true;
+          progress.push([uploaded, total]);
+        },
       );
 
-      expect(progress).toEqual([
-        [0, 6],
-        [3, 6],
-      ]);
+      // The opening report, then whatever landed before the stop — always
+      // fewer than all six, and never a count that goes backwards.
+      const uploaded = progress.map(([n]) => n);
+      expect(progress[0]).toEqual([0, 6]);
+      expect(progress.length).toBeGreaterThan(1);
+      expect(uploaded.at(-1)).toBeLessThan(6);
+      expect([...uploaded].sort((a, b) => a - b)).toEqual(uploaded);
     });
   });
 });

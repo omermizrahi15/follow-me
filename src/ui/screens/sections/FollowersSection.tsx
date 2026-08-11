@@ -1,6 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { usePublisherId } from '../../context/AuthContext';
 import { useSubscribers } from '../../hooks/useSubscribers';
 import { useInviteLink } from '../../hooks/useInviteLink';
