@@ -1,5 +1,6 @@
 import React from 'react';
-import { View, Image, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet } from 'react-native';
+import { Image } from 'expo-image';
 import { colors, radius, spacing, shadow } from '../theme/theme';
 
 /**
@@ -21,7 +22,14 @@ export function PhotoCard({ photo }: Props): React.JSX.Element {
   const date = new Date(photo.createdAt).toLocaleDateString();
   return (
     <View style={styles.card}>
-      <Image source={{ uri: photo.url }} style={styles.image} resizeMode="cover" />
+      <Image
+        source={photo.url}
+        style={styles.image}
+        contentFit="cover"
+        cachePolicy="memory-disk"
+        recyclingKey={photo.url}
+        transition={120}
+      />
       <Text style={styles.date}>{date}</Text>
     </View>
   );

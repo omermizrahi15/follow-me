@@ -7,7 +7,7 @@ import {
   ActivityIndicator,
   StyleSheet,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import type { Coordinate, PlaceSuggestion } from '../../domain/interfaces';
 import { placeSearch } from '../../composition/container';
 import { colors, radius, spacing } from '../theme/theme';

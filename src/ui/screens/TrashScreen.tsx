@@ -3,14 +3,14 @@ import {
   ActivityIndicator,
   Alert,
   FlatList,
-  Image,
   SafeAreaView,
   StyleSheet,
   Text,
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { usePublisherId } from '../context/AuthContext';
 import { useTrashedPostings } from '../hooks/useTrash';
@@ -84,7 +84,13 @@ function TrashRow({
   return (
     <View style={styles.row} testID={`trash-row-${posting.id}`}>
       {cover != null ? (
-        <Image source={{ uri: cover }} style={styles.thumb} />
+        <Image
+          source={cover}
+          style={styles.thumb}
+          contentFit="cover"
+          cachePolicy="memory-disk"
+          recyclingKey={cover}
+        />
       ) : (
         <View style={[styles.thumb, styles.thumbPlaceholder]}>
           <Ionicons name="image-outline" size={20} color={colors.textMuted} />

@@ -9,7 +9,7 @@ import {
   Alert,
 } from 'react-native';
 import type { GestureResponderEvent } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
+import Ionicons from '@expo/vector-icons/Ionicons';
 import { usePublisherId } from '../../context/AuthContext';
 import * as FileSystem from 'expo-file-system/legacy';
 import {
