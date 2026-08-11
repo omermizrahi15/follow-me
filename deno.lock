@@ -61,6 +61,7 @@
         "npm:expo-file-system@~19.0.23",
         "npm:expo-image-manipulator@~14.0.8",
         "npm:expo-image-picker@~17.0.11",
+        "npm:expo-image@~3.0.11",
         "npm:expo-linear-gradient@~15.0.8",
         "npm:expo-media-library@~18.2.1",
         "npm:expo-notifications@~0.32.17",

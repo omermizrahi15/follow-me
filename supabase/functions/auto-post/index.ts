@@ -28,6 +28,7 @@ import { resolveBatchPlace } from '../_shared/geocode.ts';
 import type { Coordinate } from '../../../src/domain/services/postingLocation.ts';
 import {
   approvalPushContent,
+  chunk,
   parseNotifyTime,
   reminderPushContent,
   syncGraceDecision,
@@ -186,15 +187,55 @@ function classifiedCandidates(
   return joined;
 }
 
-async function classify(photos: { id: string; url: string }[]): Promise<RawClassification[]> {
+/**
+ * Photos per classify-photos request. Must stay at or below that function's own
+ * MAX_PHOTOS_PER_REQUEST — it classifies sequentially within a request, so a
+ * bigger body is a longer-running worker, not a faster one, and over the cap it
+ * answers 400.
+ */
+const CLASSIFY_PHOTOS_PER_REQUEST = 3;
+
+/**
+ * Requests in flight at once. A lookback window is tens of photos and every one
+ * is its own Gemini call, so fully sequential chunks would run the worker for
+ * minutes; unbounded would open a request per photo at Gemini simultaneously.
+ */
+const CLASSIFY_CONCURRENCY = 3;
+
+async function classifyChunk(
+  publisherId: string,
+  photos: { id: string; url: string }[],
+): Promise<RawClassification[]> {
   const res = await fetch(CLASSIFY_URL, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVICE_KEY}` },
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${SERVICE_KEY}`,
+      // No user session on a cron tick — the service-role key authenticates the
+      // call and this names whose daily quota it spends. See the classify-photos
+      // authenticatedUserId comment.
+      'x-publisher-id': publisherId,
+    },
     body: JSON.stringify({ photos }),
   });
   if (!res.ok) throw new Error(`classify-photos failed (${res.status})`);
   const body = (await res.json()) as { classifications?: RawClassification[] };
   return body.classifications ?? [];
+}
+
+async function classify(
+  publisherId: string,
+  photos: { id: string; url: string }[],
+): Promise<RawClassification[]> {
+  const chunks = chunk(photos, CLASSIFY_PHOTOS_PER_REQUEST);
+  const all: RawClassification[] = [];
+  for (let i = 0; i < chunks.length; i += CLASSIFY_CONCURRENCY) {
+    const wave = await Promise.all(
+      chunks.slice(i, i + CLASSIFY_CONCURRENCY).map(group => classifyChunk(publisherId, group)),
+    );
+    for (const part of wave) all.push(...part);
+  }
+  return all;
 }
 
 async function pushReminder(token: string, reason: ReminderReason): Promise<void> {
@@ -393,7 +434,10 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
     .eq('owner_id', config.publisher_id);
   const alreadySent = new Set((sentRows ?? []).map((r: { id: string }) => r.id));
 
-  const classified = await classify(rows.map(r => ({ id: r.asset_id, url: r.url })));
+  const classified = await classify(
+    config.publisher_id,
+    rows.map(r => ({ id: r.asset_id, url: r.url })),
+  );
   const classifiedRows = classifiedCandidates(classified, rows);
 
   const selectedBatch = selectBatch(
@@ -495,7 +539,10 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     .eq('owner_id', config.publisher_id);
   const alreadySent = new Set((sentRows ?? []).map((r: { id: string }) => r.id));
 
-  const classified = await classify(rows.map(r => ({ id: r.asset_id, url: r.url })));
+  const classified = await classify(
+    config.publisher_id,
+    rows.map(r => ({ id: r.asset_id, url: r.url })),
+  );
 
   const batch = selectBatch(
     classifiedCandidates(classified, rows),

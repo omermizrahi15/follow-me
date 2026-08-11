@@ -1,6 +1,7 @@
-import { assertEquals } from '@std/assert';
+import { assertEquals, assertThrows } from '@std/assert';
 import {
   approvalPushContent,
+  chunk,
   CLIENT_STALE_MS,
   parseNotifyTime,
   reminderPushContent,
@@ -175,4 +176,31 @@ Deno.test('reminderPushContent — the switched-off reminder names the fix, not 
   assertEquals(body.toLowerCase().includes('open follow me'), false);
   assertEquals(title.toLowerCase().includes('off'), true);
   assertEquals(body.toLowerCase().includes('settings'), true);
+});
+
+Deno.test('chunk — groups in order, last group short', () => {
+  assertEquals(chunk([1, 2, 3, 4, 5, 6, 7], 3), [[1, 2, 3], [4, 5, 6], [7]]);
+  assertEquals(chunk([1, 2, 3], 3), [[1, 2, 3]]);
+  assertEquals(chunk([1, 2], 3), [[1, 2]]);
+});
+
+Deno.test('chunk — an empty input yields no groups (not one empty group)', () => {
+  assertEquals(chunk([], 3), []);
+});
+
+// A size of 0 loops forever and a negative one runs backwards; both are caller
+// bugs, and both are quieter to debug as a throw than as a hung cron tick.
+Deno.test('chunk — rejects a non-positive or fractional size', () => {
+  assertThrows(() => chunk([1], 0), Error, 'positive integer');
+  assertThrows(() => chunk([1], -1), Error, 'positive integer');
+  assertThrows(() => chunk([1], 1.5), Error, 'positive integer');
+});
+
+// The whole point of chunking: classify-photos answers 400 above its
+// MAX_PHOTOS_PER_REQUEST, which auto-post surfaces as a failed posting.
+Deno.test('chunk — no group exceeds the requested size for a full lookback window', () => {
+  const window = Array.from({ length: 47 }, (_, i) => i);
+  const groups = chunk(window, 3);
+  assertEquals(groups.every(g => g.length <= 3), true);
+  assertEquals(groups.flat(), window);
 });

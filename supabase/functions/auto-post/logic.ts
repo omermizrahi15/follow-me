@@ -3,6 +3,23 @@
 // (src/domain/services/autoPostSchedule.ts), the batch selection in
 // src/domain/services/photoSelection.ts — both already covered.
 
+/**
+ * Split `items` into consecutive groups of at most `size`, in order.
+ *
+ * Used to keep each classify-photos request under that function's own
+ * MAX_PHOTOS_PER_REQUEST cap: a whole lookback window in one body is answered
+ * with a 400, which reads at this end as "the posting failed" rather than "ask
+ * for less at a time".
+ */
+export function chunk<T>(items: readonly T[], size: number): T[][] {
+  if (!Number.isInteger(size) || size < 1) {
+    throw new Error(`chunk: size must be a positive integer, got ${size}`);
+  }
+  const groups: T[][] = [];
+  for (let i = 0; i < items.length; i += size) groups.push(items.slice(i, i + size));
+  return groups;
+}
+
 /** Split a "HH:MM" schedule time into numbers (invalid parts fall back to 0 at the call site). */
 export function parseNotifyTime(notifyTime: string): { hour: number; minute: number } {
   const [hour, minute] = notifyTime.split(':').map(Number);
