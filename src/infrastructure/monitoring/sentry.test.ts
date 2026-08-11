@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import { initErrorMonitoring, monitored, reportError } from './sentry';
+import type * as SentryModule from './sentry';
 
 jest.mock('@sentry/react-native', () => ({
   init: jest.fn(),
@@ -23,6 +24,34 @@ describe('initErrorMonitoring', () => {
     expect(init).toHaveBeenCalledWith(
       expect.objectContaining({ sendDefaultPii: false, tracesSampleRate: 0 }),
     );
+  });
+
+  // .env.example calls EXPO_PUBLIC_SENTRY_DSN optional and tells a new
+  // contributor to leave it unset (issue #110). That promise is only true if an
+  // absent DSN disables monitoring on its own, in a build that would otherwise
+  // report — the case above passes for the variant's sake alone.
+  it('stays disabled with no DSN even in a build that would otherwise report', () => {
+    jest.isolateModules(() => {
+      const previous = process.env.EXPO_PUBLIC_APP_VARIANT as string | undefined;
+      process.env.EXPO_PUBLIC_APP_VARIANT = 'production';
+      delete process.env.EXPO_PUBLIC_SENTRY_DSN;
+      try {
+        // Re-required so the module re-reads the env at its top level.
+        const fresh = jest.requireActual<typeof SentryModule>('./sentry');
+        fresh.initErrorMonitoring();
+        // Matched exactly, so this also proves there is no `dsn` key at all for
+        // Sentry to pick up.
+        expect(init).toHaveBeenCalledWith({
+          enabled: false,
+          environment: 'production',
+          tracesSampleRate: 0,
+          sendDefaultPii: false,
+        });
+      } finally {
+        if (previous == null) delete process.env.EXPO_PUBLIC_APP_VARIANT;
+        else process.env.EXPO_PUBLIC_APP_VARIANT = previous;
+      }
+    });
   });
 });
 

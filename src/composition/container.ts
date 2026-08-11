@@ -45,12 +45,17 @@ import {
   type CachedSuggestion,
 } from '../infrastructure/cache/SuggestionCache';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../infrastructure/supabase/client';
-import { requireEnv } from '../infrastructure/env';
+import { env } from '../infrastructure/env';
 import Constants from 'expo-constants';
 
 // One client for the whole app (issue #115). Every repository below shares it,
 // so a signed-in user's JWT rides along on every query and the `auth.uid()` RLS
 // policies (migration 20240031) resolve to that user.
+//
+// Its url/key come from ../infrastructure/env, which checks every required
+// variable as a set and never throws (issue #110): while anything is missing
+// they are inert placeholders and the UI renders the setup message rather than
+// the navigator, so none of the wiring below is ever reached.
 const mediaRepo = new SupabaseMediaRepository(supabase);
 // The followers' copy of a posting — what the gallery link opens. Deleting a
 // post has to hide this too, not just the publisher's own feed.
@@ -63,9 +68,9 @@ const approvalBatchRepo = new SupabaseApprovalBatchRepository(supabase);
 // Shared photo uploader (Cloudinary) — used for posts and profile avatars.
 // The optional folder isolates staging uploads from production assets.
 const storageService = new CloudinaryStorageService(
-  requireEnv(process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME as string | undefined, 'EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
-  requireEnv(process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET as string | undefined, 'EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
-  process.env.EXPO_PUBLIC_CLOUDINARY_FOLDER as string | undefined,
+  env.cloudinaryCloudName,
+  env.cloudinaryUploadPreset,
+  env.cloudinaryFolder,
 );
 // Direct UI uploads (avatars) get their own Sentry tag; use cases below hold
 // the raw service so their failures are tagged with the use case's operation
@@ -88,7 +93,7 @@ const confirmationSender = new ConsoleConfirmationSender();
 
 const mediaLibrary = new ExpoMediaLibrary();
 const photoClassifier = new GeminiPhotoClassifier(
-  requireEnv(process.env.EXPO_PUBLIC_CLASSIFY_FN_URL as string | undefined, 'EXPO_PUBLIC_CLASSIFY_FN_URL'),
+  env.classifyFnUrl,
   supabaseAnonKey,
   expoResolvePayload,
   // The classify function requires a signed-in user's JWT (anon key rejected).
@@ -111,9 +116,7 @@ const geocoder = new BigDataCloudGeocoder();
 // Place search for batches with no GPS. Shares the globe's MapTiler key: a
 // handful of calls per post, against a quota the map tiles dominate. Unset key
 // simply yields no suggestions (see MapTilerPlaceSearch).
-export const placeSearch = new MapTilerPlaceSearch(
-  (process.env.EXPO_PUBLIC_MAPTILER_KEY as string | undefined) ?? '',
-);
+export const placeSearch = new MapTilerPlaceSearch(env.maptilerKey);
 
 /** Pre-resolves the posting's place so the review screen can show/edit it. */
 export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<string | null> =>

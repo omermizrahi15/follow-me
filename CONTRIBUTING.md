@@ -12,6 +12,8 @@ npm install
 
 `npm install` is required — it sets up Husky, which installs the pre-commit hook that runs validation automatically before every commit.
 
+That is everything the tests need. To get the **app** running, follow [README → Getting started](README.md#getting-started): it walks clone → env → simulator and includes a fully local `supabase start` backend, so you never need credentials for the shared staging or production project.
+
 ## Before you write any code
 
 This project is built TDD. Write the test first, watch it fail, then implement. Every new behaviour needs a test alongside it — no exceptions.
@@ -123,13 +125,15 @@ the change merges.)
 
 ## Environment variables
 
-Copy `.env.example` to `.env` and fill in the values you need for local development.
-
 ```bash
 cp .env.example .env
 ```
 
+`.env.example` is split into three sections: the five variables the app refuses to boot without, the optional ones (each says what degrades if you leave it unset), and the ones the app never reads at all — Edge Function secrets and integration-test inputs. [README → Getting started](README.md#getting-started) says where each value comes from.
+
 Integration tests are skipped automatically if the relevant env vars are not set — so `npm test` always works without any setup.
+
+Start the app with something missing and you get a "Setup needed" screen listing every missing variable at once, rather than a blank app. The check lives in [`src/infrastructure/env.ts`](src/infrastructure/env.ts); adding a newly-required variable means adding it to `REQUIRED` there, not a fresh `throw` at the point of use.
 
 ## Commit messages
 
