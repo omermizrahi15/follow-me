@@ -38,6 +38,11 @@ const VICTIM = 'integration-test-rls-victim';
 const PHOTO_ID = 'integration-test-rls-photo';
 const BATCH_ID = 'integration-test-rls-batch';
 const SUB_ID = '00000000-0000-4000-8000-0000000f5100';
+// `posts.publisher_id` is a uuid, unlike the text ownership columns elsewhere,
+// so the gallery rows need a victim of their own.
+const POST_PUBLISHER = '00000000-0000-4000-8000-0000000f5101';
+const LIVE_POST = 'integration-test-rls-post-live';
+const TRASHED_POST = 'integration-test-rls-post-trashed';
 
 describeIf(RUN)('RLS — the bundled anon key (integration)', () => {
   // describe.skip still evaluates this body, and createClient throws on a
@@ -54,6 +59,7 @@ describeIf(RUN)('RLS — the bundled anon key (integration)', () => {
     await admin.from('subscribers').delete().eq('publisher_id', VICTIM);
     await admin.from('approval_batches').delete().eq('publisher_id', VICTIM);
     await admin.from('notification_deliveries').delete().eq('publisher_id', VICTIM);
+    await admin.from('posts').delete().eq('publisher_id', POST_PUBLISHER);
   }
 
   beforeAll(async (): Promise<void> => {
@@ -71,6 +77,15 @@ describeIf(RUN)('RLS — the bundled anon key (integration)', () => {
       ['approval_batches', { batch_id: BATCH_ID, publisher_id: VICTIM, batch: [], pool: [] }],
       ['notification_deliveries', {
         photo_id: PHOTO_ID, subscriber_id: SUB_ID, publisher_id: VICTIM, status: 'pending',
+      }],
+      // One live gallery row and one the publisher trashed (20240032).
+      ['posts', {
+        id: LIVE_POST, publisher_id: POST_PUBLISHER, media_urls: ['https://cdn.example/live.jpg'],
+        posting_id: 'posting-live',
+      }],
+      ['posts', {
+        id: TRASHED_POST, publisher_id: POST_PUBLISHER, media_urls: ['https://cdn.example/gone.jpg'],
+        posting_id: 'posting-trashed', deleted_at: new Date(0).toISOString(),
       }],
     ];
     for (const [table, row] of seeds) {
@@ -170,10 +185,32 @@ describeIf(RUN)('RLS — the bundled anon key (integration)', () => {
       expect(error).toBeNull();
     });
 
+    it('anon reads live posts but never a trashed one', async (): Promise<void> => {
+      // Both rows exist for the service role — the policy is what hides one.
+      const seen = await admin.from('posts').select('id').eq('publisher_id', POST_PUBLISHER);
+      expect(seen.data).toHaveLength(2);
+
+      const { data, error } = await anon.from('posts').select('id').eq('publisher_id', POST_PUBLISHER);
+      expect(error).toBeNull();
+      const rows = data as { id: string }[] | null;
+      expect(rows?.map(r => r.id)).toEqual([LIVE_POST]);
+    });
+
+    it('anon cannot reach a trashed post by its direct link either', async (): Promise<void> => {
+      const { data } = await anon.from('posts').select('id').eq('id', TRASHED_POST);
+      expect(data).toEqual([]);
+    });
+
+    it('a signed-in publisher cannot trash someone else\'s post', async (): Promise<void> => {
+      await authed.from('posts').update({ deleted_at: new Date().toISOString() }).eq('id', LIVE_POST);
+      const { data } = await admin.from('posts').select('deleted_at').eq('id', LIVE_POST).single();
+      expect(data?.deleted_at).toBeNull();
+    });
+
     it('anon cannot write to posts', async (): Promise<void> => {
       const { error } = await anon.from('posts').insert({
         id: 'integration-test-rls-post',
-        publisher_id: '00000000-0000-4000-8000-0000000f5101',
+        publisher_id: POST_PUBLISHER,
         media_urls: [],
       });
       expect(error).not.toBeNull();

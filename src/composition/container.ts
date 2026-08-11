@@ -26,6 +26,7 @@ import { RetryingNotifier } from '../infrastructure/notifiers/RetryingNotifier';
 import { SupabaseNotificationDeliveryRepository } from '../infrastructure/repositories/SupabaseNotificationDeliveryRepository';
 import { SupabaseAuthService } from '../infrastructure/auth/SupabaseAuthService';
 import { SupabaseMediaRepository } from '../infrastructure/repositories/SupabaseMediaRepository';
+import { SupabasePostGalleryRepository } from '../infrastructure/repositories/SupabasePostGalleryRepository';
 import { SupabaseSubscriberRepository } from '../infrastructure/repositories/SupabaseSubscriberRepository';
 import { SupabasePublisherConfigRepository } from '../infrastructure/repositories/SupabasePublisherConfigRepository';
 import { SupabaseCandidatePhotoRepository } from '../infrastructure/repositories/SupabaseCandidatePhotoRepository';
@@ -51,6 +52,9 @@ import Constants from 'expo-constants';
 // so a signed-in user's JWT rides along on every query and the `auth.uid()` RLS
 // policies (migration 20240031) resolve to that user.
 const mediaRepo = new SupabaseMediaRepository(supabase);
+// The followers' copy of a posting — what the gallery link opens. Deleting a
+// post has to hide this too, not just the publisher's own feed.
+const postGalleryRepo = new SupabasePostGalleryRepository(supabase);
 const subscriberRepo = new SupabaseSubscriberRepository(supabase);
 const configRepo = new SupabasePublisherConfigRepository(supabase);
 const candidateRepo = new SupabaseCandidatePhotoRepository(supabase);
@@ -120,7 +124,7 @@ export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<s
 // untouched). Tags make "which flow broke" filterable in Sentry (issue #10).
 export const shareMedia = monitored('share_photo', new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storageService, geocoder, deliveryLog));
 export const listFeed = monitored('list_feed', new ListFeedUseCase(mediaRepo));
-export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(mediaRepo));
+export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(mediaRepo, postGalleryRepo));
 export const subscribe = monitored('subscribe', new SubscribeUseCase(subscriberRepo, confirmationSender));
 export const listSubscribers = monitored('list_subscribers', new ListSubscribersUseCase(subscriberRepo));
 export const removeSubscriber = monitored('remove_subscriber', new RemoveSubscriberUseCase(subscriberRepo));

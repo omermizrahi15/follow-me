@@ -12,6 +12,17 @@ Deno.test('validateSendPost — accepts a well-formed request and passes through
   }
 });
 
+Deno.test('validateSendPost — passes the posting id through, and stays optional', () => {
+  const withId = validateSendPost({ publisherId: 'p', to: '+1', mediaUrls: ['https://a'], postingId: 'posting-abc' });
+  assert(withId.ok);
+  if (withId.ok) assertEquals(withId.value.postingId, 'posting-abc');
+
+  // Builds predating the delete fix omit it; the send must still go out.
+  const without = validateSendPost({ publisherId: 'p', to: '+1', mediaUrls: ['https://a'] });
+  assert(without.ok);
+  if (without.ok) assertEquals(without.value.postingId, undefined);
+});
+
 Deno.test('validateSendPost — rejects missing fields and empty media', () => {
   assertEquals(validateSendPost({ to: '+1', mediaUrls: ['https://a'] }).ok, false);
   assertEquals(validateSendPost({ publisherId: 'p', mediaUrls: ['https://a'] }).ok, false);

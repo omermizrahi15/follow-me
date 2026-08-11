@@ -30,6 +30,9 @@ export class WhatsAppEdgeNotifier implements INotifier {
         // The posting's place — the server weaves it into the caption
         // ("Check out X's latest photos from Lisbon, Portugal 📸").
         ...(first.location != null ? { place: first.location } : {}),
+        // Stamped onto the gallery row the server writes, so deleting this post
+        // later takes it out of the followers' gallery and not just the feed.
+        ...(first.postingId != null ? { postingId: first.postingId } : {}),
       }),
     });
     if (!res.ok) {

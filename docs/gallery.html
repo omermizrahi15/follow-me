@@ -539,6 +539,10 @@
      * Every post by this publisher, newest first. `select=*` rather than a
      * column list on purpose: `place` only exists once migration 20240025 has
      * run, and naming a column the table doesn't have 400s the whole feed.
+     *
+     * Posts the publisher deleted are absent because the RLS policy filters
+     * them (20240032), not because of anything here — same reason no `deleted_at`
+     * appears in the query, and it holds for the deep-linked post below too.
      */
     async function loadPosts() {
       const rows = await fetchJson(
