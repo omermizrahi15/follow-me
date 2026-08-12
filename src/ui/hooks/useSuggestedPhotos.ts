@@ -6,18 +6,34 @@ import {
   cachedPhotoToClassification,
   classificationToCachedPhoto,
 } from '../../composition/container';
+import type { SuggestStats } from '../../application/usecases/SuggestPhotosUseCase';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
+
+// Re-exported for the screens that render these numbers: use cases are off
+// limits above this layer (the hook is the seam), and the stats are part of
+// what this hook returns.
+export type { SuggestStats };
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
 
 export type SuggestPhase = 'loading' | 'scanning' | 'classifying' | 'done' | 'error';
+
+/**
+ * Why a top-up came back empty. The distinction matters: only `exhausted` and
+ * `quota` mean "stop asking" — `capped` means the round hit its wave limit with
+ * the window still unfinished, and reporting that as "nothing left" is what
+ * greyed out the "+" on a library that had ninety photos to spare.
+ */
+export type TopUpReason = 'exhausted' | 'quota' | 'capped';
 
 /** Outcome of one "give me another photo" request. */
 export interface TopUpResult {
   /** Newly classified photos worth suggesting — empty when the AI found none. */
   suggestions: PhotoClassification[];
   /** Why it came back empty, for the caller's copy. Null when it didn't. */
-  reason: 'none' | 'quota' | null;
+  reason: TopUpReason | null;
+  /** Photos this round looked at — what "kept looking" cost, for the copy. */
+  attempted: number;
 }
 
 interface State {
@@ -52,6 +68,10 @@ interface State {
   config: PublisherConfig | null;
   /** True when the batch was loaded from the server-push cache (no scan ran). */
   fromCache: boolean;
+  /** When a cached batch was computed, so the screen can say how old it is. */
+  cachedAt: number | null;
+  /** What the scan actually managed — null for a cached batch, which ran none. */
+  stats: SuggestStats | null;
   error: string | null;
 }
 
@@ -67,8 +87,21 @@ const INITIAL: State = {
   photosPerPost: 0,
   config: null,
   fromCache: false,
+  cachedAt: null,
+  stats: null,
   error: null,
 };
+
+/**
+ * How old a cached batch may be before the screen rescans instead of showing it.
+ *
+ * The cache exists so the reminder's batch opens instantly, not so a week-old
+ * selection can be served as "your suggested post" — which is exactly what
+ * happened: a publisher who opened the preview saw photos from three days ago,
+ * none from today, and no obvious way to say "look again". The store's own
+ * 32-day TTL is about garbage collection; this is about relevance.
+ */
+const STALE_CACHE_MS = 6 * 60 * 60 * 1000;
 
 interface Controls {
   /** Rescan the library from scratch, ignoring any cached batch. */
@@ -123,12 +156,22 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         setState(s => ({ ...s, photosPerPost: config.photosPerPost, config }));
 
         // Use the server-pre-computed batch when available (skips the full scan).
+        // Only while it still describes the library, though: a stale one is worse
+        // than no cache, because it silently hides everything shot since.
         if (!skipCache) {
           const cached = await SuggestionCache.load(publisherId);
-          if (cached != null) {
+          if (cached != null && Date.now() - cached.cachedAt < STALE_CACHE_MS) {
             const batch = cached.batch.map(cachedPhotoToClassification);
             const pool = cached.pool.map(cachedPhotoToClassification);
-            setState(s => ({ ...s, phase: 'done', batch, pool, fromCache: true, error: null }));
+            setState(s => ({
+              ...s,
+              phase: 'done',
+              batch,
+              pool,
+              fromCache: true,
+              cachedAt: cached.cachedAt,
+              error: null,
+            }));
             return;
           }
         }
@@ -137,7 +180,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         setState(s => ({ ...s, phase: 'scanning' }));
         await SuggestionCache.clear(publisherId);
 
-        const { batch, pool } = await suggestPhotos.execute(config, {
+        const { batch, pool, stats } = await suggestPhotos.execute(config, {
           onScanning() {
             setState(s => ({ ...s, phase: 'scanning' }));
           },
@@ -162,7 +205,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
           },
         });
 
-        setState(s => ({ ...s, phase: 'done', classified: 0, total: 0, partial: [], batch, pool, fromCache: false, error: null }));
+        setState(s => ({ ...s, phase: 'done', classified: 0, total: 0, partial: [], batch, pool, fromCache: false, cachedAt: null, stats, error: null }));
 
         // Persist the scan result so reopening the screen (or tapping the
         // reminder) shows this batch instantly instead of rescanning.
@@ -194,7 +237,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
 
   const topUp = useCallback((): Promise<TopUpResult> => {
     const config = state.config;
-    if (config == null) return Promise.resolve({ suggestions: [], reason: 'none' });
+    if (config == null) return Promise.resolve({ suggestions: [], reason: 'exhausted', attempted: 0 });
     // Already running: hand back the same round. Starting a second would double
     // the AI calls for one wave of photos, and the loser of the race used to
     // get an empty result — which reads as "no more photos" to the caller.
@@ -215,17 +258,23 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         // the pool's head is what the scan already judged best, and a late
         // arrival should not jump it just because the AI scored it highly.
         if (classified.length > 0) setState(s => ({ ...s, pool: [...s.pool, ...classified] }));
-        if (quotaExhausted || pendingRef.current.length === 0) setCanTopUp(false);
+        // Only a real dead end closes the door. A round that stopped at its wave
+        // limit leaves the queue standing, and saying "no more photos" there is
+        // a claim about the library that the round never established.
+        const exhausted = pendingRef.current.length === 0;
+        if (quotaExhausted || exhausted) setCanTopUp(false);
 
         return {
           suggestions,
-          reason: suggestions.length > 0 ? null : quotaExhausted ? 'quota' : 'none',
+          reason:
+            suggestions.length > 0 ? null : quotaExhausted ? 'quota' : exhausted ? 'exhausted' : 'capped',
+          attempted: consumed,
         };
       } catch {
         // A failed scan or classify round is not worth retrying on every press;
         // the publisher can rescan, which resets this.
         setCanTopUp(false);
-        return { suggestions: [], reason: 'none' };
+        return { suggestions: [], reason: 'exhausted', attempted: 0 };
       } finally {
         setToppingUp(false);
       }

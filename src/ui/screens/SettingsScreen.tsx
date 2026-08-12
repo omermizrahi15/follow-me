@@ -5,12 +5,13 @@ import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useAuth } from '../context/AuthContext';
+import { confirmCloudPhotoWipe } from '../data/cloudPhotoWipe';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /**
  * App settings, opened from the Me-page gear. Currently: profile editing,
- * account info, the deleted-posts trash + sign out. Fuller content (about,
- * privacy, terms) in issue #35.
+ * account info, the deleted-posts trash, the cloud-photo wipe + sign out.
+ * Fuller content (about, terms) in issue #35.
  */
 export function SettingsScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
@@ -63,6 +64,27 @@ export function SettingsScreen(): React.JSX.Element {
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>Deleted posts</Text>
               <Text style={styles.rowValue}>Restore a post you removed</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+
+        <Text style={styles.sectionLabel}>Privacy</Text>
+        <View style={styles.card}>
+          <TouchableOpacity
+            testID="settings-remove-cloud-photos"
+            style={styles.row}
+            onPress={() => confirmCloudPhotoWipe()}
+            activeOpacity={0.7}
+          >
+            <View style={styles.iconWrap}>
+              <Ionicons name="cloud-offline-outline" size={20} color={colors.accent} />
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Remove my photos from the cloud</Text>
+              <Text style={styles.rowValue}>
+                Deletes the private copies used to prepare posts, and stops uploading new ones
+              </Text>
             </View>
             <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
           </TouchableOpacity>

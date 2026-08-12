@@ -38,20 +38,11 @@ describe('syncStatusCopy', () => {
   });
 
   it('offers the fix when upload is switched off', () => {
-    // The bug: paused sync was indistinguishable from working sync, and the way
-    // to undo it was pressing Save — which nothing told the user to do.
-    for (const phase of ['paused', 'no-consent'] as const) {
-      const copy = syncStatusCopy(status({ phase }), NOW);
-      expect(copy.title).toBe('Photo upload is off');
-      expect(copy.action).toBe('Turn on');
-    }
-  });
-
-  it('distinguishes a wipe from never having consented', () => {
-    const paused = syncStatusCopy(status({ phase: 'paused' }), NOW).hint;
-    const never = syncStatusCopy(status({ phase: 'no-consent' }), NOW).hint;
-    expect(paused).not.toBe(never);
-    expect(paused).toContain('removed from the cloud');
+    // The bug: sync that was off was indistinguishable from working sync, and
+    // the way to undo it was pressing Save — which nothing told the user to do.
+    const copy = syncStatusCopy(status({ phase: 'no-consent' }), NOW);
+    expect(copy.title).toBe('Photo upload is off');
+    expect(copy.action).toBe('Turn on');
   });
 
   it('surfaces the failure message and a retry', () => {
@@ -78,5 +69,14 @@ describe('syncStatusCopy', () => {
     // feel they have to press something to make it happen.
     expect(syncStatusCopy(status(), NOW).hint).toContain('you don’t need to do anything');
     expect(syncStatusCopy(status(), NOW).action).toBeNull();
+  });
+
+  it('asks for the screen only when the user is the one who has to act', () => {
+    // A working sync says nothing at all. Narrating it is what made a fully
+    // automatic feature read as a chore with a schedule nobody could find.
+    expect(syncStatusCopy(status(), NOW).needsAttention).toBe(false);
+    expect(syncStatusCopy(status({ phase: 'syncing', total: 20 }), NOW).needsAttention).toBe(false);
+    expect(syncStatusCopy(status({ phase: 'no-consent' }), NOW).needsAttention).toBe(true);
+    expect(syncStatusCopy(status({ phase: 'failed' }), NOW).needsAttention).toBe(true);
   });
 });
