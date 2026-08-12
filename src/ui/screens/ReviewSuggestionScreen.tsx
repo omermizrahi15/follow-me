@@ -11,6 +11,7 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { RootNavigationProp } from '../navigation/types';
 import { useSuggestedPhotos } from '../hooks/useSuggestedPhotos';
+import type { SuggestStats, TopUpReason } from '../hooks/useSuggestedPhotos';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { usePublisherId } from '../context/AuthContext';
@@ -28,6 +29,7 @@ import { MAX_PHOTOS_PER_POST } from '../../domain/entities/PublisherConfig';
 import { isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
 import { mapInBatches, PHOTO_METADATA_BATCH_SIZE } from '../../application/services/mapInBatches';
 import { suggestPlaceSplit } from '../../domain/services/splitSuggestion';
+import { relativeTime } from '../../domain/services/photoSyncCopy';
 import type { PlaceSplitSegment } from '../../domain/services/splitSuggestion';
 import { PlaceField } from '../components/PlaceField';
 import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
@@ -54,6 +56,53 @@ const PREFETCH_LOW_WATER = 2;
 const PREFETCH_BUDGET = 2;
 /** Quiet period after the last tap, so a flurry of taps doesn't stack rounds. */
 const PREFETCH_IDLE_MS = 1200;
+
+/**
+ * What to say when a round of looking produced nothing.
+ *
+ * Three genuinely different situations used to share one sentence — "nothing
+ * else worth posting in those days" — including the case where the AI had only
+ * looked at twelve of a hundred photos. Stating the reason is also what makes
+ * the right next move obvious: wait, try again, or rescan.
+ */
+function emptyRoundNote(reason: TopUpReason | null, attempted: number): string | null {
+  if (reason === 'quota') return "Today's AI limit is used up — try again tomorrow.";
+  if (reason === 'capped') {
+    return attempted > 0
+      ? `Checked ${attempted} more photo${attempted === 1 ? '' : 's'} — nothing worth adding yet. Tap again to keep looking.`
+      : 'Nothing yet — tap again to keep looking.';
+  }
+  if (reason === 'exhausted') return 'That’s every photo from those days — nothing left to swap in.';
+  return null;
+}
+
+/**
+ * The honest one-line account of a finished scan.
+ *
+ * "AI picked 10 photos from 109 scanned" was the old line, and it was the most
+ * misleading thing on the screen: 109 is what the library handed over, while
+ * the number that decides whether there is anything to swap in is how many
+ * photos the AI actually got a look at. When a window barely grades — iCloud
+ * originals that never arrive, a spent daily budget — that gap is the entire
+ * explanation for "no more photos", and it used to be invisible.
+ */
+function scanSummary(picked: number, stats: SuggestStats | null, scanned: number): string {
+  const photos = `${picked} photo${picked === 1 ? '' : 's'}`;
+  if (stats == null) return `AI picked ${photos} from ${scanned} scanned.`;
+  return `AI picked ${photos} — ${stats.graded} of ${stats.unique} analysed.`;
+}
+
+/** Why a scan analysed fewer photos than it found, when it did. */
+function scanShortfallNote(stats: SuggestStats | null): string | null {
+  if (stats == null) return null;
+  if (stats.quotaExhausted) {
+    return `Today’s AI limit ran out after ${stats.graded} photos — the rest of those days aren’t analysed yet.`;
+  }
+  if (stats.unreadable > 0) {
+    return `${stats.unreadable} photo${stats.unreadable === 1 ? '' : 's'} couldn’t be read — usually iCloud originals that haven’t downloaded. Rescanning after they do will find them.`;
+  }
+  return null;
+}
 
 function stepIndex(phase: string): number {
   if (phase === 'scanning') return 0;
@@ -114,7 +163,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
   const publisherId = usePublisherId();
   const {
     phase, found, unique, classified, total, partial, batch, pool, photosPerPost, config,
-    fromCache, error, reload, topUp, toppingUp, canTopUp,
+    fromCache, cachedAt, stats, error, reload, topUp, toppingUp, canTopUp,
   } = useSuggestedPhotos(publisherId);
   const { share, loading: sharing, error: shareError, progress: shareProgress } = useShareMedia();
   // Keeps the footer's place input above the keyboard (this screen renders in
@@ -414,12 +463,8 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
       );
       if (banked.length > 0) return banked;
       if (!canTopUp || split != null) return [];
-      const { suggestions, reason } = await topUp();
-      setTopUpNote(
-        suggestions.length === 0 && reason === 'quota'
-          ? "Today's AI limit is used up — try again tomorrow."
-          : null,
-      );
+      const { suggestions, reason, attempted } = await topUp();
+      setTopUpNote(suggestions.length > 0 ? null : emptyRoundNote(reason, attempted));
       return suggestions;
     },
     [offerable, canTopUp, split, topUp],
@@ -428,6 +473,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
   function handleAddSlot(): void {
     if (kept.length >= MAX_PHOTOS_PER_POST || awaitingAdd) return;
     wantsMoreRef.current = true;
+    // Whatever the last round reported is about to be answered again; a stale
+    // "nothing found yet" left next to a photo that just appeared reads as a bug.
+    setTopUpNote(null);
 
     // The banked path stays synchronous. Going through the async one for a
     // photo we already hold would flash the spinner for a frame on what has
@@ -474,6 +522,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
     // photo they never rejected.
     if (swappingId != null) return;
     wantsMoreRef.current = true;
+    setTopUpNote(null);
     const newExcluded = new Set(excluded);
     newExcluded.add(id);
 
@@ -500,9 +549,14 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
           const pick = candidates.find(
             c => !used.has(c.candidate.id) && !newExcluded.has(c.candidate.id),
           );
+          // Nothing to swap in: keep the photo. "Other" asks for a different
+          // photo, never for one fewer — dropping it deleted a photo the
+          // publisher never rejected, and did it most often on exactly the
+          // libraries where the round came back empty for reasons that had
+          // nothing to do with the photo. `topUpNote` says what happened.
           return pick != null
             ? s.map(slotId => (slotId === id ? pick.candidate.id : slotId))
-            : s.filter(slotId => slotId !== id);
+            : s;
         });
       } finally {
         setSwappingId(null);
@@ -635,18 +689,37 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
         <Text style={innerStyles.subtitle}>
           {phase === 'done'
             ? fromCache
-              ? `AI pre-selected ${batch.length} photo${batch.length === 1 ? '' : 's'} for you.`
-              : `AI picked ${batch.length} photo${batch.length === 1 ? '' : 's'} from ${found} scanned.`
+              ? `AI pre-selected ${batch.length} photo${batch.length === 1 ? '' : 's'} for you${
+                  cachedAt != null ? ` ${relativeTime(cachedAt, Date.now())}` : ''
+                }.`
+              : scanSummary(batch.length, stats, found)
             : phase === 'classifying'
             ? unique > 0
               ? `Checking ${unique} unique photos (${found} scanned, ${found - unique} duplicates removed)`
               : 'Classifying photos…'
             : 'Scanning your library…'}
         </Text>
-        {fromCache && phase === 'done' && (
-          <TouchableOpacity onPress={reload} hitSlop={8}>
-            <Text style={innerStyles.rescanLink}>Rescan library instead</Text>
+        {/* Rescanning is not a fallback for a stale cache — it is how the
+            publisher says "look at what I shot since". It used to appear only
+            on a cached batch, so anyone holding a fresh scan that missed today's
+            photos had no way to ask for another look. */}
+        {phase === 'done' && split == null && (
+          <TouchableOpacity testID="review-rescan" onPress={reload} hitSlop={8}>
+            <Text style={innerStyles.rescanLink}>
+              {fromCache ? 'Rescan library instead' : 'Rescan library'}
+            </Text>
           </TouchableOpacity>
+        )}
+        {phase === 'done' && !fromCache && scanShortfallNote(stats) != null && (
+          <Text style={innerStyles.shortfallNote}>{scanShortfallNote(stats)}</Text>
+        )}
+        {/* A round that came back empty has to say so where the publisher is
+            looking — on the photo they just asked to replace, not only inside
+            the "+" card they may never scroll to. */}
+        {phase === 'done' && topUpNote != null && (
+          <Text testID="review-topup-note" style={innerStyles.shortfallNote}>
+            {topUpNote}
+          </Text>
         )}
         {offered != null && split == null && (
           <View style={splitStyles.card}>
@@ -769,9 +842,10 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
                     <Ionicons name="add" size={28} color={colors.textMuted} />
                   </View>
                   <Text style={gridStyles.addLabelDisabled}>No more photos</Text>
-                  <Text style={gridStyles.addHint}>
-                    {topUpNote ?? 'Nothing else worth posting in those days'}
-                  </Text>
+                  {/* The reason lives in the header note, which is where the
+                      publisher already is when a round comes back empty —
+                      repeating it here just said the same thing twice. */}
+                  <Text style={gridStyles.addHint}>Nothing else worth posting in those days</Text>
                   {split == null && (
                     <TouchableOpacity onPress={reload} hitSlop={8}>
                       <Text style={gridStyles.addRescanLink}>Rescan library</Text>

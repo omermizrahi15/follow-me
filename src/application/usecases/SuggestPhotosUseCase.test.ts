@@ -376,5 +376,89 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       expect(result.consumed).toBe(8);
       expect(result.suggestions).toHaveLength(8);
     });
+
+    it('hands control back at the wave cap instead of walking the whole window', async () => {
+      // 100 photos the AI will never suggest. Unbounded, one "Other" tap paid
+      // for all of them — on an iCloud library that is a 15-second fetch each,
+      // which is how a single press took minutes and then reported the window
+      // spent.
+      const junk = wave('junk', 100, 'other');
+      const classifier = new FakePhotoClassifier(junk.byId);
+      const useCase = useCaseWith(new FakeMediaLibrary(), classifier);
+
+      const result = await useCase.classifyMore(junk.candidates, config());
+
+      expect(result.consumed).toBe(12); // 3 waves of 4, not 100
+      expect(classifier.callCount).toBe(3);
+      // The queue is still standing, so this is "nothing yet", not "nothing left".
+      expect(result.cappedEarly).toBe(true);
+    });
+
+    it('does not call a genuinely spent window capped', async () => {
+      const junk = wave('junk', 3, 'other');
+      const useCase = useCaseWith(new FakeMediaLibrary(), new FakePhotoClassifier(junk.byId));
+
+      const result = await useCase.classifyMore(junk.candidates, config());
+
+      expect(result.consumed).toBe(3);
+      expect(result.cappedEarly).toBe(false);
+    });
+
+    it('does not call a successful round capped', async () => {
+      const { candidates, byId } = wave('p', 12);
+      const useCase = useCaseWith(new FakeMediaLibrary(), new FakePhotoClassifier(byId));
+
+      expect((await useCase.classifyMore(candidates, config())).cappedEarly).toBe(false);
+    });
+  });
+
+  describe('scan stats', () => {
+    it('counts what was actually graded, not what the library handed over', async () => {
+      // The screen used to say "AI picked N from 109 scanned" while the pool was
+      // empty, because photos the classifier could not read vanished silently.
+      const readable = [candidate('a'), candidate('b')];
+      const unreadable = [candidate('c'), candidate('d'), candidate('e')];
+      const library = new FakeMediaLibrary([...readable, ...unreadable]);
+      const graded = new Map(
+        readable.map(c => [c.id, { ...classification(c.id), candidate: c }]),
+      );
+
+      const { stats } = await new SuggestPhotosUseCase(
+        library,
+        new FakePhotoClassifier(graded),
+        new FakeSentPhotoTracker(),
+      ).execute(config());
+
+      expect(stats.scanned).toBe(5);
+      expect(stats.graded).toBe(2);
+      expect(stats.unreadable).toBe(3);
+      expect(stats.quotaExhausted).toBe(false);
+    });
+
+    it('reports a spent daily budget so the thin batch has a stated cause', async () => {
+      const candidates = Array.from({ length: 8 }, (_, i) => candidate(`p${i}`));
+      const classifier = new FakePhotoClassifier(
+        new Map(candidates.map(c => [c.id, { ...classification(c.id), candidate: c }])),
+      );
+      classifier.quotaExhaustedFromCallIndex = 1;
+
+      const { stats } = await new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        classifier,
+        new FakeSentPhotoTracker(),
+      ).execute(config());
+
+      expect(stats.quotaExhausted).toBe(true);
+    });
+
+    it('reports zeroes rather than nothing for an empty window', async () => {
+      const { stats } = await new SuggestPhotosUseCase(
+        new FakeMediaLibrary([]),
+        new FakePhotoClassifier(),
+        new FakeSentPhotoTracker(),
+      ).execute(config());
+
+      expect(stats).toEqual({ scanned: 0, unique: 0, graded: 0, unreadable: 0, quotaExhausted: false });
+    });
   });
 });

@@ -274,16 +274,38 @@ export const publishApprovalBatch = monitored(
  * candidate_photos rows (+ best-effort Cloudinary asset cleanup). Requires an
  * authenticated session; the server only deletes the caller's own photos.
  */
-export const deleteUploadedPhotos = monitored('delete_uploaded_photos', async (): Promise<{ deletedRows: number }> => {
+export const deleteUploadedPhotos = monitored('delete_uploaded_photos', async (): Promise<{ deletedRows: number }> =>
+  deleteCandidates({}),
+);
+
+/**
+ * Routine retention: drop cloud copies older than `olderThanDays`.
+ *
+ * Same endpoint as the wipe, scoped by age. Nothing outside the lookback window
+ * can be chosen for a post, so keeping those copies served no one — and until
+ * this existed the set only ever grew, which is why the app had to ask the
+ * publisher to clean up after it.
+ */
+export const pruneUploadedPhotos = monitored(
+  'prune_uploaded_photos',
+  async (olderThanDays: number): Promise<{ deletedRows: number }> => deleteCandidates({ olderThanDays }),
+);
+
+async function deleteCandidates(body: { olderThanDays?: number }): Promise<{ deletedRows: number }> {
   const token = (await authService.getSession())?.access_token;
   if (token == null) throw new Error('Not signed in');
   const res = await fetch(`${supabaseUrl}/functions/v1/delete-candidates`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: supabaseAnonKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
   return (await res.json()) as { deletedRows: number };
-});
+}
 
 // ── Infrastructure the UI binds to here, not by reaching across the boundary ──
 //

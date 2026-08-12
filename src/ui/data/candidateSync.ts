@@ -1,11 +1,13 @@
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
   loadConfig,
+  pruneUploadedPhotos,
   recordSyncState,
   reportError,
   syncCandidatePhotos,
 } from '../../composition/container';
 import { singleFlight } from '../../application/services/singleFlight';
-import { hasPhotoSyncConsent, isPhotoSyncPaused } from './photoSyncConsent';
+import { isPhotoSyncEnabled } from './photoSyncConsent';
 import { syncBlocked, syncFailed, syncFinished, syncProgressed, syncStarted } from './syncStatus';
 
 /**
@@ -21,10 +23,8 @@ import { syncBlocked, syncFailed, syncFinished, syncProgressed, syncStarted } fr
 export type CandidateSyncOutcome =
   /** Sync ran to completion (uploading zero photos still counts — nothing new is a valid answer). */
   | 'synced'
-  /** The user has never agreed to photo upload. */
-  | 'no-consent'
-  /** Sync is suspended after a "Remove my photos from the cloud" wipe. */
-  | 'paused';
+  /** Photo upload is switched off — never agreed to, or withdrawn by a cloud wipe. */
+  | 'no-consent';
 
 /**
  * Throws if the sync itself fails — callers decide whether that's fatal, but
@@ -45,22 +45,36 @@ export const runCandidateSync: (
   lookbackDays?: number,
 ) => Promise<CandidateSyncOutcome> = singleFlight(syncOnce);
 
+/**
+ * Days a cloud copy outlives the window it was uploaded for.
+ *
+ * Nothing outside the lookback can be selected for a post, so an older copy is
+ * dead weight the publisher never asked us to keep — but a pending approval
+ * batch still points at its photos, and deleting the assets under it would
+ * leave the push with broken thumbnails. A week covers every cadence's
+ * approval round-trip.
+ */
+const RETENTION_GRACE_DAYS = 7;
+
+/** Shortest gap between retention passes — see `pruneAgedOut`. */
+const PRUNE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+const LAST_PRUNE_KEY = 'photo-prune-last-run-v1';
+
 async function syncOnce(
   publisherId: string,
   lookbackDays?: number,
 ): Promise<CandidateSyncOutcome> {
-  if (!(await hasPhotoSyncConsent())) return blocked(publisherId, 'no-consent');
-  if (await isPhotoSyncPaused()) return blocked(publisherId, 'paused');
+  if (!(await isPhotoSyncEnabled())) return blocked(publisherId, 'no-consent');
 
   const days = lookbackDays ?? (await loadConfig.execute(publisherId)).lookbackDays;
   try {
-    // isPhotoSyncPaused is re-checked between upload batches, not just here: a
-    // sync over a large library runs for a while, and a wipe partway through must
-    // not be undone by batches still in flight.
+    // Consent is re-checked between upload batches, not just here: a sync over a
+    // large library runs for a while, and a wipe partway through must not be
+    // undone by batches still in flight.
     await syncCandidatePhotos.execute(
       publisherId,
       days,
-      isPhotoSyncPaused,
+      async () => !(await isPhotoSyncEnabled()),
       (uploaded, total) => (uploaded === 0 ? syncStarted(total) : syncProgressed(uploaded)),
     );
   } catch (err) {
@@ -72,11 +86,41 @@ async function syncOnce(
   }
   syncFinished(Date.now());
 
+  await pruneAgedOut(days);
+
   // Reported last, and only on success — a failed sync must read as "this phone
   // is not syncing", which is exactly what a missing heartbeat means. Its own
   // failure doesn't invalidate the upload, so it's reported, not thrown.
   await reportState(publisherId, 'active');
   return 'synced';
+}
+
+/**
+ * Delete cloud copies that have aged out of the window, at most once a day.
+ *
+ * The cloud set was only ever meant to hold the lookback window, but nothing
+ * removed a photo once it fell out of one — so the private copies accumulated
+ * forever, and the only thing that ever shrank them was the publisher finding a
+ * "remove my photos" link and pressing it. That is not a job to hand to the
+ * user.
+ *
+ * Throttled because sync runs on every foreground and this is a server round
+ * trip that finds nothing to do the vast majority of the time. A day's worth of
+ * stale copies is storage, not a defect — whereas a request per app switch is.
+ *
+ * Best-effort throughout: a failed prune costs storage, never a post.
+ */
+async function pruneAgedOut(lookbackDays: number): Promise<void> {
+  try {
+    const last = Number(await AsyncStorage.getItem(LAST_PRUNE_KEY)) || 0;
+    if (Date.now() - last < PRUNE_INTERVAL_MS) return;
+    await pruneUploadedPhotos(lookbackDays + RETENTION_GRACE_DAYS);
+    // Stamped only after it worked, so a failing prune is retried on the next
+    // sync rather than skipped for a day.
+    await AsyncStorage.setItem(LAST_PRUNE_KEY, String(Date.now()));
+  } catch (err) {
+    reportError(err, 'prune_candidate_photos');
+  }
 }
 
 /**
@@ -87,7 +131,7 @@ async function syncOnce(
  */
 async function blocked(
   publisherId: string,
-  outcome: 'paused' | 'no-consent',
+  outcome: 'no-consent',
 ): Promise<CandidateSyncOutcome> {
   syncBlocked(outcome);
   await reportState(publisherId, outcome);

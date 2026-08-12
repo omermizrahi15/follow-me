@@ -5,13 +5,13 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 const SYNC_CONSENT_KEY = 'photo-sync-consent-v1';
 
 /**
- * Set after the user wipes their cloud photos ("Remove my photos from the
- * cloud") to stop the background auto-sync from silently re-uploading them on
- * the next foreground — the delete must stick until the user explicitly opts
- * back in from the photo-sync status. Consent is left intact so that opt-in
- * doesn't re-prompt.
+ * Legacy "suspended after a cloud wipe" flag. A wipe now withdraws consent
+ * outright (see `wipeAndStopPhotoSync`), which the UI already has a name and an
+ * action for — the extra flag only ever produced a second off-state that looked
+ * identical to the first and had to be explained twice. Still cleared on the way
+ * past so a device that paused under the old build isn't stuck off forever.
  */
-const SYNC_PAUSED_KEY = 'photo-sync-paused-v1';
+const LEGACY_SYNC_PAUSED_KEY = 'photo-sync-paused-v1';
 
 /** Whether the user has already consented to photo upload. Never prompts. */
 export async function hasPhotoSyncConsent(): Promise<boolean> {
@@ -19,29 +19,30 @@ export async function hasPhotoSyncConsent(): Promise<boolean> {
   return stored != null;
 }
 
-/** True while auto-sync is suspended after a cloud-photo wipe, until re-enabled. */
-export async function isPhotoSyncPaused(): Promise<boolean> {
-  const stored = await AsyncStorage.getItem(SYNC_PAUSED_KEY).catch(() => null);
-  return stored != null;
-}
-
-/** Suspend photo sync — called right after the cloud wipe succeeds. */
-export async function pausePhotoSync(): Promise<void> {
-  await AsyncStorage.setItem(SYNC_PAUSED_KEY, new Date().toISOString()).catch(() => undefined);
-}
-
-/** Resume photo sync. */
-export async function resumePhotoSync(): Promise<void> {
-  await AsyncStorage.removeItem(SYNC_PAUSED_KEY).catch(() => undefined);
+/**
+ * Whether photo sync will actually run right now. One question, one answer.
+ *
+ * The legacy pause is still honoured as "off" rather than ignored: a device
+ * that wiped its cloud photos under the old build would otherwise re-upload
+ * them on the next foreground, which is precisely the bug the pause existed to
+ * prevent. It reads as no-consent to the UI, so the fix is the same visible
+ * "Turn on" either way.
+ */
+export async function isPhotoSyncEnabled(): Promise<boolean> {
+  if (!(await hasPhotoSyncConsent())) return false;
+  const paused = await AsyncStorage.getItem(LEGACY_SYNC_PAUSED_KEY).catch(() => null);
+  return paused == null;
 }
 
 /**
- * Whether photo sync will actually run right now — consent given AND not paused.
- * The two gates fail identically from the user's point of view ("my photos
- * aren't uploading"), so the UI asks this one question rather than both.
+ * Stop uploading and forget the consent — what "remove my photos from the
+ * cloud" leaves behind. Without this the very next foreground would re-upload
+ * everything the user just deleted, which is what makes the wipe meaningful
+ * rather than cosmetic.
  */
-export async function isPhotoSyncEnabled(): Promise<boolean> {
-  return (await hasPhotoSyncConsent()) && !(await isPhotoSyncPaused());
+export async function withdrawPhotoSyncConsent(): Promise<void> {
+  await AsyncStorage.removeItem(SYNC_CONSENT_KEY).catch(() => undefined);
+  await AsyncStorage.removeItem(LEGACY_SYNC_PAUSED_KEY).catch(() => undefined);
 }
 
 /**
@@ -49,15 +50,16 @@ export async function isPhotoSyncEnabled(): Promise<boolean> {
  * the user declines the prompt, in which case nothing changes.
  *
  * This is the ONLY way sync comes back after a wipe. It used to be a side
- * effect of saving the auto-posting settings, which meant a publisher
- * whose sync was paused had no way to discover it, no indication anything was
- * off, and no obvious action to take — sync stayed off for a week and every
+ * effect of pressing Save in the auto-posting settings, which meant a publisher
+ * whose sync was off had no way to discover it, no indication anything was
+ * wrong, and no obvious action to take — sync stayed off for a week and every
  * scheduled post fell through to a "couldn't prepare your post" push.
  */
 export async function enablePhotoSync(): Promise<boolean> {
-  if (!(await confirmPhotoSync())) return false;
-  await resumePhotoSync();
-  return true;
+  // A device carrying the old pause flag has consent but no sync; drop it here
+  // so "Turn on" works on the first press rather than the second.
+  await AsyncStorage.removeItem(LEGACY_SYNC_PAUSED_KEY).catch(() => undefined);
+  return confirmPhotoSync();
 }
 
 /**
@@ -69,7 +71,7 @@ export async function confirmPhotoSync(): Promise<boolean> {
   return new Promise(resolve => {
     Alert.alert(
       'Upload recent photos?',
-      'To prepare posts for you — even while the app is closed — your recent photos are uploaded to your private cloud space. Only photos from your configured time window are uploaded.',
+      'To prepare posts for you — even while the app is closed — your recent photos are uploaded to your private cloud space. Only photos from your configured time window are uploaded, and copies that fall outside it are deleted automatically.',
       [
         { text: 'Not now', style: 'cancel', onPress: () => resolve(false) },
         {

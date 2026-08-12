@@ -24,20 +24,13 @@ import {
   recentCandidateUrls,
   candidateUrlsByAssetIds,
   saveTestApprovalBatch,
-  deleteUploadedPhotos,
   SuggestionCache,
 } from '../../../composition/container';
 import { PublisherConfig, FREQUENCY_DAYS } from '../../../domain/entities/PublisherConfig';
 import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
 import { isWeekdayCadence } from '../../../domain/services/autoPostSchedule';
 import { assetIdsNeedingLookup, resolveChosenGalleryUrls } from '../../../domain/services/notificationGallery';
-import {
-  confirmPhotoSync,
-  enablePhotoSync,
-  hasPhotoSyncConsent,
-  isPhotoSyncEnabled,
-  pausePhotoSync,
-} from '../../data/photoSyncConsent';
+import { enablePhotoSync, isPhotoSyncEnabled } from '../../data/photoSyncConsent';
 import { runCandidateSyncQuietly } from '../../data/candidateSync';
 import { PhotoSyncStatus } from './PhotoSyncStatus';
 import { showDevTools } from '../../data/devTools';
@@ -139,10 +132,6 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
   const [testScheduling, setTestScheduling] = useState(false);
   const [testScheduledAt, setTestScheduledAt] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  // Whether the publisher has any photos in the cloud — gates the "Remove my
-  // photos from the cloud" affordance so it only shows when there's something to
-  // remove (otherwise it lingered permanently, even with an empty cloud).
-  const [hasCloudPhotos, setHasCloudPhotos] = useState(false);
 
   // Drag state
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -256,26 +245,12 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
     });
   }
 
-  // Refresh whether the cloud holds any of this publisher's photos (one row is
-  // enough to know). Best-effort: on a network/lookup failure, hide the removal
-  // affordance rather than show it with nothing behind it.
-  const refreshHasCloudPhotos = React.useCallback(async (): Promise<void> => {
-    try {
-      const urls = await recentCandidateUrls(publisherId, 1);
-      setHasCloudPhotos(urls.length > 0);
-    } catch {
-      setHasCloudPhotos(false);
-    }
-  }, [publisherId]);
-
   // What the server last acknowledged, and the lookback window the last photo
   // sync ran with. Both gate autosave's side effects — see `persistConfig`.
   const savedSnapshotRef = useRef<string | null>(null);
   const syncedLookbackRef = useRef<number | null>(null);
   /** A change is waiting on the debounce timer — flushed if the section unmounts. */
   const pendingRef = useRef(false);
-  /** Whether this visit already raised the photo-upload consent prompt. */
-  const consentAskedRef = useRef(false);
   /** Whether this visit already refreshed the device's push token. */
   const tokenRegisteredRef = useRef(false);
   const mountedRef = useRef(true);
@@ -295,8 +270,7 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
       syncedLookbackRef.current = config.lookbackDays;
       setIsLoading(false);
     })();
-    void refreshHasCloudPhotos();
-  }, [publisherId, refreshHasCloudPhotos]);
+  }, [publisherId]);
 
   function buildCurrentConfig(token: string): PublisherConfig {
     const enabledCategories = orderedCats.filter(c => c.enabled).map(c => c.cat);
@@ -337,16 +311,12 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
       await saveConfig.execute(config);
       savedSnapshotRef.current = snapshot;
 
-      // First run only: setting up auto-posting is the natural moment to ask
-      // for photo upload. Asked at most once per visit — a declined prompt
-      // leaves consent unset, and with autosave that would otherwise re-raise
-      // the dialog on every single tweak. A save does NOT lift a pause, either;
-      // that was the hidden coupling behind a week of silently-off sync, and
-      // turning upload back on is its own visible action in PhotoSyncStatus.
-      if (!consentAskedRef.current && !(await hasPhotoSyncConsent())) {
-        consentAskedRef.current = true;
-        await confirmPhotoSync();
-      }
+      // Deliberately no photo-upload consent prompt here. It used to hang off
+      // Save, which at least was a press; a silent, debounced write is no place
+      // to raise a privacy dialog, and after a cloud wipe — which withdraws
+      // consent — re-asking because someone nudged a setting is exactly the
+      // coupling that made the wipe feel undoable. Onboarding asks once, and
+      // PhotoSyncStatus below carries the "upload is off / turn it on" state.
 
       // Only a changed lookback window needs photos re-synced, and that is the
       // one thing autosave must not do on every keystroke-sized edit: reordering
@@ -362,7 +332,7 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
             publisherId,
             'settings_sync_candidates',
             config.lookbackDays,
-          ).then(refreshHasCloudPhotos);
+          );
         }
       }
       if (config.expoPushToken !== '') {
@@ -609,7 +579,6 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
     void (async (): Promise<void> => {
       if (!(await enablePhotoSync())) return;
       await runCandidateSyncQuietly(publisherId, 'settings_enable_sync');
-      void refreshHasCloudPhotos();
     })();
   }
 
@@ -617,38 +586,7 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
   function handleRetrySync(): void {
     void (async (): Promise<void> => {
       await runCandidateSyncQuietly(publisherId, 'settings_retry_sync');
-      void refreshHasCloudPhotos();
     })();
-  }
-
-  function handleDeleteUploaded(): void {
-    Alert.alert(
-      'Remove your photos from the cloud?',
-      'This deletes every private copy the app has uploaded for auto-posting, and switches photo upload off. Photos on your phone and posts already sent are untouched. You can turn upload back on any time from the photo status above.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            void (async (): Promise<void> => {
-              try {
-                const { deletedRows } = await deleteUploadedPhotos();
-                // Suspend background auto-sync so the next foreground doesn't
-                // silently re-upload what we just deleted — it stays gone until
-                // the user opts back in by saving (matches the dialog copy).
-                await pausePhotoSync();
-                // Cloud is now empty — hide the removal affordance until a re-sync.
-                setHasCloudPhotos(false);
-                Alert.alert('Deleted', `${deletedRows} uploaded photo${deletedRows === 1 ? '' : 's'} removed.`);
-              } catch (e) {
-                Alert.alert('Delete failed', e instanceof Error ? e.message : 'Something went wrong');
-              }
-            })();
-          },
-        },
-      ],
-    );
   }
 
   function handleTestNotification(): void {
@@ -822,21 +760,6 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
           invisible, and it is the one the user has to act on. */}
       <PhotoSyncStatus onEnable={handleEnableSync} onRetry={handleRetrySync} />
 
-      {/* Privacy: user-initiated wipe of the cloud photo pool. Only shown when
-          there's actually something in the cloud to remove. */}
-      {hasCloudPhotos && (
-        <View style={styles.deleteUploadedBlock}>
-          <TouchableOpacity testID="auto-remove-cloud-photos" onPress={handleDeleteUploaded} hitSlop={8}>
-            <Text style={styles.deleteUploadedLink}>Remove my photos from the cloud</Text>
-          </TouchableOpacity>
-          <Text style={styles.deleteUploadedHint}>
-            Auto-posting keeps private copies of your recent photos in the cloud so it can post while
-            the app is closed. This deletes those copies — photos on your phone and posts already sent
-            are not affected.
-          </Text>
-        </View>
-      )}
-
       {/* No Save button — every control above writes itself. This line is the
           only feedback that there was ever a write to wait for, so it has to
           name a failure as well as a success. */}
@@ -1007,20 +930,5 @@ const styles = StyleSheet.create({
     borderColor: '#4a4a8a',
   },
   devButtonFull: { flex: 1 },
-  deleteUploadedBlock: { gap: spacing.xs },
-  deleteUploadedLink: {
-    ...typography.caption,
-    fontSize: 12,
-    color: colors.danger,
-    textAlign: 'center',
-    textDecorationLine: 'underline',
-  },
-  deleteUploadedHint: {
-    ...typography.caption,
-    fontSize: 11,
-    color: colors.textMuted,
-    textAlign: 'center',
-    paddingHorizontal: spacing.md,
-  },
   devText: { color: '#a0a0ff', fontWeight: '600', fontSize: 13 },
 });

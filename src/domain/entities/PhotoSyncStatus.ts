@@ -9,9 +9,11 @@ export type SyncPhase =
   | 'idle'
   /** Uploading now — `uploaded`/`total` are meaningful. */
   | 'syncing'
-  /** Suspended after a "Remove my photos from the cloud" wipe. */
-  | 'paused'
-  /** The upload prompt has never been accepted. */
+  /**
+   * Upload is switched off: never consented to, or withdrawn by a
+   * "remove my photos from the cloud" wipe. One off-state, because the two are
+   * indistinguishable from the user's side and have the same one fix.
+   */
   | 'no-consent'
   /** The last run threw; `error` carries the message. */
   | 'failed';
