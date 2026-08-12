@@ -48,11 +48,11 @@ bash scripts/seed-simulator-photos.sh
 | --- | --- | --- |
 | `onboarding` | `smoke` | Fresh install → intro step → Get started → sign-in screen |
 | `sign-in` | `auth` | Phone + test OTP → lands on the Me page |
-| `navigation` | `auth` | Settings, Edit profile open, Upload modal, section nav |
+| `navigation` | `auth` | Settings, Edit profile open, new-post chooser, Upload modal, section nav |
 | `edit-profile` | `auth` | Edit name → Save → new name shows on the Me page |
-| `add-post` | `auth` | Me → Add post → New-post modal + picker entry point → close |
+| `add-post` | `auth` | Me → Add post → chooser (suggested / manual) → manual opens the New-post modal + picker entry point → close |
 | `add-post-photos` | `auth` | Pick 2 photos in the system picker → selection bar → **Change photos** replaces the selection with 1 (never appends) → close |
-| `auto-posting` | `auth` | Configure frequency / reminder day+time / photos-per-post → Save |
+| `auto-posting` | `auth` | Configure frequency / reminder day+time / photos-per-post (settings autosave — no Save button) |
 | `remove-cloud-photos` | `auth`, `quarantine` | "Remove my photos from the cloud" → confirm → warning clears (regression for [#58](https://github.com/omermizrahi15/follow-me/issues/58); quarantined until the fix lands) |
 | `followers` | `auth` | Followers section list/empty state + invite entry point |
 | `sign-out` | `auth` | Settings → Sign out → back to the phone sign-in screen |

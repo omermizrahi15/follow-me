@@ -35,8 +35,6 @@ interface Props {
  */
 export function SectionNav({ active, onChange, showHistory = false }: Props): React.JSX.Element {
   const items = ITEMS.filter(item => item.key !== 'history' || showHistory);
-  // Four tabs need to share the same pill width as three did.
-  const tabStyle = items.length > 3 ? styles.tabNarrow : styles.tab;
   return (
     <View style={styles.shadow}>
       <BlurView intensity={65} tint="light" style={styles.pill}>
@@ -51,7 +49,7 @@ export function SectionNav({ active, onChange, showHistory = false }: Props): Re
               accessibilityState={isActive ? { selected: true } : {}}
               accessibilityLabel={item.label}
               activeOpacity={0.7}
-              style={[tabStyle, isActive && styles.tabActive]}
+              style={[styles.tab, isActive && styles.tabActive]}
               onPress={() => onChange(item.key)}
             >
               <Ionicons name={isActive ? item.active : item.inactive} size={20} color={colors.ink} />
@@ -67,7 +65,10 @@ export function SectionNav({ active, onChange, showHistory = false }: Props): Re
 }
 
 const styles = StyleSheet.create({
-  shadow: { borderRadius: radius.pill, ...shadow.raised },
+  // Fills whatever the parent gives it — the bar spans the screen, so the tabs
+  // below can divide that width between them instead of sitting in a
+  // left-aligned clump sized by their labels.
+  shadow: { flex: 1, borderRadius: radius.pill, ...shadow.raised },
   pill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -81,21 +82,15 @@ const styles = StyleSheet.create({
   },
   // Subtle frosted wash — over the white sheet this keeps the pill reading as glass.
   tint: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.4)' },
+  // Equal shares of the bar, however many tabs there are. `minWidth: 0` lets a
+  // long label ellipsize rather than push its neighbours out of the row.
   tab: {
-    width: 88,
+    flex: 1,
+    minWidth: 0,
     alignItems: 'center',
     justifyContent: 'center',
     paddingVertical: 6,
     paddingHorizontal: 4,
-    borderRadius: radius.pill,
-    gap: 2,
-  },
-  tabNarrow: {
-    width: 68,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingVertical: 6,
-    paddingHorizontal: 2,
     borderRadius: radius.pill,
     gap: 2,
   },

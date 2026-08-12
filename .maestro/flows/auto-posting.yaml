@@ -7,10 +7,12 @@ tags:
 # reminder day + time), which sit near the top of the sheet. Reuses the session
 # from sign-in.
 #
-# Note: tapping Save is intentionally NOT covered here. Save sits below a
-# drag-to-reorder category list inside a ~42%-height bottom sheet, which is a
-# hostile scroll target for Maestro (swipes get captured by the drag rows). The
-# config save round-trip is exercised by the unit/integration suites instead.
+# Note: there is no Save button any more — every control writes itself after a
+# short debounce. The write itself is NOT asserted here: its only UI is a status
+# line below a drag-to-reorder category list inside a ~42%-height bottom sheet,
+# which is a hostile scroll target for Maestro (swipes get captured by the drag
+# rows). The config save round-trip is exercised by the unit/integration suites
+# instead.
 - launchApp
 - extendedWaitUntil:
     visible:

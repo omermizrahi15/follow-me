@@ -97,6 +97,13 @@ export function HomeScreen(): React.JSX.Element {
   // list only ever keeps a single row open.
   const [swipedPostId, setSwipedPostId] = useState<string | null>(null);
   const [suggestionKey, setSuggestionKey] = useState(0);
+  // "Add post" no longer goes straight to the picker — it asks which of the two
+  // ways to build a post the publisher wants. Deliberately an in-screen overlay
+  // rather than a React Native <Modal>: the manual branch pushes the Upload
+  // *stack* modal, and presenting one iOS modal while another is dismissing is
+  // exactly the sequence that drops the second presentation.
+  const [choosingPostKind, setChoosingPostKind] = useState(false);
+  const chooserAnim = useRef(new Animated.Value(0)).current;
 
   // Real profile when set up; gracefully fall back when name/photo are missing.
   const displayName = profile?.displayName ?? 'Your name';
@@ -186,6 +193,19 @@ export function HomeScreen(): React.JSX.Element {
     setSuggestionKey(k => k + 1);
     setShowingSuggestions(true);
     snapTo(FULL_H);
+  }
+
+  function openPostChooser(): void {
+    setChoosingPostKind(true);
+    Animated.timing(chooserAnim, { toValue: 1, duration: 200, useNativeDriver: true }).start();
+  }
+
+  /** Slide the chooser away, then run what the publisher picked. */
+  function closePostChooser(then?: () => void): void {
+    Animated.timing(chooserAnim, { toValue: 0, duration: 160, useNativeDriver: true }).start(() => {
+      setChoosingPostKind(false);
+      then?.();
+    });
   }
 
   function closeSuggestions(): void {
@@ -327,7 +347,7 @@ export function HomeScreen(): React.JSX.Element {
                         testID="home-add-post"
                         style={styles.addButton}
                         activeOpacity={0.85}
-                        onPress={() => navigation.navigate('Upload')}
+                        onPress={openPostChooser}
                       >
                         <Ionicons name="add" size={14} color="#fff" />
                         <Text style={styles.addButtonText} numberOfLines={1}>Add post</Text>
@@ -343,11 +363,7 @@ export function HomeScreen(): React.JSX.Element {
             />
           )}
           {!showingSuggestions && section === 'auto' && (
-            <AutoPostingSection
-              bottomInset={bottomInset}
-              onSaved={() => selectSection('me')}
-              onPreview={handlePreview}
-            />
+            <AutoPostingSection bottomInset={bottomInset} onPreview={handlePreview} />
           )}
           {!showingSuggestions && section === 'followers' && <FollowersSection bottomInset={bottomInset} />}
           {!showingSuggestions && section === 'history' && (
@@ -365,6 +381,84 @@ export function HomeScreen(): React.JSX.Element {
       <View style={[styles.navWrap, { bottom: insets.bottom + spacing.md }]} pointerEvents="box-none">
         <SectionNav active={section} onChange={selectSection} showHistory={hasGaps} />
       </View>
+
+      {/* "Add post" asks which way first: let the app pick from the last days of
+          photos (the same run as Auto-posting's preview), or choose by hand. */}
+      {choosingPostKind && (
+        <View style={StyleSheet.absoluteFill}>
+          <Animated.View style={[styles.chooserBackdrop, { opacity: chooserAnim }]}>
+            <TouchableOpacity
+              testID="new-post-backdrop"
+              style={StyleSheet.absoluteFill}
+              activeOpacity={1}
+              accessibilityLabel="Dismiss"
+              onPress={() => closePostChooser()}
+            />
+          </Animated.View>
+          <Animated.View
+            style={[
+              styles.chooserSheet,
+              { paddingBottom: insets.bottom + spacing.lg },
+              {
+                transform: [
+                  {
+                    translateY: chooserAnim.interpolate({
+                      inputRange: [0, 1],
+                      outputRange: [340, 0],
+                    }),
+                  },
+                ],
+              },
+            ]}
+          >
+            <View style={styles.chooserHandle} />
+            <Text style={styles.chooserTitle}>New post</Text>
+            <Text style={styles.chooserSubtitle}>How do you want to pick the photos?</Text>
+
+            <TouchableOpacity
+              testID="new-post-suggested"
+              style={styles.chooserOption}
+              activeOpacity={0.85}
+              onPress={() => closePostChooser(handlePreview)}
+            >
+              <View style={styles.chooserIcon}>
+                <Ionicons name="sparkles" size={20} color={colors.accent} />
+              </View>
+              <View style={styles.chooserOptionText}>
+                <Text style={styles.chooserOptionTitle}>Suggest photos for me</Text>
+                <Text style={styles.chooserOptionHint}>
+                  The app picks the best of your recent photos — review, swap and send.
+                </Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              testID="new-post-manual"
+              style={styles.chooserOption}
+              activeOpacity={0.85}
+              onPress={() => closePostChooser(() => navigation.navigate('Upload'))}
+            >
+              <View style={styles.chooserIcon}>
+                <Ionicons name="images-outline" size={20} color={colors.accent} />
+              </View>
+              <View style={styles.chooserOptionText}>
+                <Text style={styles.chooserOptionTitle}>Select photos myself</Text>
+                <Text style={styles.chooserOptionHint}>Pick them from your library.</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              testID="new-post-cancel"
+              style={styles.chooserCancel}
+              onPress={() => closePostChooser()}
+            >
+              <Text style={styles.chooserCancelText}>Cancel</Text>
+            </TouchableOpacity>
+          </Animated.View>
+        </View>
+      )}
     </View>
   );
 }
@@ -475,12 +569,58 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 11 },
+  // The bar spans the screen rather than hugging the left edge: it is the app's
+  // primary navigation, and the tabs inside it share the full width evenly.
   navWrap: {
     position: 'absolute',
-    left: spacing.lg,
-    right: spacing.lg,
+    left: spacing.md,
+    right: spacing.md,
+    flexDirection: 'row',
+    alignItems: 'stretch',
+  },
+  // "New post" chooser
+  chooserBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,12,18,0.45)' },
+  chooserSheet: {
+    position: 'absolute',
+    left: 0,
+    right: 0,
+    bottom: 0,
+    backgroundColor: colors.surface,
+    borderTopLeftRadius: radius.sheet,
+    borderTopRightRadius: radius.sheet,
+    paddingHorizontal: spacing.xl,
+    paddingTop: spacing.md,
+    gap: spacing.sm,
+  },
+  chooserHandle: {
+    alignSelf: 'center',
+    width: 40,
+    height: 5,
+    borderRadius: radius.pill,
+    backgroundColor: colors.border,
+    marginBottom: spacing.md,
+  },
+  chooserTitle: { ...typography.heading, fontSize: 18, color: colors.text },
+  chooserSubtitle: { ...typography.caption, color: colors.textSecondary, marginBottom: spacing.sm },
+  chooserOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'flex-start',
+    gap: spacing.md,
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.lg,
+    padding: spacing.lg,
   },
+  chooserIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: radius.pill,
+    backgroundColor: colors.accentSoft,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  chooserOptionText: { flex: 1 },
+  chooserOptionTitle: { fontSize: 15, fontWeight: '600', color: colors.text },
+  chooserOptionHint: { ...typography.caption, fontSize: 12, color: colors.textSecondary, marginTop: 2 },
+  chooserCancel: { alignItems: 'center', paddingVertical: spacing.md, marginTop: spacing.xs },
+  chooserCancelText: { ...typography.button, fontSize: 14, color: colors.textSecondary },
 });
