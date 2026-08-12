@@ -1,5 +1,24 @@
 // Pure helpers for delete-candidates, split out of index.ts for unit testing:
-// Cloudinary public-id parsing and signed-destroy signature building.
+// request scoping, Cloudinary public-id parsing, signed-destroy signature building.
+
+const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * How far back the delete reaches, as an ISO timestamp — or null for "all of
+ * it", which is what the privacy wipe means.
+ *
+ * One endpoint serves two callers: the user pressing "remove my photos from the
+ * cloud" (no scope, delete everything) and the app's routine retention pass
+ * after each sync (`olderThanDays`, drop what has aged out of the window).
+ * Anything that isn't a positive finite number is treated as absent rather than
+ * rejected — an unparseable scope must never silently narrow a wipe the user
+ * asked for, and a full wipe is the safe reading of "delete my photos".
+ */
+export function ageCutoffIso(body: unknown, now: number): string | null {
+  const days = (body as { olderThanDays?: unknown } | null)?.olderThanDays;
+  if (typeof days !== 'number' || !Number.isFinite(days) || days <= 0) return null;
+  return new Date(now - days * MS_PER_DAY).toISOString();
+}
 
 /** Extracts the Cloudinary public id (folder path + name, no extension) from a delivery URL. */
 export function publicIdFromUrl(url: string): string | null {

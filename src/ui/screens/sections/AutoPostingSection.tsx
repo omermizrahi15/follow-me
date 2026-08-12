@@ -23,7 +23,6 @@ import {
   recentCandidateUrls,
   candidateUrlsByAssetIds,
   saveTestApprovalBatch,
-  deleteUploadedPhotos,
   SuggestionCache,
 } from '../../../composition/container';
 import { PublisherConfig, FREQUENCY_DAYS } from '../../../domain/entities/PublisherConfig';
@@ -35,7 +34,6 @@ import {
   enablePhotoSync,
   hasPhotoSyncConsent,
   isPhotoSyncEnabled,
-  pausePhotoSync,
 } from '../../data/photoSyncConsent';
 import { runCandidateSyncQuietly } from '../../data/candidateSync';
 import { PhotoSyncStatus } from './PhotoSyncStatus';
@@ -112,10 +110,6 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
   const [testScheduling, setTestScheduling] = useState(false);
   const [testScheduledAt, setTestScheduledAt] = useState<Date | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  // Whether the publisher has any photos in the cloud — gates the "Remove my
-  // photos from the cloud" affordance so it only shows when there's something to
-  // remove (otherwise it lingered permanently, even with an empty cloud).
-  const [hasCloudPhotos, setHasCloudPhotos] = useState(false);
 
   // Drag state
   const [dragFrom, setDragFrom] = useState<number | null>(null);
@@ -229,18 +223,6 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
     });
   }
 
-  // Refresh whether the cloud holds any of this publisher's photos (one row is
-  // enough to know). Best-effort: on a network/lookup failure, hide the removal
-  // affordance rather than show it with nothing behind it.
-  const refreshHasCloudPhotos = React.useCallback(async (): Promise<void> => {
-    try {
-      const urls = await recentCandidateUrls(publisherId, 1);
-      setHasCloudPhotos(urls.length > 0);
-    } catch {
-      setHasCloudPhotos(false);
-    }
-  }, [publisherId]);
-
   useEffect(() => {
     void loadConfig.execute(publisherId).then(config => {
       setFrequency(config.frequency);
@@ -252,8 +234,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       setPushToken(config.expoPushToken);
       setIsLoading(false);
     });
-    void refreshHasCloudPhotos();
-  }, [publisherId, refreshHasCloudPhotos]);
+  }, [publisherId]);
 
   function buildCurrentConfig(token: string): PublisherConfig {
     const enabledCategories = orderedCats.filter(c => c.enabled).map(c => c.cat);
@@ -299,7 +280,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
             publisherId,
             'settings_sync_candidates',
             config.lookbackDays,
-          ).then(refreshHasCloudPhotos);
+          );
         }
         if (token !== '') {
           // Server owns the reminder — cancel the local one to avoid double-notifying.
@@ -508,7 +489,6 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
     void (async (): Promise<void> => {
       if (!(await enablePhotoSync())) return;
       await runCandidateSyncQuietly(publisherId, 'settings_enable_sync');
-      void refreshHasCloudPhotos();
     })();
   }
 
@@ -516,38 +496,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
   function handleRetrySync(): void {
     void (async (): Promise<void> => {
       await runCandidateSyncQuietly(publisherId, 'settings_retry_sync');
-      void refreshHasCloudPhotos();
     })();
-  }
-
-  function handleDeleteUploaded(): void {
-    Alert.alert(
-      'Remove your photos from the cloud?',
-      'This deletes every private copy the app has uploaded for auto-posting, and switches photo upload off. Photos on your phone and posts already sent are untouched. You can turn upload back on any time from the photo status above.',
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Delete',
-          style: 'destructive',
-          onPress: () => {
-            void (async (): Promise<void> => {
-              try {
-                const { deletedRows } = await deleteUploadedPhotos();
-                // Suspend background auto-sync so the next foreground doesn't
-                // silently re-upload what we just deleted — it stays gone until
-                // the user opts back in by saving (matches the dialog copy).
-                await pausePhotoSync();
-                // Cloud is now empty — hide the removal affordance until a re-sync.
-                setHasCloudPhotos(false);
-                Alert.alert('Deleted', `${deletedRows} uploaded photo${deletedRows === 1 ? '' : 's'} removed.`);
-              } catch (e) {
-                Alert.alert('Delete failed', e instanceof Error ? e.message : 'Something went wrong');
-              }
-            })();
-          },
-        },
-      ],
-    );
   }
 
   function handleTestNotification(): void {
@@ -721,21 +670,6 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
           invisible, and it is the one the user has to act on. */}
       <PhotoSyncStatus onEnable={handleEnableSync} onRetry={handleRetrySync} />
 
-      {/* Privacy: user-initiated wipe of the cloud photo pool. Only shown when
-          there's actually something in the cloud to remove. */}
-      {hasCloudPhotos && (
-        <View style={styles.deleteUploadedBlock}>
-          <TouchableOpacity testID="auto-remove-cloud-photos" onPress={handleDeleteUploaded} hitSlop={8}>
-            <Text style={styles.deleteUploadedLink}>Remove my photos from the cloud</Text>
-          </TouchableOpacity>
-          <Text style={styles.deleteUploadedHint}>
-            Auto-posting keeps private copies of your recent photos in the cloud so it can post while
-            the app is closed. This deletes those copies — photos on your phone and posts already sent
-            are not affected.
-          </Text>
-        </View>
-      )}
-
       <TouchableOpacity
         testID="auto-save"
         style={[styles.saveButton, saving && styles.saveButtonDisabled]}
@@ -892,20 +826,5 @@ const styles = StyleSheet.create({
     borderColor: '#4a4a8a',
   },
   devButtonFull: { flex: 1 },
-  deleteUploadedBlock: { gap: spacing.xs },
-  deleteUploadedLink: {
-    ...typography.caption,
-    fontSize: 12,
-    color: colors.danger,
-    textAlign: 'center',
-    textDecorationLine: 'underline',
-  },
-  deleteUploadedHint: {
-    ...typography.caption,
-    fontSize: 11,
-    color: colors.textMuted,
-    textAlign: 'center',
-    paddingHorizontal: spacing.md,
-  },
   devText: { color: '#a0a0ff', fontWeight: '600', fontSize: 13 },
 });

@@ -91,7 +91,7 @@ export function syncFailed(message: string): void {
  * Sync didn't run because it is switched off. Distinct from `idle`: nothing is
  * happening and nothing will, until the user turns it back on.
  */
-export function syncBlocked(phase: 'paused' | 'no-consent'): void {
+export function syncBlocked(phase: 'no-consent'): void {
   set({ phase, uploaded: 0, total: 0, error: null });
 }
 

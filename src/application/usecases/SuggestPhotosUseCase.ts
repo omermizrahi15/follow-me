@@ -34,6 +34,34 @@ export interface SuggestProgress {
   onBatchReady?(batch: PhotoClassification[], pool: PhotoClassification[]): void;
 }
 
+/**
+ * What a scan actually managed to do — not what it set out to do.
+ *
+ * "AI picked 10 photos from 109 scanned" was true and useless: 109 counts what
+ * the library returned, and a photo whose original still lives in iCloud is
+ * dropped mid-classification without a trace. A publisher whose window barely
+ * graded therefore saw a confident headline followed by "no more photos", with
+ * nothing anywhere connecting the two. These numbers are what makes the
+ * difference sayable.
+ */
+export interface SuggestStats {
+  /** Photos the library returned for the window. */
+  scanned: number;
+  /** After burst dedup — the set actually worth grading. */
+  unique: number;
+  /** Grades in hand at the end (fresh + remembered from earlier scans). */
+  graded: number;
+  /**
+   * Photos the AI was asked about that produced nothing — an iCloud original
+   * that didn't come down in time, an unreadable file, a failed call. They are
+   * neither in the batch nor the pool, and they are the usual reason a big
+   * window yields a thin one.
+   */
+  unreadable: number;
+  /** The day's classification budget ran out during the scan. */
+  quotaExhausted: boolean;
+}
+
 export interface SuggestResult {
   /** AI-selected initial batch (capped at photosPerPost, diversity-optimised). */
   batch: PhotoClassification[];
@@ -42,6 +70,7 @@ export interface SuggestResult {
    * replacements if the user removes a batch photo. Sorted by quality descending.
    */
   pool: PhotoClassification[];
+  stats: SuggestStats;
 }
 
 /** What one on-demand top-up produced. */
@@ -58,6 +87,12 @@ export interface ClassifyMoreResult {
   consumed: number;
   /** The day's classification budget ran out mid-round — nothing more will work today. */
   quotaExhausted: boolean;
+  /**
+   * The round stopped at its wave limit with candidates still queued, rather
+   * than because the window was spent. The distinction is the whole point of
+   * the limit: "nothing found yet" must not be reported as "nothing exists".
+   */
+  cappedEarly: boolean;
 }
 
 /**
@@ -69,6 +104,10 @@ export interface SuggestWindow {
   start: Date;
   /** Exclusive — adjacent backfill windows must not share a boundary photo. */
   end: Date;
+}
+
+function emptyStats(scanned: number, unique: number): SuggestStats {
+  return { scanned, unique, graded: 0, unreadable: 0, quotaExhausted: false };
 }
 
 /**
@@ -83,6 +122,22 @@ export class SuggestPhotosUseCase {
    * common case where the AI likes at least one of the four.
    */
   private static readonly TOP_UP_WAVE = 4;
+
+  /**
+   * Waves one top-up may spend before handing control back.
+   *
+   * Without a limit this walked the *entire* remaining window looking for one
+   * suggestable photo. On a library kept in iCloud that is a 15-second fetch
+   * attempt per photo: a single "Other" tap could sit there for minutes and
+   * then report the window exhausted, which is how one press managed to be slow,
+   * lose the photo it was replacing, and grey out the "+" all at once.
+   *
+   * Three waves is a couple of seconds of work and twelve real chances — enough
+   * that a normal press still answers on the first round, while a barren
+   * stretch costs a wait the publisher can interrupt rather than an open-ended
+   * one they cannot.
+   */
+  private static readonly TOP_UP_MAX_WAVES = 3;
 
   /**
    * Most photos one scan will grade. The window is graded in full below this,
@@ -122,7 +177,9 @@ export class SuggestPhotosUseCase {
         : this.mediaLibrary.recentPhotos(config.lookbackDays),
       this.sentTracker.sentCandidateIds(config.publisherId),
     ]);
-    if (candidates.length === 0) return { batch: [], pool: [] };
+    if (candidates.length === 0) {
+      return { batch: [], pool: [], stats: emptyStats(0, 0) };
+    }
 
     // Remove burst/near-duplicate shots before AI classification.
     const deduplicated = this.selection.deduplicateCandidates(candidates);
@@ -176,7 +233,19 @@ export class SuggestPhotosUseCase {
     if (freshlyGraded.length > 0) await this.grades?.save(freshlyGraded);
 
     const [batch, pool] = this.split(accumulated, config, alreadySent);
-    return { batch, pool };
+    return {
+      batch,
+      pool,
+      stats: {
+        scanned: candidates.length,
+        unique: deduplicated.length,
+        graded: accumulated.length,
+        // Asked about but never came back — the gap between "109 photos" and a
+        // pool with nothing in it.
+        unreadable: ungraded.length - freshlyGraded.length,
+        quotaExhausted: this.classifier.quotaExhausted?.() === true,
+      },
+    };
   }
 
   /**
@@ -255,13 +324,16 @@ export class SuggestPhotosUseCase {
     candidates: readonly PhotoCandidate[],
     config: PublisherConfig,
     want = 1,
+    maxWaves = SuggestPhotosUseCase.TOP_UP_MAX_WAVES,
   ): Promise<ClassifyMoreResult> {
     const classified: PhotoClassification[] = [];
     const suggestions: PhotoClassification[] = [];
     let consumed = 0;
+    let waves = 0;
     let quotaExhausted = false;
 
-    while (consumed < candidates.length && suggestions.length < want) {
+    while (consumed < candidates.length && suggestions.length < want && waves < maxWaves) {
+      waves++;
       const wave = candidates.slice(consumed, consumed + SuggestPhotosUseCase.TOP_UP_WAVE);
       // A wave the scan already graded (cap reached, or the photo arrived after
       // it) is answered from memory — no call, no quota.
@@ -286,6 +358,14 @@ export class SuggestPhotosUseCase {
       }
     }
 
-    return { classified, suggestions, consumed, quotaExhausted };
+    return {
+      classified,
+      suggestions,
+      consumed,
+      quotaExhausted,
+      // Only a wave limit counts as "capped": a round that stopped because it
+      // found what it wanted, or because the queue ran dry, is not unfinished.
+      cappedEarly: suggestions.length < want && !quotaExhausted && consumed < candidates.length,
+    };
   }
 }
