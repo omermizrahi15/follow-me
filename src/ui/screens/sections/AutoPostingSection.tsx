@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import {
+  ActivityIndicator,
   View,
   Text,
   TouchableOpacity,
@@ -46,9 +47,17 @@ import { colors, radius, spacing, typography } from '../../theme/theme';
 
 interface Props {
   bottomInset: number;
-  onSaved: () => void;
   onPreview: () => void;
 }
+
+/**
+ * How long a change waits before it is written. Long enough that a burst of
+ * taps (frequency → day → time) is one round trip, short enough that leaving
+ * the section straight after a tap still lands the write.
+ */
+const AUTOSAVE_MS = 700;
+
+type SaveState = 'idle' | 'saving' | 'saved' | 'error';
 
 const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
 const TIME_PRESETS = ['08:00', '12:00', '18:00', '21:00'];
@@ -96,7 +105,25 @@ function buildOrderedList(enabledInOrder: PhotoCategory[]): OrderedCategory[] {
   ];
 }
 
-export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): React.JSX.Element {
+/**
+ * Everything a save writes, flattened. Autosave compares this against the last
+ * value the server acknowledged, so a re-render (or a section switch) can't
+ * trigger a write that changes nothing.
+ */
+function snapshotOf(config: PublisherConfig): string {
+  return JSON.stringify([
+    config.frequency,
+    config.photosPerPost,
+    config.requireApproval,
+    config.notifyDayOfWeek,
+    config.notifyTime,
+    config.enabledCategories,
+    config.timezone,
+    config.expoPushToken,
+  ]);
+}
+
+export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const [frequency, setFrequency] = useState<Frequency>('weekly');
   const [photoCount, setPhotoCount] = useState<PhotoCount>(10);
@@ -107,7 +134,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
     SELECTABLE_CATEGORIES.map(cat => ({ cat, enabled: true })),
   );
   const [pushToken, setPushToken] = useState('');
-  const [saving, setSaving] = useState(false);
+  const [saveState, setSaveState] = useState<SaveState>('idle');
   const [previewing, setPreviewing] = useState(false);
   const [testScheduling, setTestScheduling] = useState(false);
   const [testScheduledAt, setTestScheduledAt] = useState<Date | null>(null);
@@ -241,8 +268,22 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
     }
   }, [publisherId]);
 
+  // What the server last acknowledged, and the lookback window the last photo
+  // sync ran with. Both gate autosave's side effects — see `persistConfig`.
+  const savedSnapshotRef = useRef<string | null>(null);
+  const syncedLookbackRef = useRef<number | null>(null);
+  /** A change is waiting on the debounce timer — flushed if the section unmounts. */
+  const pendingRef = useRef(false);
+  /** Whether this visit already raised the photo-upload consent prompt. */
+  const consentAskedRef = useRef(false);
+  /** Whether this visit already refreshed the device's push token. */
+  const tokenRegisteredRef = useRef(false);
+  const mountedRef = useRef(true);
+  useEffect(() => () => { mountedRef.current = false; }, []);
+
   useEffect(() => {
-    void loadConfig.execute(publisherId).then(config => {
+    void (async (): Promise<void> => {
+      const config = await loadConfig.execute(publisherId);
       setFrequency(config.frequency);
       setPhotoCount(config.photosPerPost);
       setAskBeforePost(config.requireApproval);
@@ -250,8 +291,10 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       setNotifyTime(config.notifyTime);
       setOrderedCats(buildOrderedList(config.enabledCategories));
       setPushToken(config.expoPushToken);
+      savedSnapshotRef.current = snapshotOf(config);
+      syncedLookbackRef.current = config.lookbackDays;
       setIsLoading(false);
-    });
+    })();
     void refreshHasCloudPhotos();
   }, [publisherId, refreshHasCloudPhotos]);
 
@@ -270,30 +313,50 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
     });
   }
 
-  function handleSave(): void {
-    void (async (): Promise<void> => {
-      setSaving(true);
-      try {
-        // Both modes rely on the server pipeline (approval mode gets its batch
-        // pushed by the server too), so always register the push token and keep
-        // recent photos synced to the cloud.
-        const token = (await registerPushToken().catch(() => null)) ?? pushToken;
-        setPushToken(token);
-        const config = buildCurrentConfig(token);
-        await saveConfig.execute(config);
+  /**
+   * Write the settings as they stand. Every control calls this through the
+   * debounce below — there is no Save button, so this is the only writer.
+   */
+  async function persistConfig(): Promise<void> {
+    // Both modes rely on the server pipeline (approval mode gets its batch
+    // pushed by the server too), so the device has to be registered for push.
+    // The old Save did this on every press; the first write of a visit does it
+    // now, which keeps the OS permission prompt behind an actual change rather
+    // than raising it just for opening the tab.
+    let token = pushToken;
+    if (!tokenRegisteredRef.current) {
+      tokenRegisteredRef.current = true;
+      token = (await registerPushToken().catch(() => null)) ?? pushToken;
+      if (token !== pushToken && mountedRef.current) setPushToken(token);
+    }
+    const config = buildCurrentConfig(token);
+    const snapshot = snapshotOf(config);
+    pendingRef.current = false;
+    if (mountedRef.current) setSaveState('saving');
+    try {
+      await saveConfig.execute(config);
+      savedSnapshotRef.current = snapshot;
 
-        // First run only: setting up auto-posting is the natural moment to ask
-        // for photo upload. Saving does NOT lift a pause, though — that was the
-        // hidden coupling behind a week of silently-off sync, where the only way
-        // back was a button nobody could know to press. Turning upload back on
-        // is now its own visible action in PhotoSyncStatus.
-        if (!(await hasPhotoSyncConsent())) await confirmPhotoSync();
+      // First run only: setting up auto-posting is the natural moment to ask
+      // for photo upload. Asked at most once per visit — a declined prompt
+      // leaves consent unset, and with autosave that would otherwise re-raise
+      // the dialog on every single tweak. A save does NOT lift a pause, either;
+      // that was the hidden coupling behind a week of silently-off sync, and
+      // turning upload back on is its own visible action in PhotoSyncStatus.
+      if (!consentAskedRef.current && !(await hasPhotoSyncConsent())) {
+        consentAskedRef.current = true;
+        await confirmPhotoSync();
+      }
 
-        // Kicked off, not awaited. A lookback change should take effect now, but
-        // a first sync is minutes of uploads at three photos at a time and the
-        // save itself finished a second ago — blocking the button on the backlog
-        // made a working sync look like a hang (and get force-quit halfway).
-        // Progress is visible in PhotoSyncStatus instead.
+      // Only a changed lookback window needs photos re-synced, and that is the
+      // one thing autosave must not do on every keystroke-sized edit: reordering
+      // a category would otherwise kick a full upload pass. Everything else is
+      // covered by the foreground sync in useAutoSync.
+      //
+      // Kicked off, not awaited: a first sync is minutes of uploads at three
+      // photos at a time, and progress is visible in PhotoSyncStatus.
+      if (config.lookbackDays !== syncedLookbackRef.current) {
+        syncedLookbackRef.current = config.lookbackDays;
         if (await isPhotoSyncEnabled()) {
           void runCandidateSyncQuietly(
             publisherId,
@@ -301,26 +364,64 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
             config.lookbackDays,
           ).then(refreshHasCloudPhotos);
         }
-        if (token !== '') {
-          // Server owns the reminder — cancel the local one to avoid double-notifying.
-          await scheduleReminder.cancel().catch(() => undefined);
-        } else {
-          // No push token (permissions denied / simulator) — local reminder fallback.
-          await scheduleReminder.execute(config).catch(() => undefined);
-        }
-        onSaved();
-      } finally {
-        setSaving(false);
       }
-    })();
+      if (config.expoPushToken !== '') {
+        // Server owns the reminder — cancel the local one to avoid double-notifying.
+        await scheduleReminder.cancel().catch(() => undefined);
+      } else {
+        // No push token (permissions denied / simulator) — local reminder fallback.
+        await scheduleReminder.execute(config).catch(() => undefined);
+      }
+      if (mountedRef.current) setSaveState('saved');
+    } catch {
+      // With no Save button there is no button state to fail into, so say so.
+      if (mountedRef.current) setSaveState('error');
+    }
   }
+
+  // Stable handle on the latest `persistConfig`, so the timers below can fire
+  // it without being torn down and rebuilt on every render.
+  const persistRef = useRef(persistConfig);
+  persistRef.current = persistConfig;
+
+  // Autosave. Anything the publisher touches lands on its own after a beat —
+  // the snapshot check means a re-render, a section switch or a reload never
+  // writes on its own.
+  useEffect(() => {
+    if (isLoading) return;
+    const snapshot = snapshotOf(buildCurrentConfig(pushToken));
+    if (snapshot === savedSnapshotRef.current) return;
+    pendingRef.current = true;
+    const timer = setTimeout(() => void persistRef.current(), AUTOSAVE_MS);
+    return () => clearTimeout(timer);
+  }, [
+    isLoading,
+    frequency,
+    photoCount,
+    askBeforePost,
+    notifyDayOfWeek,
+    notifyTime,
+    orderedCats,
+    pushToken,
+  ]);
+
+  // Leaving the section (switching tabs, closing the app's Me page) must not
+  // drop the change still sitting on the debounce timer. Defined after the
+  // effect above so its clearTimeout runs first.
+  useEffect(
+    () => () => {
+      if (pendingRef.current) void persistRef.current();
+    },
+    [],
+  );
 
   function handlePreview(): void {
     void (async (): Promise<void> => {
       setPreviewing(true);
       try {
-        const config = buildCurrentConfig(pushToken);
-        await saveConfig.execute(config).catch(() => undefined);
+        // Flush whatever is still sitting on the autosave timer — the
+        // suggestion run reads the stored config, not this screen's state.
+        await persistRef.current();
         onPreview();
       } finally {
         setPreviewing(false);
@@ -736,19 +837,30 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
         </View>
       )}
 
-      <TouchableOpacity
-        testID="auto-save"
-        style={[styles.saveButton, saving && styles.saveButtonDisabled]}
-        onPress={handleSave}
-        activeOpacity={0.85}
-        disabled={saving}
-      >
-        <Text style={styles.saveText}>{saving ? 'Saving…' : 'Save'}</Text>
-      </TouchableOpacity>
+      {/* No Save button — every control above writes itself. This line is the
+          only feedback that there was ever a write to wait for, so it has to
+          name a failure as well as a success. */}
+      <View style={styles.saveStatusRow}>
+        {saveState === 'saving' && <ActivityIndicator size="small" color={colors.textMuted} />}
+        {saveState === 'saved' && <Ionicons name="checkmark-circle" size={14} color={colors.success} />}
+        {saveState === 'error' && <Ionicons name="alert-circle" size={14} color={colors.danger} />}
+        <Text
+          testID="auto-save-status"
+          style={[styles.saveStatusText, saveState === 'error' && styles.saveStatusError]}
+        >
+          {saveState === 'saving'
+            ? 'Saving…'
+            : saveState === 'saved'
+            ? 'Saved'
+            : saveState === 'error'
+            ? "Couldn't save — check your connection"
+            : 'Changes are saved automatically'}
+        </Text>
+      </View>
 
       <TouchableOpacity
         testID="auto-preview"
-        style={[styles.previewButton, previewing && styles.saveButtonDisabled]}
+        style={[styles.previewButton, previewing && styles.buttonDisabled]}
         onPress={handlePreview}
         activeOpacity={0.85}
         disabled={previewing}
@@ -760,7 +872,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
       {showDevTools && (
         <View style={styles.devRow}>
           <TouchableOpacity
-            style={[styles.devButton, styles.devButtonFull, testScheduling && styles.saveButtonDisabled]}
+            style={[styles.devButton, styles.devButtonFull, testScheduling && styles.buttonDisabled]}
             onPress={handleTestNow}
             activeOpacity={0.85}
             disabled={testScheduling}
@@ -768,7 +880,7 @@ export function AutoPostingSection({ bottomInset, onSaved, onPreview }: Props): 
             <Text style={styles.devText}>{testScheduling ? '…' : '⚡ Now'}</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.devButton, styles.devButtonFull, testScheduling && styles.saveButtonDisabled]}
+            style={[styles.devButton, styles.devButtonFull, testScheduling && styles.buttonDisabled]}
             onPress={handleTestNotification}
             activeOpacity={0.85}
             disabled={testScheduling}
@@ -864,15 +976,18 @@ const styles = StyleSheet.create({
   // Approval
   toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   toggleText: { flex: 1, marginRight: spacing.md },
-  saveButton: {
-    backgroundColor: colors.ink,
-    paddingVertical: spacing.md,
-    borderRadius: radius.md,
+  buttonDisabled: { opacity: 0.6 },
+  // Autosave feedback, in place of the old Save button.
+  saveStatusRow: {
+    flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
+    gap: spacing.xs,
+    minHeight: 18,
     marginTop: spacing.xs,
   },
-  saveButtonDisabled: { opacity: 0.6 },
-  saveText: { color: '#fff', fontWeight: '600', fontSize: 13 },
+  saveStatusText: { ...typography.caption, fontSize: 12, color: colors.textMuted },
+  saveStatusError: { color: colors.danger },
   previewButton: {
     backgroundColor: colors.surface,
     paddingVertical: spacing.md,

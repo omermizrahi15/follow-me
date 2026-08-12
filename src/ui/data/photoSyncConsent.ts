@@ -8,7 +8,8 @@ const SYNC_CONSENT_KEY = 'photo-sync-consent-v1';
  * Set after the user wipes their cloud photos ("Remove my photos from the
  * cloud") to stop the background auto-sync from silently re-uploading them on
  * the next foreground — the delete must stick until the user explicitly opts
- * back in by hitting Save. Consent is left intact so Save doesn't re-prompt.
+ * back in from the photo-sync status. Consent is left intact so that opt-in
+ * doesn't re-prompt.
  */
 const SYNC_PAUSED_KEY = 'photo-sync-paused-v1';
 
@@ -18,7 +19,7 @@ export async function hasPhotoSyncConsent(): Promise<boolean> {
   return stored != null;
 }
 
-/** True while auto-sync is suspended after a cloud-photo wipe (until next Save). */
+/** True while auto-sync is suspended after a cloud-photo wipe, until re-enabled. */
 export async function isPhotoSyncPaused(): Promise<boolean> {
   const stored = await AsyncStorage.getItem(SYNC_PAUSED_KEY).catch(() => null);
   return stored != null;
@@ -48,7 +49,7 @@ export async function isPhotoSyncEnabled(): Promise<boolean> {
  * the user declines the prompt, in which case nothing changes.
  *
  * This is the ONLY way sync comes back after a wipe. It used to be a side
- * effect of pressing Save in the auto-posting settings, which meant a publisher
+ * effect of saving the auto-posting settings, which meant a publisher
  * whose sync was paused had no way to discover it, no indication anything was
  * off, and no obvious action to take — sync stayed off for a week and every
  * scheduled post fell through to a "couldn't prepare your post" push.

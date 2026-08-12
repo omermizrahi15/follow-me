@@ -43,7 +43,7 @@ tags:
     timeout: 20000
 - tapOn: "OK"
 # Expected behavior (issue #58): after a successful wipe the warning link is
-# gone until photos are re-uploaded on the next Save. Today it stays — this
+# gone until photos are re-uploaded. Today it stays — this
 # is the regression assertion.
 - assertNotVisible: "Remove my photos from the cloud"
 - tapOn:

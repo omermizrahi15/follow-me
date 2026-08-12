@@ -34,13 +34,31 @@ tags:
 - tapOn:
     id: "header-back"
 
-# Home → Upload modal → close
+# Home → new-post chooser → cancel → chooser again → Upload modal → close
 - extendedWaitUntil:
     visible:
       id: "home-add-post"
     timeout: 10000
 - tapOn:
     id: "home-add-post"
+- extendedWaitUntil:
+    visible:
+      id: "new-post-manual"
+    timeout: 10000
+- tapOn:
+    id: "new-post-cancel"
+- extendedWaitUntil:
+    visible:
+      id: "home-add-post"
+    timeout: 10000
+- tapOn:
+    id: "home-add-post"
+- extendedWaitUntil:
+    visible:
+      id: "new-post-manual"
+    timeout: 10000
+- tapOn:
+    id: "new-post-manual"
 - extendedWaitUntil:
     visible:
       id: "upload-pick-photos"
