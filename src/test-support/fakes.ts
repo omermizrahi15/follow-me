@@ -10,6 +10,7 @@ import type {
   Coordinate,
   IGeocoder,
   IMediaRepository,
+  MediaWindow,
   IPostGalleryRepository,
   ISubscriberRepository,
   INotifier,
@@ -36,13 +37,39 @@ import type {
 export class InMemoryMediaRepository implements IMediaRepository {
   private store: Map<string, Media> = new Map();
 
+  /**
+   * Seeds a single item. Not part of IMediaRepository — production writes go
+   * through `saveMany` so a posting is always stored as one unit — but tests
+   * that only need a row in place shouldn't have to wrap it in an array.
+   */
   async save(media: Media): Promise<void> {
     this.store.set(media.id, media);
     return Promise.resolve();
   }
 
-  async findByOwner(ownerId: string): Promise<Media[]> {
-    return Promise.resolve([...this.store.values()].filter(m => m.ownerId === ownerId));
+  async saveMany(media: Media[]): Promise<void> {
+    for (const item of media) this.store.set(item.id, item);
+    return Promise.resolve();
+  }
+
+  /** Newest first, id breaking ties — the order the real table is read in. */
+  private ownedNewestFirst(ownerId: string): Media[] {
+    return [...this.store.values()]
+      .filter(m => m.ownerId === ownerId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.id.localeCompare(b.id));
+  }
+
+  async findByOwner(ownerId: string, window: MediaWindow): Promise<Media[]> {
+    const offset = window.offset ?? 0;
+    return Promise.resolve(this.ownedNewestFirst(ownerId).slice(offset, offset + window.limit));
+  }
+
+  async findByPosting(ownerId: string, postingId: string): Promise<Media[]> {
+    return Promise.resolve(this.ownedNewestFirst(ownerId).filter(m => m.postingId === postingId));
+  }
+
+  async postedAssetIds(ownerId: string): Promise<Set<string>> {
+    return Promise.resolve(new Set(this.ownedNewestFirst(ownerId).map(m => m.id)));
   }
 
   async findById(id: string): Promise<Media | null> {
@@ -58,6 +85,21 @@ export class InMemoryMediaRepository implements IMediaRepository {
   }
 
   all(): Media[] { return [...this.store.values()]; }
+}
+
+/**
+ * A media store whose bulk write always fails — what the real one does when
+ * Postgres rejects the insert. The write is one statement, so nothing lands:
+ * the point of the fake is that the store stays empty afterwards.
+ */
+export class FailingMediaRepository extends InMemoryMediaRepository {
+  constructor(private readonly message: string = 'media insert rejected') {
+    super();
+  }
+
+  override saveMany(): Promise<void> {
+    return Promise.reject(new Error(this.message));
+  }
 }
 
 /**

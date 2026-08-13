@@ -87,10 +87,12 @@ export function HomeScreen(): React.JSX.Element {
   const publisherId = usePublisherId();
   const { profile, reload: reloadProfile } = useProfile(publisherId);
   const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
-  const { postings, loading: feedLoading, reload: reloadFeed } = useFeed(publisherId);
+  const { postings, loading: feedLoading, complete: feedComplete, reload: reloadFeed } = useFeed(publisherId);
   // The History tab exists only when some stretch of the trip has no posting —
   // including a hole in the middle, not just a missing beginning (issue #81).
-  const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings);
+  // It waits for the whole feed: the pages still in flight hold the older posts
+  // that decide whether a stretch is really empty.
+  const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings, feedComplete);
   const [section, setSection] = useState<HomeSection>('me');
   const [showingSuggestions, setShowingSuggestions] = useState(false);
   // Which feed card has its Delete revealed — at most one, the way an iOS

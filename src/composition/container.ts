@@ -107,9 +107,10 @@ const photoClassifier = new GeminiPhotoClassifier(
 );
 const notificationScheduler = new ExpoNotificationScheduler();
 // Already-sent = anything recorded in `media` for this publisher (id == asset id).
+// Ids only: this runs on every suggestion scan and every "+" top-up, and used
+// to read every column of every photo the publisher had ever posted (#116).
 const sentPhotoTracker: ISentPhotoTracker = {
-  sentCandidateIds: async publisherId =>
-    new Set((await mediaRepo.findByOwner(publisherId)).map(m => m.id)),
+  sentCandidateIds: publisherId => mediaRepo.postedAssetIds(publisherId),
 };
 // Names the posting's place ("Lisbon, Portugal") from the batch's EXIF GPS.
 const geocoder = new BigDataCloudGeocoder();
