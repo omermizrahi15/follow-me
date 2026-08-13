@@ -1,7 +1,7 @@
-import { useCallback, useRef } from 'react';
+import { useCallback } from 'react';
 import { listSubscribers, removeSubscriber } from '../../composition/container';
 import type { SubscriberDto } from '../../application/dtos';
-import { subscribersKey } from '../data/queries';
+import { invalidateSubscribers, subscribersKey } from '../data/queries';
 import { useCachedQuery } from './useCachedQuery';
 
 interface UseSubscribers {
@@ -21,7 +21,7 @@ interface UseSubscribers {
  * someone opens the invite link and subscribes.
  */
 export function useSubscribers(publisherId: string | null): UseSubscribers {
-  const { data, loading, error, reload, update } = useCachedQuery(
+  const { data, loading, error, reload, read, update } = useCachedQuery(
     publisherId != null ? subscribersKey(publisherId) : null,
     async () => {
       // Unreachable while signed out: a null key means the query never runs.
@@ -30,32 +30,30 @@ export function useSubscribers(publisherId: string | null): UseSubscribers {
     },
     { revalidateOnFocus: true },
   );
-  const subscribers = data ?? [];
-
-  // The list is read through a ref rather than closed over, so `remove` keeps
-  // one identity for the life of the hook. Closing over it meant a new callback
-  // on every state change, which re-ran every effect depending on it — the
-  // exact loop that made a removal cost more than the request it performed.
-  const latest = useRef(subscribers);
-  latest.current = subscribers;
 
   const remove = useCallback(
     async (subscriberId: string): Promise<void> => {
       if (publisherId == null) return;
-      // Optimistically drop the row; restore on failure. Callers surface the
-      // failure themselves (the Followers section alerts) — this only has to
-      // make sure the list never claims a removal that didn't happen.
-      const previous = latest.current;
+      // Optimistically drop the row; put it back if the write fails. Callers
+      // surface the failure themselves (the Followers section alerts) — this
+      // only has to make sure the list never claims a removal that didn't
+      // happen, and that the server has the last word once it can be reached.
+      //
+      // `read()` rather than the rendered `subscribers`: closing over that made
+      // a new callback on every change, which re-ran every effect depending on
+      // it. This callback now keeps one identity for the life of the hook.
+      const previous = read() ?? [];
       update(previous.filter(s => s.id !== subscriberId));
       try {
         await removeSubscriber.remove({ publisherId, subscriberId });
       } catch (e: unknown) {
         update(previous);
+        invalidateSubscribers(publisherId);
         throw e;
       }
     },
-    [publisherId, update],
+    [publisherId, read, update],
   );
 
-  return { subscribers, loading, error, reload, remove };
+  return { subscribers: data ?? [], loading, error, reload, remove };
 }

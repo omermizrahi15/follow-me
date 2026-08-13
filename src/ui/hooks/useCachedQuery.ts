@@ -34,12 +34,21 @@ export interface CachedQuery<T> {
   /** Refetch now, regardless of staleness. Shares one request with any other caller. */
   reload: () => Promise<void>;
   /**
+   * The cached value right now, for callbacks that must not close over the
+   * rendered one (an optimistic update needs the list as it is when the user
+   * taps, not as it was when the callback was built).
+   */
+  read: () => T | undefined;
+  /**
    * Put a value straight into the cache — an optimistic update. Every consumer
-   * of the key sees it. Stable identity: it depends only on the key, so a
-   * callback built on it never re-runs its callers' effects.
+   * of the key sees it.
    */
   update: (data: T) => void;
 }
+
+// `read` and `update` depend only on the key, so callbacks built on them keep
+// one identity for the life of the hook — see `useSubscribers.remove`, whose
+// changing identity used to re-run every effect that depended on it.
 
 /**
  * Binds a component to one key of the shared cache (issue #114).
@@ -95,6 +104,11 @@ export function useCachedQuery<T>(
 
   useFocusRefresh(refreshIfStale, revalidateOnFocus);
 
+  const read = useCallback(
+    (): T | undefined => (key == null ? undefined : queryCache.read<T>(key)?.data),
+    [key],
+  );
+
   const update = useCallback(
     (data: T): void => {
       if (key != null) queryCache.write(key, data);
@@ -108,6 +122,7 @@ export function useCachedQuery<T>(
     loading: key != null && entry?.data === undefined && entry?.error === undefined,
     error: entry?.error?.message ?? null,
     reload,
+    read,
     update,
   };
 }

@@ -31,7 +31,12 @@ export function invalidateProfile(publisherId: string | null): void {
   if (publisherId != null) queryCache.invalidate(profileKey(publisherId));
 }
 
-// No invalidation for followers: the only change the app makes is a removal,
-// which `useSubscribers` applies to the cache optimistically. Followers who
-// arrive through the invite link do so without the app knowing, which is why
-// that one query still refreshes on focus.
+/**
+ * The follower list needs re-reading. Only used to recover from a failed
+ * removal: the successful path writes the shortened list straight into the
+ * cache, and followers who arrive through the invite link do so without the app
+ * knowing at all — which is why that one query also still refreshes on focus.
+ */
+export function invalidateSubscribers(publisherId: string | null): void {
+  if (publisherId != null) queryCache.invalidate(subscribersKey(publisherId));
+}
