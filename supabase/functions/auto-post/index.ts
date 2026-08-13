@@ -19,13 +19,13 @@
  *      TWILIO_STATUS_CALLBACK_URL (delivery tracking via twilio-status).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { selectBatch, type SharedClassification } from '../_shared/photoSelection.ts';
-import { isAutoPostDue } from '../_shared/autoPostSchedule.ts';
-import { credsFromEnv } from '../_shared/twilio.ts';
+import { selectBatch, type PhotoFacts } from '../../../src/domain/services/photoSelection.ts';
+import { isAutoPostDue } from '../../../src/domain/services/autoPostSchedule.ts';
+import { credsFromEnv } from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { postingIdFor, publishBatch } from '../_shared/publishBatch.ts';
 import { galleryUrls, saveApprovalBatch } from '../_shared/approvalBatch.ts';
 import { resolveBatchPlace } from '../_shared/geocode.ts';
-import type { Coordinate } from '../_shared/postingLocation.ts';
+import type { Coordinate } from '../../../src/domain/services/postingLocation.ts';
 import {
   approvalPushContent,
   chunk,
@@ -136,11 +136,55 @@ function coordsForAssets(rows: CandidateRow[], assetIds: Iterable<string>): Coor
 
 interface RawClassification {
   id: string;
-  category: SharedClassification['category'];
+  category: string;
   confidence: number;
   quality: number;
   caption: string;
   scene: string;
+}
+
+/** A candidate row joined to its classification — what a batch is made of. */
+interface ClassifiedCandidate {
+  assetId: string;
+  url: string;
+  category: string;
+  confidence: number;
+  quality: number;
+  /** epoch ms */
+  createdAt: number;
+  scene: string;
+}
+
+/** How this shape answers the selection rules' questions (see photoSelection). */
+const selectionFacts = (c: ClassifiedCandidate): PhotoFacts => ({
+  id: c.assetId,
+  category: c.category,
+  quality: c.quality,
+  createdAt: c.createdAt,
+  scene: c.scene,
+});
+
+/** Joins classify-photos' verdicts back onto the candidate rows they came from. */
+function classifiedCandidates(
+  classified: RawClassification[],
+  rows: CandidateRow[],
+): ClassifiedCandidate[] {
+  const byId = new Map(rows.map(r => [r.asset_id, r]));
+  const joined: ClassifiedCandidate[] = [];
+  for (const c of classified) {
+    const cand = byId.get(c.id);
+    if (cand == null) continue;
+    joined.push({
+      assetId: c.id,
+      url: cand.url,
+      category: c.category,
+      confidence: c.confidence,
+      quality: c.quality,
+      createdAt: Date.parse(cand.created_at),
+      scene: c.scene ?? '',
+    });
+  }
+  return joined;
 }
 
 /**
@@ -394,29 +438,13 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
     config.publisher_id,
     rows.map(r => ({ id: r.asset_id, url: r.url })),
   );
-  const byId = new Map(rows.map(r => [r.asset_id, r]));
-
-  const sharedClassifications: SharedClassification[] = classified
-    .map((c): SharedClassification | null => {
-      const cand = byId.get(c.id);
-      if (cand == null) return null;
-      return {
-        assetId: c.id,
-        url: cand.url,
-        category: c.category,
-        confidence: c.confidence,
-        quality: c.quality,
-        createdAt: Date.parse(cand.created_at),
-        scene: c.scene ?? '',
-      };
-    })
-    .filter((c): c is SharedClassification => c !== null);
+  const classifiedRows = classifiedCandidates(classified, rows);
 
   const selectedBatch = selectBatch(
-    sharedClassifications,
+    classifiedRows,
+    selectionFacts,
     {
-      enabledCategories: config.enabled_categories as SharedClassification['category'][],
-      minQuality: config.min_quality,
+      enabledCategories: config.enabled_categories,
       photosPerPost: config.photos_per_post,
     },
     alreadySent,
@@ -447,7 +475,7 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
   }));
 
   // Include up to 2× batch size as pool alternatives.
-  const poolPayload: BatchPhoto[] = sharedClassifications
+  const poolPayload: BatchPhoto[] = classifiedRows
     .filter(c => !batchSelectedIds.has(c.assetId) && !alreadySent.has(c.assetId))
     .sort((a, b) => b.quality - a.quality)
     .slice(0, config.photos_per_post * 2)
@@ -515,28 +543,12 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     config.publisher_id,
     rows.map(r => ({ id: r.asset_id, url: r.url })),
   );
-  const byId = new Map(rows.map(r => [r.asset_id, r]));
-  const classifications: SharedClassification[] = classified
-    .map((c): SharedClassification | null => {
-      const cand = byId.get(c.id);
-      if (cand == null) return null;
-      return {
-        assetId: c.id,
-        url: cand.url,
-        category: c.category,
-        confidence: c.confidence,
-        quality: c.quality,
-        createdAt: Date.parse(cand.created_at),
-        scene: c.scene ?? '',
-      };
-    })
-    .filter((c): c is SharedClassification => c !== null);
 
   const batch = selectBatch(
-    classifications,
+    classifiedCandidates(classified, rows),
+    selectionFacts,
     {
-      enabledCategories: config.enabled_categories as SharedClassification['category'][],
-      minQuality: config.min_quality,
+      enabledCategories: config.enabled_categories,
       photosPerPost: config.photos_per_post,
     },
     alreadySent,

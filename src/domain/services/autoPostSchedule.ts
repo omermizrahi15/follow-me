@@ -2,8 +2,11 @@
  * Pure scheduling check for autonomous posting. Given a publisher's cadence
  * (in their own timezone) and the last time we auto-posted, decide whether the
  * current moment is a firing slot. Pure + deterministic (only input is `now`),
- * so it's unit-tested exhaustively. Mirrored by the Deno `_shared` copy used
- * by the auto-post Edge Function.
+ * so it's unit-tested exhaustively.
+ *
+ * DUAL RUNTIME — the Deno `auto-post` Edge Function is the only thing that
+ * actually fires on this, and imports this exact file. Keep it import-free; see
+ * CONTRIBUTING.md.
  */
 export interface AutoPostScheduleInput {
   /** 0 = Sunday … 6 = Saturday (local to `timezone`). */

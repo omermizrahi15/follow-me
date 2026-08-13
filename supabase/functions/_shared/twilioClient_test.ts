@@ -8,7 +8,7 @@ import {
   type TwilioCreds,
   TwilioSendError,
   whatsappSafeMediaUrl,
-} from './twilio.ts';
+} from '../../../src/infrastructure/notifiers/twilioClient.ts';
 
 const creds: TwilioCreds = { accountSid: 'AC1', authToken: 'tok', fromNumber: '+14155238886' };
 const noSleep = (_ms: number): Promise<void> => Promise.resolve();

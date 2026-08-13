@@ -6,7 +6,10 @@ name: CD · services (Edge Functions)
 on:
   push:
     branches: [main]
-    paths: ['supabase/functions/**']
+    # src/** too: the functions import the app's dual-runtime modules directly
+    # (issue #117), so a change to one of those ships new server code.
+    # changed-functions.sh filters out the src changes that don't.
+    paths: ['supabase/functions/**', 'src/**']
   workflow_dispatch:
     inputs:
       environment:

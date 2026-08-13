@@ -6,41 +6,64 @@
 // base64-encodes the result. We recompute it and compare in constant time.
 // See https://www.twilio.com/docs/usage/security#validating-requests
 //
-// Node-only (uses node:crypto) — runs in tests and any server context, never in
-// the React Native bundle. The edge-function runtime carries its own Web Crypto
-// implementation of the same algorithm.
+// DUAL RUNTIME — the `join-webhook` and `twilio-status` Edge Functions are what
+// actually verify inbound Twilio requests, and import this exact file. It is
+// therefore built on Web Crypto (`crypto.subtle`, present in Deno and in Node
+// 18+) rather than `node:crypto`, and stays import-free; see CONTRIBUTING.md.
+// Signing is asynchronous as a result.
 
-import { createHmac, timingSafeEqual } from 'crypto';
-
-export function computeTwilioSignature(
+export async function computeTwilioSignature(
   authToken: string,
   url: string,
   params: Record<string, string>,
-): string {
+): Promise<string> {
   const data =
     url +
     Object.keys(params)
       .sort()
       .map(key => key + params[key])
       .join('');
-  return createHmac('sha1', authToken).update(data, 'utf8').digest('base64');
+
+  const enc = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    enc.encode(authToken),
+    { name: 'HMAC', hash: 'SHA-1' },
+    false,
+    ['sign'],
+  );
+  const signature = await crypto.subtle.sign('HMAC', key, enc.encode(data));
+  return base64(new Uint8Array(signature));
 }
 
-export function verifyTwilioSignature(args: {
+export async function verifyTwilioSignature(args: {
   authToken: string;
   url: string;
   params: Record<string, string>;
   signature: string | null | undefined;
-}): boolean {
+}): Promise<boolean> {
   const { authToken, url, params, signature } = args;
-  if (!signature) return false;
+  if (signature == null || signature === '') return false;
+  const expected = await computeTwilioSignature(authToken, url, params);
+  return timingSafeEqual(expected, signature);
+}
 
-  const expected = computeTwilioSignature(authToken, url, params);
+function base64(bytes: Uint8Array): string {
+  let binary = '';
+  for (const b of bytes) binary += String.fromCharCode(b);
+  return btoa(binary);
+}
 
-  // Constant-time compare; bail first if lengths differ (timingSafeEqual throws
-  // on length mismatch).
-  const a = Buffer.from(expected, 'utf8');
-  const b = Buffer.from(signature, 'utf8');
+/**
+ * Constant-time compare of two same-length strings. Bails on a length mismatch
+ * first — that leaks only the length, and a base64 HMAC-SHA1 is always 28
+ * characters, so a wrong length is not a secret worth protecting.
+ */
+function timingSafeEqual(a: string, b: string): boolean {
   if (a.length !== b.length) return false;
-  return timingSafeEqual(a, b);
+  let mismatch = 0;
+  for (let i = 0; i < a.length; i++) {
+    mismatch |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return mismatch === 0;
 }
