@@ -16,6 +16,7 @@ import { MAX_PHOTOS_PER_POST } from '../../domain/entities/PublisherConfig';
 import { isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
 import type { Coordinate } from '../../domain/interfaces';
 import { coordinateFor, coordinatesFor } from '../data/photoCoordinates';
+import { invalidateFeed } from '../data/queries';
 
 export type BackfillPhase = 'setup' | 'scanning' | 'review' | 'publishing' | 'done' | 'error';
 
@@ -717,4 +718,9 @@ async function publishPosting(publisherId: string, posting: ReviewablePosting): 
     backfilled: true,
     location: posting.place.trim() === '' ? null : posting.place.trim(),
   });
+
+  // Reconstructed stretches land in the same feed as anything else. Invalidated
+  // per posting, so a timeline published one stretch at a time keeps the Me
+  // page and the globe in step as it goes.
+  invalidateFeed(publisherId);
 }
