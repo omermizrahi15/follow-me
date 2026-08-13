@@ -23,10 +23,10 @@ import {
   sendWhatsAppTemplate,
   whatsappSafeMediaUrl,
   TwilioSendError,
-} from '../_shared/twilio.ts';
+} from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { logAcceptedSend, logRejectedSend, markSubscriberUnreachable } from '../_shared/messageLog.ts';
 import { buildPostTemplate } from '../_shared/postTemplate.ts';
-import { composeAutoPostBody } from '../_shared/notificationBody.ts';
+import { composeAutoPostBody } from '../../../src/domain/services/notificationBody.ts';
 import { collageUrl } from '../_shared/collage.ts';
 import { savePostGallery } from '../_shared/postGallery.ts';
 import { publisherIdentity } from '../_shared/publisher.ts';

@@ -1,48 +1,36 @@
-// Server-side reverse geocoding for the autonomous auto-post job (issue #23):
+// Server-side reverse geocoding for the autonomous post jobs (issue #23):
 // names a photo batch's place(s) from stored GPS so the push + WhatsApp message
-// can say "from Tel Aviv". Mirrors src/infrastructure/geocoding/BigDataCloudGeocoder.ts
-// (same free, keyless endpoint) plus the resolvePostingPlace clustering flow.
+// can say "from Tel Aviv".
+//
+// The endpoint and response parsing come from the app's geocoding module, and
+// the clustering/dedupe/join flow from the domain — all this file adds is the
+// server's own fetch (no React Native `__DEV__` logging) and the default wiring
+// of the two together.
 
-import { type Coordinate, formatPlaceList, representativeCoordinates } from './postingLocation.ts';
+import {
+  resolveBatchPlace as resolveBatchPlaceWith,
+  type Coordinate,
+} from '../../../src/domain/services/postingLocation.ts';
+import {
+  GEOCODE_TIMEOUT_MS,
+  placeFromResponse,
+  reverseGeocodeUrl,
+  type BigDataCloudResponse,
+} from '../../../src/infrastructure/geocoding/bigDataCloud.ts';
 
-interface BigDataCloudResponse {
-  city?: string;
-  locality?: string;
-  principalSubdivision?: string;
-  countryName?: string;
-}
-
-/** Naming a place is a nice-to-have on the post path — give up quickly. */
-const TIMEOUT_MS = 5000;
-
-function firstNonEmpty(...values: Array<string | undefined>): string | null {
-  for (const value of values) {
-    if (value != null && value.trim() !== '') return value;
-  }
-  return null;
-}
+export type { Coordinate };
 
 /**
- * "City, Country" for a coordinate (falling back through locality and region),
- * or null when it can't be resolved or the lookup times out. Never throws — a
- * failed lookup must not block a post.
+ * "City, Country" for a coordinate, or null when it can't be resolved or the
+ * lookup times out. Never throws — a failed lookup must not block a post.
  */
 export async function reverseGeocode(coordinate: Coordinate): Promise<string | null> {
   const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+  const timer = setTimeout(() => controller.abort(), GEOCODE_TIMEOUT_MS);
   try {
-    const params = `latitude=${coordinate.latitude}&longitude=${coordinate.longitude}&localityLanguage=en`;
-    const response = await fetch(
-      `https://api.bigdatacloud.net/data/reverse-geocode-client?${params}`,
-      { signal: controller.signal },
-    );
+    const response = await fetch(reverseGeocodeUrl(coordinate), { signal: controller.signal });
     if (!response.ok) return null;
-    const data = (await response.json()) as BigDataCloudResponse;
-    const city = firstNonEmpty(data.city, data.locality, data.principalSubdivision);
-    const country = firstNonEmpty(data.countryName);
-    if (city == null && country == null) return null;
-    if (city != null && country != null) return `${city}, ${country}`;
-    return city ?? country;
+    return placeFromResponse((await response.json()) as BigDataCloudResponse);
   } catch {
     return null;
   } finally {
@@ -50,21 +38,10 @@ export async function reverseGeocode(coordinate: Coordinate): Promise<string | n
   }
 }
 
-/**
- * Names a batch's place(s): clusters the coordinates into up to 3 major spots
- * (largest photo group first), reverse-geocodes each, dedupes identical names,
- * and joins them ("Lisbon, Portugal & Porto, Portugal"). Null when there are no
- * coordinates or none resolve — a post must never block on naming the place.
- * Deno mirror of src/application/services/resolvePostingPlace.ts.
- */
-export async function resolveBatchPlace(
+/** The batch's place name(s), looked up through the endpoint above by default. */
+export function resolveBatchPlace(
   coordinates: Coordinate[],
   geocode: (c: Coordinate) => Promise<string | null> = reverseGeocode,
 ): Promise<string | null> {
-  const places: string[] = [];
-  for (const coordinate of representativeCoordinates(coordinates, 3)) {
-    const place = await geocode(coordinate);
-    if (place != null && !places.includes(place)) places.push(place);
-  }
-  return formatPlaceList(places);
+  return resolveBatchPlaceWith(coordinates, geocode);
 }

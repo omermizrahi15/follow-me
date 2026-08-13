@@ -218,7 +218,7 @@ table is the full map — what you see under *Actions* is exactly these:
 | **CD · database (migrations)** | [`deploy-db.yml`](.github/workflows/deploy-db.yml) | merge to `main` (`supabase/migrations/`) | `db push` → staging; production via *Run workflow* |
 | **pages build and deployment** | *(GitHub-managed)* | merge to `main` (`docs/**`) | publishes GitHub Pages — this is the CD for the join page; the name can't be changed |
 
-**Per-service granularity.** `ci-services.yml` and `deploy-services.yml` diff the commit and act **only on the functions that changed** — each in its own matrix job — via [`scripts/changed-functions.sh`](scripts/changed-functions.sh). A change under `supabase/functions/_shared/**` fans out to every function (they all depend on it). Deploys use [`scripts/deploy-functions.sh`](scripts/deploy-functions.sh), the single source of truth for each function's `verify_jwt` setting.
+**Per-service granularity.** `ci-services.yml` and `deploy-services.yml` diff the commit and act **only on the functions that changed** — each in its own matrix job — via [`scripts/changed-functions.sh`](scripts/changed-functions.sh). A change under `supabase/functions/_shared/**` fans out to every function (they all depend on it), and so does a change to any [dual-runtime module](CONTRIBUTING.md#code-that-runs-in-both-runtimes) under `src/` — the functions import those directly. Deploys use [`scripts/deploy-functions.sh`](scripts/deploy-functions.sh), the single source of truth for each function's `verify_jwt` setting.
 
 **Promotion model.** Every CD workflow auto-deploys to **staging** on merge to `main` (path-filtered), and deploys to **any environment on demand** via *Actions → Run workflow* (choose `staging`/`production`, and for services an optional list of function names or `all`). Production jobs run under the `production` GitHub Environment, so you can require a reviewer (Settings → Environments).
 
@@ -231,7 +231,7 @@ table is the full map — what you see under *Actions* is exactly these:
 
 Installing the finished `.ipa` is the one manual step — internal distribution can't push a binary to the phone. To save retyping the build URL there, the summary links **[📱 Scan to install](docs/install/index.html)** ([`docs/install/`](docs/install/index.html) on the Pages site), which shows a QR of the build page. The symbol is encoded by CI and passed in the link's fragment, so that page ships no QR library and makes no network calls; it can't be drawn in the job summary directly, because GitHub's code blocks gap every glyph row (no decoder reads it) and its sanitizer strips the `src` off `data:` images.
 
-**Service tests** live next to the code as Deno `*_test.ts` (e.g. [`supabase/functions/_shared/optOut_test.ts`](supabase/functions/_shared/optOut_test.ts)); run them locally with `deno task test`. Functions without unit tests yet still get lint + typecheck in CI.
+**Service tests** live next to the code as Deno `*_test.ts` (e.g. [`supabase/functions/_shared/twilioWebhook_test.ts`](supabase/functions/_shared/twilioWebhook_test.ts)); run them locally with `deno task test`. Functions without unit tests yet still get lint + typecheck in CI.
 
 **Required GitHub secrets** (Settings → Secrets and variables → Actions):
 

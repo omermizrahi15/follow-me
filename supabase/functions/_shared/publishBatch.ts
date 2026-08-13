@@ -10,14 +10,14 @@
  * are already in the cloud, so the same fan-out serves both and the phone only
  * has to make one HTTP call.
  */
-import { credsFromEnv, sendBatch, sendWhatsApp, sendWhatsAppTemplate, TwilioSendError, type TwilioCreds } from './twilio.ts';
+import { credsFromEnv, sendBatch, sendWhatsApp, sendWhatsAppTemplate, TwilioSendError, type TwilioCreds } from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { logAcceptedSend, logRejectedSend, markSubscriberUnreachable } from './messageLog.ts';
 import { buildPostTemplate } from './postTemplate.ts';
 import { collageUrl } from './collage.ts';
 import { savePostGallery } from './postGallery.ts';
-import { composeAutoPostBody } from './notificationBody.ts';
+import { composeAutoPostBody } from '../../../src/domain/services/notificationBody.ts';
 import { publisherIdentity } from './publisher.ts';
-import type { Coordinate } from './postingLocation.ts';
+import type { Coordinate } from '../../../src/domain/services/postingLocation.ts';
 
 // deno-lint-ignore no-explicit-any
 type SupabaseClient = any;

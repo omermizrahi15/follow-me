@@ -1,4 +1,15 @@
-import type { Coordinate } from '../interfaces';
+/**
+ * Turning a batch's scattered GPS fixes into the place(s) a posting is "from".
+ *
+ * DUAL RUNTIME — imported as-is by the Deno `auto-post` / `post-batch` Edge
+ * Functions as well as by the app, so this module stays import-free and owns
+ * `Coordinate` outright (the domain's `interfaces` barrel re-exports it). See
+ * CONTRIBUTING.md.
+ */
+export interface Coordinate {
+  latitude: number;
+  longitude: number;
+}
 
 // Callers guarantee a non-empty input.
 function median(values: number[]): number {
@@ -66,5 +77,32 @@ export function formatPlaceList(places: string[]): string | null {
   if (second == null) return first;
   if (third == null) return `${first} & ${second}`;
   return `${first}, ${second} & ${third}`;
+}
+
+/**
+ * The whole naming flow: cluster a batch's coordinates into its major spots
+ * (largest photo group first), look each one up, dedupe names that came back
+ * identical, and join them — "Lisbon, Portugal & Porto, Portugal". Null when
+ * there are no coordinates or nothing resolves.
+ *
+ * `lookup` is injected rather than imported: the app passes its `IGeocoder`,
+ * the Edge Functions pass their own fetch. A lookup that throws costs one
+ * place, never the whole posting — naming must never block a send.
+ */
+export async function resolveBatchPlace(
+  coordinates: Coordinate[],
+  lookup: (coordinate: Coordinate) => Promise<string | null>,
+  max = 3,
+): Promise<string | null> {
+  const places: string[] = [];
+  for (const coordinate of representativeCoordinates(coordinates, max)) {
+    try {
+      const place = await lookup(coordinate);
+      if (place != null && !places.includes(place)) places.push(place);
+    } catch {
+      // A failed lookup skips one place, never the whole posting.
+    }
+  }
+  return formatPlaceList(places);
 }
 

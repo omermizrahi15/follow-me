@@ -1,5 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
-import { isAutoPostDue, localParts } from './autoPostSchedule.ts';
+import { isAutoPostDue, localParts } from '../../../src/domain/services/autoPostSchedule.ts';
 
 // 2026-01-05 is a Monday (weekday index 1, WEEKDAYS starts at 'Sun').
 const MON_0900_UTC = new Date('2026-01-05T09:00:00Z');
