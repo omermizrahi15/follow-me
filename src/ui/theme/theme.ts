@@ -38,6 +38,12 @@ export const colors = {
 
   /** Same deep blue, used for the floating nav icons & labels. */
   ink: '#0E3A53',
+  /** Unselected icon on the floating glass nav — the ink, dialled back so the
+   *  selected tab is the only thing with full contrast. */
+  navIdle: '#6B7F8C',
+  /** Pill behind the selected nav icon. A tint of the accent, deep enough to
+   *  hold its shape against the bar's frosted white. */
+  navPill: '#D9E7EF',
   /** Frosted floating-bar surface (slightly translucent cool white). */
   frosted: 'rgba(244,247,250,0.92)',
 
