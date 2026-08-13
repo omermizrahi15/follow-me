@@ -10,6 +10,7 @@ import type {
   Coordinate,
   IGeocoder,
   IMediaRepository,
+  IPostGalleryRepository,
   ISubscriberRepository,
   INotifier,
   IStorageService,
@@ -57,6 +58,42 @@ export class InMemoryMediaRepository implements IMediaRepository {
   }
 
   all(): Media[] { return [...this.store.values()]; }
+}
+
+/**
+ * The followers' gallery rows, keyed the way the real table is: one row per
+ * (publisher, posting) that was actually sent. Seed with `publish` — a posting
+ * that was never sent has no row, which is exactly what happens in production
+ * for backfilled postings.
+ */
+export class InMemoryPostGalleryRepository implements IPostGalleryRepository {
+  private store: Map<string, { publisherId: string; postingId: string; deletedAt: Date | null }> = new Map();
+
+  private key(publisherId: string, postingId: string): string {
+    return `${publisherId}::${postingId}`;
+  }
+
+  /** Records the row the send functions would have written. */
+  publish(publisherId: string, postingId: string): void {
+    this.store.set(this.key(publisherId, postingId), { publisherId, postingId, deletedAt: null });
+  }
+
+  async setPostingDeleted(publisherId: string, postingId: string, deletedAt: Date | null): Promise<void> {
+    const row = this.store.get(this.key(publisherId, postingId));
+    if (row != null) row.deletedAt = deletedAt;
+    return Promise.resolve();
+  }
+
+  /** What a follower opening the gallery would see. */
+  visible(publisherId: string): string[] {
+    return [...this.store.values()]
+      .filter(r => r.publisherId === publisherId && r.deletedAt == null)
+      .map(r => r.postingId);
+  }
+
+  deletedAt(publisherId: string, postingId: string): Date | null {
+    return this.store.get(this.key(publisherId, postingId))?.deletedAt ?? null;
+  }
 }
 
 export class InMemorySubscriberRepository implements ISubscriberRepository {

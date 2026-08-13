@@ -2,7 +2,7 @@
  * The domain's ports, grouped by area. This barrel is the import surface for
  * the rest of the app — add a new port to the file it belongs to, not here.
  */
-export type { IMediaRepository, IStorageService } from './media';
+export type { IMediaRepository, IPostGalleryRepository, IStorageService } from './media';
 export type { ISubscriberRepository, IConfirmationSender } from './subscribers';
 export type {
   INotifier,

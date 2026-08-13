@@ -1,5 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
-import { cloudinaryDestroySignature, publicIdFromUrl, sha1Hex } from './logic.ts';
+import { ageCutoffIso, cloudinaryDestroySignature, publicIdFromUrl, sha1Hex } from './logic.ts';
 
 Deno.test('publicIdFromUrl — extracts the public id (no version, no extension)', () => {
   assertEquals(
@@ -28,4 +28,16 @@ Deno.test('cloudinaryDestroySignature — signs the sorted params + secret deter
   const sig = await cloudinaryDestroySignature('trips/pic', 1700000000, 'SECRET');
   assertEquals(sig, await sha1Hex('public_id=trips/pic&timestamp=1700000000SECRET'));
   assert(/^[0-9a-f]{40}$/.test(sig), 'is a 40-char hex digest');
+});
+
+Deno.test('ageCutoffIso — a positive day count scopes the delete to older rows', () => {
+  const now = Date.parse('2026-08-12T00:00:00.000Z');
+  assertEquals(ageCutoffIso({ olderThanDays: 7 }, now), '2026-08-05T00:00:00.000Z');
+});
+
+Deno.test('ageCutoffIso — no scope means the full wipe the privacy control asks for', () => {
+  const now = Date.parse('2026-08-12T00:00:00.000Z');
+  for (const body of [{}, null, undefined, { olderThanDays: '7' }, { olderThanDays: 0 }, { olderThanDays: -3 }, { olderThanDays: NaN }]) {
+    assertEquals(ageCutoffIso(body, now), null, `body ${JSON.stringify(body)} must not narrow the wipe`);
+  }
 });

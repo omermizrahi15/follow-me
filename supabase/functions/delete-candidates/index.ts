@@ -11,7 +11,7 @@
  * are removed and the orphaned assets age out via Cloudinary's own tooling.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { cloudinaryDestroySignature, publicIdFromUrl } from './logic.ts';
+import { ageCutoffIso, cloudinaryDestroySignature, publicIdFromUrl } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -31,6 +31,18 @@ async function authenticatedUserId(req: Request): Promise<string | null> {
   try {
     const { data } = await admin.auth.getUser(token);
     return data.user?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The delete's age scope, from the request body. A body-less or malformed
+ * request is a full wipe — see ageCutoffIso for why that is the safe default.
+ */
+async function ageCutoff(req: Request): Promise<string | null> {
+  try {
+    return ageCutoffIso(await req.json(), Date.now());
   } catch {
     return null;
   }
@@ -62,16 +74,20 @@ Deno.serve(async (req: Request) => {
   const userId = await authenticatedUserId(req);
   if (userId == null) return json({ error: 'Authentication required' }, 401);
 
-  const { data: rows, error: selectError } = await admin
-    .from('candidate_photos')
-    .select('url')
-    .eq('publisher_id', userId);
+  // Absent (or unusable) = wipe everything, which is what the privacy control
+  // asks for. A positive number scopes the delete to copies that have aged out
+  // of the publisher's window — the routine retention pass the app runs after
+  // every sync, so nobody has to tidy up by hand.
+  const cutoff = await ageCutoff(req);
+
+  let select = admin.from('candidate_photos').select('url').eq('publisher_id', userId);
+  if (cutoff != null) select = select.lt('created_at', cutoff);
+  const { data: rows, error: selectError } = await select;
   if (selectError != null) return json({ error: selectError.message }, 500);
 
-  const { error: deleteError } = await admin
-    .from('candidate_photos')
-    .delete()
-    .eq('publisher_id', userId);
+  let remove = admin.from('candidate_photos').delete().eq('publisher_id', userId);
+  if (cutoff != null) remove = remove.lt('created_at', cutoff);
+  const { error: deleteError } = await remove;
   if (deleteError != null) return json({ error: deleteError.message }, 500);
 
   // Best-effort asset cleanup — DB rows are already gone either way.
@@ -89,6 +105,6 @@ Deno.serve(async (req: Request) => {
     }
   }
 
-  console.log(`delete-candidates: user ${userId} — ${rows?.length ?? 0} rows, ${assetsDeleted} assets deleted (cloudinary ${cloudinaryConfigured ? 'on' : 'off'})`);
+  console.log(`delete-candidates: user ${userId} — ${rows?.length ?? 0} rows${cutoff != null ? ` older than ${cutoff}` : ' (full wipe)'}, ${assetsDeleted} assets deleted (cloudinary ${cloudinaryConfigured ? 'on' : 'off'})`);
   return json({ deletedRows: rows?.length ?? 0, deletedAssets: assetsDeleted, cloudinaryConfigured });
 });

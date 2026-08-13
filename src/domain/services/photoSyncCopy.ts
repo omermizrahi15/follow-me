@@ -36,6 +36,16 @@ export interface SyncStatusCopy {
   hint: string;
   /** Label for the user's one available action, or null when there is nothing to do. */
   action: string | null;
+  /**
+   * Whether this state is worth putting on screen at all.
+   *
+   * Uploading happens on its own, on launch, on foreground, and from a
+   * background task — narrating that to the publisher only invited the question
+   * "when am I supposed to sync?", which has no answer because the answer is
+   * never. So a working sync says nothing, and the row appears exactly when the
+   * publisher is the only one who can fix it.
+   */
+  needsAttention: boolean;
 }
 
 export function syncStatusCopy(status: SyncStatus, now: number): SyncStatusCopy {
@@ -48,24 +58,21 @@ export function syncStatusCopy(status: SyncStatus, now: number): SyncStatusCopy 
             : 'Checking for new photos…',
         hint: 'You can close the app — this carries on in the background.',
         action: null,
-      };
-    case 'paused':
-      return {
-        title: 'Photo upload is off',
-        hint: 'Your photos were removed from the cloud. Posts can’t be prepared until upload is back on.',
-        action: 'Turn on',
+        needsAttention: false,
       };
     case 'no-consent':
       return {
         title: 'Photo upload is off',
-        hint: 'Recent photos are uploaded privately so posts can be prepared while the app is closed.',
+        hint: 'Posts are prepared from private copies of your recent photos. Without them nothing can be posted while the app is closed.',
         action: 'Turn on',
+        needsAttention: true,
       };
     case 'failed':
       return {
         title: 'Couldn’t upload photos',
         hint: status.error ?? 'Something went wrong. It will try again on its own.',
         action: 'Try again',
+        needsAttention: true,
       };
     case 'idle':
       return {
@@ -75,6 +82,7 @@ export function syncStatusCopy(status: SyncStatus, now: number): SyncStatusCopy 
             : 'Photos not synced yet',
         hint: 'This happens on its own, including while the app is closed — you don’t need to do anything.',
         action: null,
+        needsAttention: false,
       };
   }
 }

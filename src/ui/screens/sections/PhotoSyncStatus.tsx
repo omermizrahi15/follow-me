@@ -1,22 +1,23 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSyncStatus } from '../../data/syncStatus';
 import { syncStatusCopy } from '../../../domain/services/photoSyncCopy';
 import { colors, radius, spacing, typography } from '../../theme/theme';
 
 /**
- * What the photo sync is doing, in one line.
+ * The photo sync, but only when the publisher has to do something about it.
  *
- * Every sync outcome used to look the same from here — which is to say, look
- * like nothing. Uploading, finished, switched off after a cloud wipe, and
- * failing on every attempt were indistinguishable, so a publisher whose sync
- * had been off for a week had no way to find out until the server gave up and
- * pushed "couldn't prepare your post". Worse, the only way to switch it back on
- * was to press Save in these settings, which nothing told them to do.
+ * Uploading is automatic — on launch, on every foreground, from a background
+ * task and from a silent push — so narrating it was worse than saying nothing:
+ * a permanent row about "syncing" reads as a chore with a schedule, and the
+ * first question it provokes ("when am I supposed to sync?") has no answer.
  *
- * So this row states the state and, when the user is the only one who can fix
- * it, offers the action right here. The strings themselves live in
+ * What genuinely needs saying is the opposite state. A publisher whose upload
+ * is off has no way to discover it — photos simply never arrive, and days later
+ * the server pushes "couldn't prepare your post" (issue #97). So this renders
+ * nothing while sync is healthy or running, and appears with the one action
+ * that fixes it when it isn't. The strings live in
  * `domain/services/photoSyncCopy` where they are unit-tested.
  */
 
@@ -27,24 +28,21 @@ interface Props {
   onRetry: () => void;
 }
 
-export function PhotoSyncStatus({ onEnable, onRetry }: Props): React.ReactElement {
+export function PhotoSyncStatus({ onEnable, onRetry }: Props): React.ReactElement | null {
   const status = useSyncStatus();
-  const { title, hint, action } = syncStatusCopy(status, Date.now());
-  const off = status.phase === 'paused' || status.phase === 'no-consent';
+  const { title, hint, action, needsAttention } = syncStatusCopy(status, Date.now());
+  if (!needsAttention) return null;
+
   const failed = status.phase === 'failed';
 
   return (
-    <View style={[styles.block, (off || failed) && styles.blockAttention]}>
+    <View style={[styles.block, styles.blockAttention]}>
       <View style={styles.row}>
-        {status.phase === 'syncing' ? (
-          <ActivityIndicator size="small" color={colors.accent} />
-        ) : (
-          <Ionicons
-            name={off ? 'cloud-offline-outline' : failed ? 'alert-circle-outline' : 'cloud-done-outline'}
-            size={18}
-            color={off || failed ? colors.danger : colors.success}
-          />
-        )}
+        <Ionicons
+          name={failed ? 'alert-circle-outline' : 'cloud-offline-outline'}
+          size={18}
+          color={colors.danger}
+        />
         <Text style={styles.title} testID="photo-sync-status-title">
           {title}
         </Text>
@@ -58,20 +56,6 @@ export function PhotoSyncStatus({ onEnable, onRetry }: Props): React.ReactElemen
           </TouchableOpacity>
         )}
       </View>
-
-      {/* A first sync over a wide lookback is minutes of work at three photos at
-          a time. Without a bar it reads as a hang — which is exactly how one got
-          force-quit halfway through. */}
-      {status.phase === 'syncing' && status.total > 0 && (
-        <View style={styles.track}>
-          <View
-            style={[
-              styles.fill,
-              { width: `${Math.min(100, Math.round((status.uploaded / status.total) * 100))}%` },
-            ]}
-          />
-        </View>
-      )}
 
       <Text style={styles.hint}>{hint}</Text>
     </View>
@@ -105,18 +89,6 @@ const styles = StyleSheet.create({
   action: {
     ...typography.button,
     color: colors.accent,
-  },
-  track: {
-    height: 4,
-    borderRadius: radius.pill,
-    backgroundColor: colors.border,
-    overflow: 'hidden',
-    marginTop: spacing.xs,
-  },
-  fill: {
-    height: '100%',
-    borderRadius: radius.pill,
-    backgroundColor: colors.accent,
   },
   hint: {
     ...typography.caption,

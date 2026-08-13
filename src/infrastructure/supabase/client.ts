@@ -1,17 +1,14 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
-import { requireEnv } from '../env';
+import { env } from '../env';
 
-// Static `process.env.EXPO_PUBLIC_*` references so Expo inlines the values into
-// the production bundle; a dynamic/bracket lookup stays undefined at runtime.
-export const supabaseUrl = requireEnv(
-  process.env.EXPO_PUBLIC_SUPABASE_URL as string | undefined,
-  'EXPO_PUBLIC_SUPABASE_URL',
-);
-export const supabaseAnonKey = requireEnv(
-  process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY as string | undefined,
-  'EXPO_PUBLIC_SUPABASE_ANON_KEY',
-);
+// Read through ../env rather than checked here: this module loads before
+// anything else, so a throw at this line is the whole app failing on one
+// variable, which is what issue #110 set out to stop. Missing configuration
+// yields placeholders and `envSetupMessage`, and the UI shows the full list
+// instead of mounting a navigator that would query with them.
+export const supabaseUrl = env.supabaseUrl;
+export const supabaseAnonKey = env.supabaseAnonKey;
 
 /**
  * The app's one and only Supabase client (issue #115).

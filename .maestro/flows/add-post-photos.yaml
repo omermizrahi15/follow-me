@@ -24,6 +24,13 @@ tags:
     timeout: 15000
 - tapOn:
     id: "home-add-post"
+# The chooser sits between the button and the picker now — take the manual branch.
+- extendedWaitUntil:
+    visible:
+      id: "new-post-manual"
+    timeout: 10000
+- tapOn:
+    id: "new-post-manual"
 - extendedWaitUntil:
     visible:
       id: "upload-pick-photos"

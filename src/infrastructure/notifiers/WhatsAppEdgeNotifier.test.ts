@@ -44,6 +44,25 @@ describe('WhatsAppEdgeNotifier', () => {
     });
   });
 
+  it('sends the posting id so the gallery row can be trashed with the post', async (): Promise<void> => {
+    const media = Media.create({
+      id: 'media-1',
+      ownerId: 'user-1',
+      url: 'https://cdn.test/a.jpg',
+      createdAt: new Date(),
+      postingId: 'posting-abc',
+      location: 'Lisbon, Portugal',
+    });
+    const notifier = new WhatsAppEdgeNotifier(FN_URL, KEY);
+    await notifier.notify(makeSubscriber(), [media]);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      place: 'Lisbon, Portugal',
+      postingId: 'posting-abc',
+    });
+  });
+
   it('authenticates with the anon key', async (): Promise<void> => {
     const notifier = new WhatsAppEdgeNotifier(FN_URL, KEY);
     await notifier.notify(makeSubscriber(), [makeMedia()]);

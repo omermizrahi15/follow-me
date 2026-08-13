@@ -48,7 +48,7 @@ function json(body: unknown, status = 200): Response {
 Deno.serve(async req => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  let body: { publisherId?: string; to?: string; mediaUrls?: string[]; place?: string };
+  let body: { publisherId?: string; to?: string; mediaUrls?: string[]; place?: string; postingId?: string };
   try {
     body = await req.json();
   } catch {
@@ -57,10 +57,13 @@ Deno.serve(async req => {
 
   const validation = validateSendPost(body);
   if (!validation.ok) return json({ error: validation.error }, 400);
-  const { publisherId, to, mediaUrls, place } = validation.value;
+  const { publisherId, to, mediaUrls, place, postingId } = validation.value;
 
   const { name, phone } = await publisherIdentity(supabase, publisherId);
-  const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls, place ?? null);
+  // One posts row per batch (the id is a hash of publisher + urls), so the
+  // per-subscriber calls upsert the same row — including the posting id that
+  // lets a later delete hide it from followers.
+  const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls, place ?? null, postingId ?? null);
   const caption = composeAutoPostBody(
     name,
     phone,

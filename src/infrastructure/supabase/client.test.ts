@@ -24,13 +24,12 @@ jest.mock('@react-native-async-storage/async-storage', () => ({
   close(): void {}
 };
 
-// `requireEnv` is where the client picks up its project URL and key, and it runs
-// when the module loads — mocking it (hoisted above the imports) is what points
-// the client at a fake project. The literals are repeated below as ANON_KEY:
-// a jest.mock factory cannot close over outer variables.
+// `../env` is where the client picks up its project URL and key, and it reads
+// them when the module loads — mocking it (hoisted above the imports) is what
+// points the client at a fake project. The literals are repeated below as
+// ANON_KEY: a jest.mock factory cannot close over outer variables.
 jest.mock('../env', () => ({
-  requireEnv: (_value: string | undefined, name: string): string =>
-    name === 'EXPO_PUBLIC_SUPABASE_URL' ? 'https://probe.supabase.co' : 'test-anon-key',
+  env: { supabaseUrl: 'https://probe.supabase.co', supabaseAnonKey: 'test-anon-key' },
 }));
 
 import { supabase } from './client';

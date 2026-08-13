@@ -3,9 +3,12 @@ name: add-post
 tags:
   - auth
 ---
-# Me page -> Add post opens the New-post modal with the photo picker entry point.
-# Stops before the iOS system photo picker (non-deterministic on a CI simulator
-# with no photos) and closes the modal. Reuses the session from sign-in.
+# Me page -> Add post opens the new-post chooser (suggested vs. manual), then
+# the manual branch opens the New-post modal with the photo picker entry point.
+# The suggested branch is deliberately only asserted, never tapped: it starts a
+# device photo scan and a paid classification run. Stops before the iOS system
+# photo picker (non-deterministic on a CI simulator with no photos) and closes
+# the modal. Reuses the session from sign-in.
 - launchApp
 - extendedWaitUntil:
     visible:
@@ -13,9 +16,19 @@ tags:
     timeout: 15000
 - tapOn:
     id: "home-add-post"
-- assertVisible: "New post"
+- extendedWaitUntil:
+    visible:
+      id: "new-post-manual"
+    timeout: 10000
 - assertVisible:
-    id: "upload-pick-photos"
+    id: "new-post-suggested"
+- tapOn:
+    id: "new-post-manual"
+- extendedWaitUntil:
+    visible:
+      id: "upload-pick-photos"
+    timeout: 10000
+- assertVisible: "New post"
 - tapOn:
     id: "upload-close"
 - assertVisible:

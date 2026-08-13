@@ -26,6 +26,7 @@ import { RetryingNotifier } from '../infrastructure/notifiers/RetryingNotifier';
 import { SupabaseNotificationDeliveryRepository } from '../infrastructure/repositories/SupabaseNotificationDeliveryRepository';
 import { SupabaseAuthService } from '../infrastructure/auth/SupabaseAuthService';
 import { SupabaseMediaRepository } from '../infrastructure/repositories/SupabaseMediaRepository';
+import { SupabasePostGalleryRepository } from '../infrastructure/repositories/SupabasePostGalleryRepository';
 import { SupabaseSubscriberRepository } from '../infrastructure/repositories/SupabaseSubscriberRepository';
 import { SupabasePublisherConfigRepository } from '../infrastructure/repositories/SupabasePublisherConfigRepository';
 import { SupabaseCandidatePhotoRepository } from '../infrastructure/repositories/SupabaseCandidatePhotoRepository';
@@ -44,13 +45,21 @@ import {
   type CachedSuggestion,
 } from '../infrastructure/cache/SuggestionCache';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../infrastructure/supabase/client';
-import { requireEnv } from '../infrastructure/env';
+import { env } from '../infrastructure/env';
 import Constants from 'expo-constants';
 
 // One client for the whole app (issue #115). Every repository below shares it,
 // so a signed-in user's JWT rides along on every query and the `auth.uid()` RLS
 // policies (migration 20240031) resolve to that user.
+//
+// Its url/key come from ../infrastructure/env, which checks every required
+// variable as a set and never throws (issue #110): while anything is missing
+// they are inert placeholders and the UI renders the setup message rather than
+// the navigator, so none of the wiring below is ever reached.
 const mediaRepo = new SupabaseMediaRepository(supabase);
+// The followers' copy of a posting — what the gallery link opens. Deleting a
+// post has to hide this too, not just the publisher's own feed.
+const postGalleryRepo = new SupabasePostGalleryRepository(supabase);
 const subscriberRepo = new SupabaseSubscriberRepository(supabase);
 const configRepo = new SupabasePublisherConfigRepository(supabase);
 const candidateRepo = new SupabaseCandidatePhotoRepository(supabase);
@@ -59,9 +68,9 @@ const approvalBatchRepo = new SupabaseApprovalBatchRepository(supabase);
 // Shared photo uploader (Cloudinary) — used for posts and profile avatars.
 // The optional folder isolates staging uploads from production assets.
 const storageService = new CloudinaryStorageService(
-  requireEnv(process.env.EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME as string | undefined, 'EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME'),
-  requireEnv(process.env.EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET as string | undefined, 'EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET'),
-  process.env.EXPO_PUBLIC_CLOUDINARY_FOLDER as string | undefined,
+  env.cloudinaryCloudName,
+  env.cloudinaryUploadPreset,
+  env.cloudinaryFolder,
 );
 // Direct UI uploads (avatars) get their own Sentry tag; use cases below hold
 // the raw service so their failures are tagged with the use case's operation
@@ -84,7 +93,7 @@ const confirmationSender = new ConsoleConfirmationSender();
 
 const mediaLibrary = new ExpoMediaLibrary();
 const photoClassifier = new GeminiPhotoClassifier(
-  requireEnv(process.env.EXPO_PUBLIC_CLASSIFY_FN_URL as string | undefined, 'EXPO_PUBLIC_CLASSIFY_FN_URL'),
+  env.classifyFnUrl,
   supabaseAnonKey,
   expoResolvePayload,
   // The classify function requires a signed-in user's JWT (anon key rejected).
@@ -107,9 +116,7 @@ const geocoder = new BigDataCloudGeocoder();
 // Place search for batches with no GPS. Shares the globe's MapTiler key: a
 // handful of calls per post, against a quota the map tiles dominate. Unset key
 // simply yields no suggestions (see MapTilerPlaceSearch).
-export const placeSearch = new MapTilerPlaceSearch(
-  (process.env.EXPO_PUBLIC_MAPTILER_KEY as string | undefined) ?? '',
-);
+export const placeSearch = new MapTilerPlaceSearch(env.maptilerKey);
 
 /** Pre-resolves the posting's place so the review screen can show/edit it. */
 export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<string | null> =>
@@ -120,7 +127,7 @@ export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<s
 // untouched). Tags make "which flow broke" filterable in Sentry (issue #10).
 export const shareMedia = monitored('share_photo', new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storageService, geocoder, deliveryLog));
 export const listFeed = monitored('list_feed', new ListFeedUseCase(mediaRepo));
-export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(mediaRepo));
+export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(mediaRepo, postGalleryRepo));
 export const subscribe = monitored('subscribe', new SubscribeUseCase(subscriberRepo, confirmationSender));
 export const listSubscribers = monitored('list_subscribers', new ListSubscribersUseCase(subscriberRepo));
 export const removeSubscriber = monitored('remove_subscriber', new RemoveSubscriberUseCase(subscriberRepo));
@@ -267,16 +274,38 @@ export const publishApprovalBatch = monitored(
  * candidate_photos rows (+ best-effort Cloudinary asset cleanup). Requires an
  * authenticated session; the server only deletes the caller's own photos.
  */
-export const deleteUploadedPhotos = monitored('delete_uploaded_photos', async (): Promise<{ deletedRows: number }> => {
+export const deleteUploadedPhotos = monitored('delete_uploaded_photos', async (): Promise<{ deletedRows: number }> =>
+  deleteCandidates({}),
+);
+
+/**
+ * Routine retention: drop cloud copies older than `olderThanDays`.
+ *
+ * Same endpoint as the wipe, scoped by age. Nothing outside the lookback window
+ * can be chosen for a post, so keeping those copies served no one — and until
+ * this existed the set only ever grew, which is why the app had to ask the
+ * publisher to clean up after it.
+ */
+export const pruneUploadedPhotos = monitored(
+  'prune_uploaded_photos',
+  async (olderThanDays: number): Promise<{ deletedRows: number }> => deleteCandidates({ olderThanDays }),
+);
+
+async function deleteCandidates(body: { olderThanDays?: number }): Promise<{ deletedRows: number }> {
   const token = (await authService.getSession())?.access_token;
   if (token == null) throw new Error('Not signed in');
   const res = await fetch(`${supabaseUrl}/functions/v1/delete-candidates`, {
     method: 'POST',
-    headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey },
+    headers: {
+      Authorization: `Bearer ${token}`,
+      apikey: supabaseAnonKey,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(body),
   });
   if (!res.ok) throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
   return (await res.json()) as { deletedRows: number };
-});
+}
 
 // ── Infrastructure the UI binds to here, not by reaching across the boundary ──
 //

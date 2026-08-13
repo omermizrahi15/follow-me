@@ -2,49 +2,44 @@ appId: com.urishiber.followme
 name: remove-cloud-photos
 tags:
   - auth
-  # Regression flow for issue #58 — the final assertion encodes the FIXED
-  # behavior and fails today. Remove the quarantine tag (and the matching
-  # exclude in package.json's e2e:ui script) when the fix lands.
-  - quarantine
 ---
-# Auto-posting → "Remove my photos from the cloud" → confirm Delete → the
-# warning link must clear after a successful wipe (it currently stays: #58).
+# Settings → Privacy → "Remove my photos from the cloud" → confirm Delete.
 # Reuses the session from sign-in.
+#
+# The control used to live at the bottom of the auto-posting section, where it
+# read as a step in setting up posting rather than the privacy escape hatch it
+# is — and where it was gated on "does the cloud hold anything", which is what
+# issue #58 was really about. Routine cleanup is now automatic (copies that age
+# out of the window are deleted after every sync), so this is only ever the
+# deliberate "delete everything you hold of mine", and it stays reachable
+# whether or not there is anything to delete.
 - launchApp
 - extendedWaitUntil:
     visible:
       id: "home-settings-button"
     timeout: 15000
 - tapOn:
-    id: "section-nav-auto"
-- assertVisible: "Auto-posting"
-# Expand the sheet to near-full so the bottom of the section is reachable
-# without fighting the 42%-height default.
-- swipe:
-    from:
-      id: "home-sheet-handle"
-    direction: UP
-# The delete link sits at the very bottom, below the category list.
-# Center-screen swipes are safe here: only the ≡ drag handles on the right
-# edge of each category row capture the gesture.
-- scrollUntilVisible:
-    element:
-      id: "auto-remove-cloud-photos"
-    direction: DOWN
-    timeout: 30000
+    id: "home-settings-button"
+- assertVisible: "Privacy"
 - tapOn:
-    id: "auto-remove-cloud-photos"
+    id: "settings-remove-cloud-photos"
 # Native confirm alert ("?" is a regex char in Maestro text matchers — use .*).
 - assertVisible: "Remove your photos from the cloud.*"
 - tapOn: "Delete"
-# Server round-trip (delete-candidates edge function) → success alert.
+# Server round-trip (delete-candidates edge function) → success alert, which
+# states the consequence: upload is off until the publisher turns it back on.
 - extendedWaitUntil:
     visible: "Deleted"
     timeout: 20000
+- assertVisible: ".*Photo upload is now off.*"
 - tapOn: "OK"
-# Expected behavior (issue #58): after a successful wipe the warning link is
-# gone until photos are re-uploaded on the next Save. Today it stays — this
-# is the regression assertion.
-- assertNotVisible: "Remove my photos from the cloud"
+# And the auto-posting section now says so, with the one action that undoes it.
+- tapOn:
+    id: "section-nav-auto"
+- extendedWaitUntil:
+    visible:
+      id: "photo-sync-status-title"
+    timeout: 15000
+- assertVisible: "Photo upload is off"
 - tapOn:
     id: "section-nav-me"
