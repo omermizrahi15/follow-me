@@ -22,6 +22,26 @@ export type ResolvePayload = (candidate: PhotoCandidate) => Promise<PhotoPayload
 const defaultResolve: ResolvePayload = candidate =>
   Promise.resolve({ id: candidate.id, url: candidate.uri });
 
+/**
+ * The AI could not grade a photo, and no grade should be invented for it.
+ *
+ * Distinct from a photo that simply could not be *read* — an iCloud original
+ * that never came down is a property of that one photo, and skipping it costs
+ * one suggestion. This error means the classifier itself is not working, so
+ * every remaining photo would fail the same way. It aborts the scan rather
+ * than letting a half-graded window be presented as a finished post.
+ */
+export class ClassificationFailedError extends Error {
+  constructor(
+    readonly candidateId: string,
+    message: string,
+    override readonly cause?: unknown,
+  ) {
+    super(message);
+    this.name = 'ClassificationFailedError';
+  }
+}
+
 interface RawClassification {
   id: string;
   category: PhotoCategory;
@@ -98,7 +118,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     const total = candidates.length;
     const results: PhotoClassification[] = [];
 
-    return new Promise<PhotoClassification[]>(resolve => {
+    return new Promise<PhotoClassification[]>((resolve, reject) => {
       let nextIdx = 0;
       // Every candidate ends in exactly one `completed++`, so the promise
       // provably settles when completed reaches total (or on early stop).
@@ -112,10 +132,27 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         }
       };
 
+      // A classifier that is erroring will error on every remaining photo, so
+      // the first failure ends the run. Workers already in flight keep running
+      // but their results are dropped by the `settled` guard.
+      const fail = (err: unknown): void => {
+        if (!settled) {
+          settled = true;
+          reject(err);
+        }
+      };
+
       const inFlight = (): number => nextIdx - completed;
 
       const launch = (): void => {
-        while (!settled && inFlight() < GeminiPhotoClassifier.CONCURRENCY && nextIdx < total) {
+        while (
+          !settled &&
+          // Once the day's budget is gone every further request is a wasted
+          // round trip that answers 429 — stop feeding the queue.
+          !this.hitQuota &&
+          inFlight() < GeminiPhotoClassifier.CONCURRENCY &&
+          nextIdx < total
+        ) {
           const candidate = candidates[nextIdx++];
           if (candidate == null) {
             // Impossible for a dense array, but keeps the completed invariant.
@@ -132,12 +169,12 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
               onEach?.(result, results.length, total);
             }
 
-            if ((shouldStop?.() ?? false) || completed >= total) {
+            if ((shouldStop?.() ?? false) || completed >= total || this.hitQuota) {
               finish();
             } else {
               launch();
             }
-          });
+          }, fail);
         }
 
         if (!settled && completed >= total) finish();
@@ -147,11 +184,20 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     });
   }
 
+  /**
+   * Grades one photo.
+   *
+   * Returns null only for the two soft cases — a photo whose bytes could not
+   * be read at all, and a run that has hit the daily quota. Everything else
+   * throws: a classifier that is answering with errors must not be smoothed
+   * over into "this photo isn't very good".
+   */
   private async classifyOne(c: PhotoCandidate): Promise<PhotoClassification | null> {
     let payload: PhotoPayload | null = null;
     try {
       payload = await this.resolve(c);
     } catch {
+      // Unreadable, not a classifier failure — the caller counts it and moves on.
       return null;
     }
     if (payload == null) return null;
@@ -160,9 +206,11 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     const userToken = (await this.getAccessToken?.().catch(() => null)) ?? null;
     const bearer = userToken ?? this.authKey;
 
+    let lastNetworkError: unknown;
     for (let attempt = 1; attempt <= GeminiPhotoClassifier.MAX_ATTEMPTS; attempt++) {
+      let res: Response;
       try {
-        const res = await fetch(this.functionUrl, {
+        res = await fetch(this.functionUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -171,42 +219,64 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           },
           body,
         });
-
-        if (!res.ok) {
-          // 429 is the daily quota, not a per-photo failure: every remaining
-          // photo would fail identically, so record it for the caller instead
-          // of letting a whole backfill quietly come back empty.
-          if (res.status === 429 && !this.hitQuota) {
-            this.hitQuota = true;
-            // Reported once per run, not once per photo: a quota wall trips
-            // every in-flight request, and N identical events per scan would
-            // drown the signal we actually want — how often real publishers
-            // hit the ceiling, which nothing throws and no stack trace shows.
-            this.onQuotaExhausted?.(this.runSize);
-          }
-          console.warn(`classify-photos failed for ${c.id} (${res.status}): ${await res.text()}`);
-          return null;
-        }
-
-        const parsed = (await res.json()) as { classifications?: RawClassification[] };
-        const raw = parsed.classifications?.[0];
-        if (!raw || raw.id !== c.id) return null;
-
-        return {
-          candidate: c,
-          category: raw.category,
-          confidence: raw.confidence,
-          quality: raw.quality,
-          caption: raw.caption,
-          scene: raw.scene ?? '',
-        };
       } catch (err) {
-        // Network-level failure (upload dropped mid-flight) — retry once.
-        if (attempt === GeminiPhotoClassifier.MAX_ATTEMPTS) {
-          console.warn(`classify-photos error for ${c.id}:`, err);
-        }
+        // Network-level failure (upload dropped mid-flight) — retry once, then
+        // give up and let it surface.
+        lastNetworkError = err;
+        continue;
       }
+
+      // 429 is the daily quota, not a broken classifier: the grades already in
+      // hand are real and worth keeping, and the caller reports the wall in its
+      // own words ("today's AI limit ran out after N photos"). Soft on purpose.
+      if (res.status === 429) {
+        if (!this.hitQuota) {
+          this.hitQuota = true;
+          // Reported once per run, not once per photo: a quota wall trips
+          // every in-flight request, and N identical events per scan would
+          // drown the signal we actually want — how often real publishers
+          // hit the ceiling, which nothing throws and no stack trace shows.
+          this.onQuotaExhausted?.(this.runSize);
+        }
+        console.warn(`classify-photos quota reached for ${c.id}`);
+        return null;
+      }
+
+      if (!res.ok) {
+        throw new ClassificationFailedError(
+          c.id,
+          `classify-photos returned ${res.status}: ${await res.text().catch(() => '<unreadable body>')}`,
+        );
+      }
+
+      let parsed: { classifications?: RawClassification[] };
+      try {
+        parsed = (await res.json()) as { classifications?: RawClassification[] };
+      } catch (err) {
+        // A 200 we cannot parse is a broken contract, not a flaky upload — a
+        // retry would just produce the same unusable body.
+        throw new ClassificationFailedError(c.id, 'classify-photos returned an unreadable body', err);
+      }
+
+      const raw = parsed.classifications?.[0];
+      if (!raw || raw.id !== c.id) {
+        throw new ClassificationFailedError(c.id, 'classify-photos returned no grade for this photo');
+      }
+
+      return {
+        candidate: c,
+        category: raw.category,
+        confidence: raw.confidence,
+        quality: raw.quality,
+        caption: raw.caption,
+        scene: raw.scene ?? '',
+      };
     }
-    return null;
+
+    throw new ClassificationFailedError(
+      c.id,
+      `classify-photos unreachable after ${GeminiPhotoClassifier.MAX_ATTEMPTS} attempts`,
+      lastNetworkError,
+    );
   }
 }

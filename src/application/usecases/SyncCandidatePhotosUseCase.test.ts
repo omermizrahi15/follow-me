@@ -3,11 +3,18 @@ import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import {
   FakeMediaLibrary,
   FakeStorageService,
+  FakeSentPhotoTracker,
   InMemoryCandidatePhotoRepository,
 } from '../../test-support/fakes';
 
+// Inside the window the sync now asks for, which is anchored to the clock (see
+// `windowStartMs`) rather than being whatever the fake was seeded with.
 function candidate(id: string): PhotoCandidate {
-  return { id, uri: `file:///photos/${id}.jpg`, createdAt: new Date('2026-06-01T00:00:00Z') };
+  return {
+    id,
+    uri: `file:///photos/${id}.jpg`,
+    createdAt: new Date(Date.now() - 24 * 60 * 60 * 1000),
+  };
 }
 
 function makeSut(photos: PhotoCandidate[]): {
@@ -38,7 +45,29 @@ describe('SyncCandidatePhotosUseCase', () => {
   it('scans using the configured lookback window', async () => {
     const { useCase, library } = makeSut([candidate('a')]);
     await useCase.execute('pub-1', 14);
-    expect(library.lastLookbackDays).toBe(14);
+    const start = library.requestedWindows[0]!.start.getTime();
+    expect(Math.round((Date.now() - start) / (24 * 60 * 60 * 1000))).toBe(14);
+  });
+
+  it('reaches back to the last post, so the cloud covers what the phone offers', async () => {
+    // The suggestion scan already extends its window for an overdue publisher.
+    // While this one did not, the phone showed those photos and the server's
+    // autonomous post could not see them.
+    const library = new FakeMediaLibrary([candidate('a')]);
+    const nineDaysAgo = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000);
+    const useCase = new SyncCandidatePhotosUseCase(
+      library,
+      new FakeStorageService(),
+      new InMemoryCandidatePhotoRepository(),
+      undefined,
+      undefined,
+      new FakeSentPhotoTracker(new Set(), nineDaysAgo),
+    );
+
+    await useCase.execute('pub-1', 7);
+
+    const start = library.requestedWindows[0]!.start.getTime();
+    expect(Math.round((Date.now() - start) / (24 * 60 * 60 * 1000))).toBe(9);
   });
 
   it('skips photos already synced (no re-upload)', async () => {
@@ -144,7 +173,7 @@ describe('SyncCandidatePhotosUseCase', () => {
   });
 
   it('resolves the upload uri (e.g. ph:// → file://) before uploading', async () => {
-    const library = new FakeMediaLibrary([{ id: 'a', uri: 'ph://a', createdAt: new Date() }]);
+    const library = new FakeMediaLibrary([{ id: 'a', uri: 'ph://a', createdAt: candidate('a').createdAt }]);
     const storage = new FakeStorageService();
     const repo = new InMemoryCandidatePhotoRepository();
     const useCase = new SyncCandidatePhotosUseCase(library, storage, repo, candidate =>
@@ -173,7 +202,7 @@ describe('SyncCandidatePhotosUseCase', () => {
 
   it('prefers a location already on the candidate over the resolver', async () => {
     const preset = { latitude: 48.85, longitude: 2.35 };
-    const library = new FakeMediaLibrary([{ id: 'a', uri: 'file:///a.jpg', createdAt: new Date(), location: preset }]);
+    const library = new FakeMediaLibrary([{ id: 'a', uri: 'file:///a.jpg', createdAt: candidate('a').createdAt, location: preset }]);
     const storage = new FakeStorageService();
     const repo = new InMemoryCandidatePhotoRepository();
     const resolveLocation = jest.fn().mockResolvedValue({ latitude: 0, longitude: 0 });

@@ -161,6 +161,25 @@ async function callGemini(body: string): Promise<Response> {
   return fetch(url, request);
 }
 
+/**
+ * A photo the model could not grade.
+ *
+ * Carries the upstream status so the handler can tell a spent Gemini quota —
+ * nothing will work again today — from a broken call that is worth retrying
+ * now. Flattening both into one opaque failure is what made "no more photos"
+ * unexplainable.
+ */
+class ClassifyError extends Error {
+  constructor(
+    readonly photoId: string,
+    message: string,
+    readonly upstreamStatus?: number,
+  ) {
+    super(message);
+    this.name = 'ClassifyError';
+  }
+}
+
 async function classifyOne(photo: PhotoInput): Promise<Classification> {
   const { data, mimeType } = await resolveImage(photo);
 
@@ -176,7 +195,7 @@ async function classifyOne(photo: PhotoInput): Promise<Classification> {
   );
 
   if (!res.ok) {
-    throw new Error(`Gemini error (${res.status}): ${await res.text()}`);
+    throw new ClassifyError(photo.id, `Gemini error (${res.status}): ${await res.text()}`, res.status);
   }
 
   const payload = await res.json();
@@ -184,7 +203,7 @@ async function classifyOne(photo: PhotoInput): Promise<Classification> {
   if (typeof text !== 'string') {
     // Log the shape so an API format change is diagnosable from function logs.
     console.error('Gemini returned no content; payload shape:', JSON.stringify(payload)?.slice(0, 500));
-    throw new Error('Gemini returned no content');
+    throw new ClassifyError(photo.id, 'Gemini returned no content');
   }
   return parseClassification(photo.id, JSON.parse(text));
 }
@@ -223,14 +242,35 @@ Deno.serve(async (req: Request) => {
 
   // Classify sequentially (called one photo at a time by the app) so a single
   // large batch never hits worker memory limits.
+  //
+  // A photo the model could not grade is an error, never a guess. This loop
+  // used to swallow the failure and answer 200 with a synthetic
+  // `other`/quality-0 grade, which is the worst possible shape: the app cached
+  // the fake grade for months, `other` is excluded from the swap pool, and the
+  // scan still reported "N of N analysed" — so one bad afternoon quietly cost
+  // the publisher those photos forever, with nothing anywhere saying why.
+  // Failing the request is the honest answer: the client surfaces it and
+  // remembers nothing.
   const classifications: Classification[] = [];
-  for (const photo of photos) {
-    try {
+  try {
+    for (const photo of photos) {
       classifications.push(await classifyOne(photo));
-    } catch (err) {
-      console.error(`classify ${photo.id} failed:`, err);
-      classifications.push({ id: photo.id, category: 'other', confidence: 0, quality: 0, caption: '', scene: '' });
     }
+  } catch (err) {
+    const failure = err instanceof ClassifyError ? err : null;
+    console.error('classify failed:', err);
+    // A spent upstream quota is not a malformed request: report it as 429 so
+    // the app stops the scan and says "try again tomorrow", rather than
+    // presenting it as a transient fault worth hammering.
+    const status = failure?.upstreamStatus === 429 ? 429 : 502;
+    return json(
+      {
+        error: 'Classification failed',
+        photo_id: failure?.photoId ?? null,
+        detail: failure?.message ?? String(err),
+      },
+      status,
+    );
   }
 
   return json({ classifications });

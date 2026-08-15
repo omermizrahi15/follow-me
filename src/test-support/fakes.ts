@@ -481,9 +481,16 @@ export class FakePhotoClassifier implements IPhotoClassifier {
 }
 
 export class FakeSentPhotoTracker implements ISentPhotoTracker {
-  constructor(private readonly ids: Set<string> = new Set()) {}
+  constructor(
+    private readonly ids: Set<string> = new Set(),
+    /** Null (the default) means "never posted", so the window is the plain lookback. */
+    private readonly newestPosted: Date | null = null,
+  ) {}
   sentCandidateIds(): Promise<Set<string>> {
     return Promise.resolve(this.ids);
+  }
+  newestPostedPhotoAt(): Promise<Date | null> {
+    return Promise.resolve(this.newestPosted);
   }
 }
 

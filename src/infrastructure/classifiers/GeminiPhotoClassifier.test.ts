@@ -1,12 +1,16 @@
-import { GeminiPhotoClassifier } from './GeminiPhotoClassifier';
+import { ClassificationFailedError, GeminiPhotoClassifier } from './GeminiPhotoClassifier';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 /** Stands in for the monitoring hook the composition root injects. */
 const reportedQuota = jest.fn();
 
 /**
- * Concurrency/finish-condition tests: whatever mix of fast, slow, and failing
- * responses the network produces, classify() must always resolve — and stop
- * early when asked to.
+ * Concurrency/finish-condition tests: whatever mix of fast and slow responses
+ * the network produces, classify() must settle — resolving with the batch, or
+ * rejecting the moment the classifier itself fails — and stop early when asked.
+ *
+ * "Settles" replaced "always resolves" deliberately. Resolving with a short
+ * batch made a dead classifier indistinguishable from a thin photo library,
+ * and the app then cached the shortfall as fact.
  */
 
 const mockFetch = jest.fn();
@@ -56,7 +60,7 @@ function respondQuotaExhausted(): void {
   });
 }
 
-describe('GeminiPhotoClassifier.classify — always resolves', () => {
+describe('GeminiPhotoClassifier.classify — settles', () => {
   it('resolves with all results for a batch larger than the concurrency window', async () => {
     respondWithDelay(() => 1);
     const candidates = Array.from({ length: 15 }, (_, i) => candidate(`p${i}`));
@@ -71,25 +75,60 @@ describe('GeminiPhotoClassifier.classify — always resolves', () => {
     expect(results).toHaveLength(8);
   });
 
-  it('resolves even when every request fails', async () => {
+  it('rejects rather than resolving empty when every request fails', async () => {
+    // The old contract resolved with []. That is what let a dead classifier
+    // reach the publisher as "no photos worth posting" — a claim about their
+    // library that nothing had established.
     mockFetch.mockRejectedValue(new Error('network down'));
-    const consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
     const candidates = Array.from({ length: 5 }, (_, i) => candidate(`p${i}`));
-    const results = await makeSut().classify(candidates);
-    expect(results).toHaveLength(0);
-    consoleWarn.mockRestore();
+    await expect(makeSut().classify(candidates)).rejects.toThrow(ClassificationFailedError);
   });
 
-  it('resolves with partial results when some requests fail', async () => {
+  it('rejects on the first failure rather than returning a partial batch', async () => {
+    // A half-graded window presented as a finished post is indistinguishable
+    // from a real one, so the run aborts instead of quietly shrinking.
     mockFetch.mockImplementation((_url: string, init: { body: string }) => {
       const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
       if (id === 'p1' || id === 'p3') return Promise.reject(new Error('boom'));
       return Promise.resolve(okResponse(id));
     });
-    const consoleWarn = jest.spyOn(console, 'warn').mockImplementation(() => undefined);
-    const results = await makeSut().classify([candidate('p0'), candidate('p1'), candidate('p2'), candidate('p3')]);
+    await expect(
+      makeSut().classify([candidate('p0'), candidate('p1'), candidate('p2'), candidate('p3')]),
+    ).rejects.toThrow(ClassificationFailedError);
+  });
+
+  it('reports the results it did obtain before the failure, via onEach', async () => {
+    // The grades bought before the abort are real; the use case persists them
+    // from `onEach` so a retry does not pay for them twice.
+    mockFetch.mockImplementation((_url: string, init: { body: string }) => {
+      const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
+      if (id === 'p3') return Promise.reject(new Error('boom'));
+      return Promise.resolve(okResponse(id));
+    });
+    const seen: string[] = [];
+    await expect(
+      makeSut().classify(
+        [candidate('p0'), candidate('p1'), candidate('p2'), candidate('p3')],
+        r => { seen.push(r.candidate.id); },
+      ),
+    ).rejects.toThrow(ClassificationFailedError);
+    expect(seen).toContain('p0');
+  });
+
+  it('skips an unreadable photo without failing the run', async () => {
+    // A photo whose bytes never arrive (iCloud original still in the cloud) is
+    // a property of that one photo — it costs a suggestion, not the scan.
+    mockFetch.mockImplementation((_url: string, init: { body: string }) => {
+      const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
+      return Promise.resolve(okResponse(id));
+    });
+    const classifier = new GeminiPhotoClassifier(
+      'https://fn.test/classify',
+      'anon-key',
+      c => Promise.resolve(c.id === 'p1' ? null : { id: c.id, url: c.uri }),
+    );
+    const results = await classifier.classify([candidate('p0'), candidate('p1'), candidate('p2')]);
     expect(results.map(r => r.candidate.id).sort()).toEqual(['p0', 'p2']);
-    consoleWarn.mockRestore();
   });
 
   it('stops early when shouldStop returns true, resolving with the partial batch', async () => {
@@ -157,11 +196,15 @@ describe('GeminiPhotoClassifier — daily quota (issue #81)', () => {
     expect(sut.quotaExhausted()).toBe(false);
   });
 
-  it('does not report or flag for ordinary per-photo failures', async () => {
+  it('does not report or flag the quota for an ordinary server failure', async () => {
+    // A 500 is a broken classifier, not a spent budget: it must abort the run
+    // loudly, and must not be filed as "you have used up today's AI".
     mockFetch.mockResolvedValue({ ok: false, status: 500, text: () => Promise.resolve('boom') });
     const sut = makeSut();
 
-    await sut.classify([candidate('p1'), candidate('p2')]);
+    await expect(sut.classify([candidate('p1'), candidate('p2')])).rejects.toThrow(
+      ClassificationFailedError,
+    );
 
     expect(sut.quotaExhausted()).toBe(false);
     expect(reportedQuota).not.toHaveBeenCalled();

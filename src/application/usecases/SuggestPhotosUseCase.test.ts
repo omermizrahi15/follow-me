@@ -8,12 +8,22 @@ import {
   FakeSentPhotoTracker,
 } from '../../test-support/fakes';
 
-// Give candidates distinct timestamps (1 day apart) so temporal dedup in
-// PhotoSelectionService doesn't treat them as the same event.
+// Candidates must land inside the window the use case actually asks for, which
+// is now anchored to the clock (see `liveWindow`) rather than being whatever
+// the fake was seeded with. Six days back with a 30-minute step keeps hundreds
+// of them inside a weekly lookback while staying far apart enough that burst
+// dedup treats each as its own event, and ascending order means a higher index
+// is a newer photo — which is what the newest-first tests assert on.
+const WINDOW_ANCHOR_MS = 6 * 24 * 60 * 60 * 1000;
+const CANDIDATE_STEP_MS = 30 * 60 * 1000;
 let candidateSeq = 0;
 function candidate(id: string): PhotoCandidate {
-  const day = candidateSeq++;
-  return { id, uri: `https://cdn.test/${id}.jpg`, createdAt: new Date(Date.UTC(2026, 5, 1 + day)) };
+  const step = candidateSeq++;
+  return {
+    id,
+    uri: `https://cdn.test/${id}.jpg`,
+    createdAt: new Date(Date.now() - WINDOW_ANCHOR_MS + step * CANDIDATE_STEP_MS),
+  };
 }
 
 beforeEach(() => { candidateSeq = 0; });
@@ -39,8 +49,32 @@ function config(): PublisherConfig {
   });
 }
 
+/**
+ * A config with only `nature` on, so `food` stands in for "the publisher does
+ * not want this".
+ *
+ * The top-up tests used to express that with the `other` category. They can't
+ * any more: `other` is offerable now (it just ranks last), because hiding it
+ * was what made the swap list claim a library was empty when it wasn't. A
+ * switched-off category is the one thing genuinely never offered.
+ */
+function natureOnlyConfig(): PublisherConfig {
+  return PublisherConfig.create({
+    publisherId: 'pub-1',
+    frequency: 'weekly',
+    photosPerPost: 5,
+    requireApproval: true,
+    enabledCategories: ['nature'],
+  });
+}
+
 describe('SuggestPhotosUseCase', () => {
-  it('scans the library using the configured lookback window', async () => {
+  /** Days between `d` and now, rounded — windows are asserted in whole days. */
+  function daysAgo(d: Date): number {
+    return Math.round((Date.now() - d.getTime()) / (24 * 60 * 60 * 1000));
+  }
+
+  it('scans the configured lookback when the publisher has never posted', async () => {
     const library = new FakeMediaLibrary([candidate('a')]);
     const useCase = new SuggestPhotosUseCase(
       library,
@@ -50,7 +84,54 @@ describe('SuggestPhotosUseCase', () => {
 
     await useCase.execute(config());
 
-    expect(library.lastLookbackDays).toBe(7);
+    expect(daysAgo(library.requestedWindows[0]!.start)).toBe(7);
+  });
+
+  it('reaches back to the last post when the publisher is overdue', async () => {
+    // Weekly cadence, but they last posted nine days ago — the reminder went
+    // unanswered for two days. Anchoring to now would have quietly dropped
+    // exactly the two days the reminder was about.
+    const library = new FakeMediaLibrary([candidate('a')]);
+    const nineDaysAgo = new Date(Date.now() - 9 * 24 * 60 * 60 * 1000);
+    const useCase = new SuggestPhotosUseCase(
+      library,
+      new FakePhotoClassifier(new Map([['a', classification('a')]])),
+      new FakeSentPhotoTracker(new Set(), nineDaysAgo),
+    );
+
+    await useCase.execute(config());
+
+    expect(daysAgo(library.requestedWindows[0]!.start)).toBe(9);
+  });
+
+  it('never shrinks the window below the configured lookback', async () => {
+    // Posted this morning. The lookback is a floor, not a ceiling: photos from
+    // earlier in the week that simply weren't chosen must stay offerable.
+    const library = new FakeMediaLibrary([candidate('a')]);
+    const today = new Date(Date.now() - 60 * 60 * 1000);
+    const useCase = new SuggestPhotosUseCase(
+      library,
+      new FakePhotoClassifier(new Map([['a', classification('a')]])),
+      new FakeSentPhotoTracker(new Set(), today),
+    );
+
+    await useCase.execute(config());
+
+    expect(daysAgo(library.requestedWindows[0]!.start)).toBe(7);
+  });
+
+  it('clamps a long absence so it cannot open an unbounded scan', async () => {
+    const library = new FakeMediaLibrary([candidate('a')]);
+    const lastYear = new Date(Date.now() - 365 * 24 * 60 * 60 * 1000);
+    const useCase = new SuggestPhotosUseCase(
+      library,
+      new FakePhotoClassifier(new Map([['a', classification('a')]])),
+      new FakeSentPhotoTracker(new Set(), lastYear),
+    );
+
+    await useCase.execute(config());
+
+    expect(daysAgo(library.requestedWindows[0]!.start)).toBe(60);
   });
 
   it('short-circuits without classifying when the library is empty', async () => {
@@ -240,7 +321,9 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       // Newest first, matching the scan — whatever the "+" hands over next
       // should come from the recent end of the window.
       expect(pending.map(c => c.id)).toEqual(['c', 'b']);
-      expect(library.lastLookbackDays).toBe(7);
+      // Same window the scan uses, so the "+" can never draw from a different
+      // stretch than the post it is adding to.
+      expect(Math.round((Date.now() - library.requestedWindows[0]!.start.getTime()) / 86400000)).toBe(7);
     });
 
     it('never re-offers a photo that has already been published', async () => {
@@ -252,8 +335,13 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       expect(pending.map(c => c.id)).toEqual(['a']);
     });
 
-    it('collapses bursts, so the top-up cannot offer the near-duplicates the scan skipped', async () => {
-      const moment = new Date(Date.UTC(2026, 5, 1, 12, 0, 0));
+    it('offers a burst follower last rather than never', async () => {
+      // This used to assert the opposite — that the second frame was collapsed
+      // away and could not be offered at all. That was the bug: the scan and
+      // this queue ran the same discarding rule, so a photo dropped once was
+      // unreachable by the "+", by a swap, and by a rescan alike. It is ordered
+      // behind the burst leader now, not deleted.
+      const moment = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
       const library = new FakeMediaLibrary([
         { id: 'a', uri: 'https://cdn.test/a.jpg', createdAt: moment },
         { id: 'a-burst', uri: 'https://cdn.test/a-burst.jpg', createdAt: new Date(moment.getTime() + 1_000) },
@@ -262,7 +350,7 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
 
       const pending = await useCase.pendingCandidates(config());
 
-      expect(pending.map(c => c.id)).toEqual(['a']);
+      expect(pending.map(c => c.id)).toEqual(['a', 'a-burst']);
     });
 
     /**
@@ -315,12 +403,12 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
     });
 
     it('keeps looking past photos the AI would not suggest', async () => {
-      const junk = wave('junk', 4, 'other');
+      const junk = wave('junk', 4, 'food');
       const good = wave('good', 4, 'nature');
       const classifier = new FakePhotoClassifier(new Map([...junk.byId, ...good.byId]));
       const useCase = useCaseWith(new FakeMediaLibrary(), classifier);
 
-      const result = await useCase.classifyMore([...junk.candidates, ...good.candidates], config());
+      const result = await useCase.classifyMore([...junk.candidates, ...good.candidates], natureOnlyConfig());
 
       expect(result.consumed).toBe(8);
       expect(result.suggestions.map(c => c.candidate.id)).toEqual(good.candidates.map(c => c.id));
@@ -343,10 +431,10 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
     });
 
     it('reports the window as spent when it runs out of candidates', async () => {
-      const junk = wave('junk', 3, 'other');
+      const junk = wave('junk', 3, 'food');
       const useCase = useCaseWith(new FakeMediaLibrary(), new FakePhotoClassifier(junk.byId));
 
-      const result = await useCase.classifyMore(junk.candidates, config());
+      const result = await useCase.classifyMore(junk.candidates, natureOnlyConfig());
 
       expect(result.consumed).toBe(3);
       expect(result.suggestions).toEqual([]);
@@ -382,11 +470,11 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       // for all of them — on an iCloud library that is a 15-second fetch each,
       // which is how a single press took minutes and then reported the window
       // spent.
-      const junk = wave('junk', 100, 'other');
+      const junk = wave('junk', 100, 'food');
       const classifier = new FakePhotoClassifier(junk.byId);
       const useCase = useCaseWith(new FakeMediaLibrary(), classifier);
 
-      const result = await useCase.classifyMore(junk.candidates, config());
+      const result = await useCase.classifyMore(junk.candidates, natureOnlyConfig());
 
       expect(result.consumed).toBe(12); // 3 waves of 4, not 100
       expect(classifier.callCount).toBe(3);
@@ -395,10 +483,10 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
     });
 
     it('does not call a genuinely spent window capped', async () => {
-      const junk = wave('junk', 3, 'other');
+      const junk = wave('junk', 3, 'food');
       const useCase = useCaseWith(new FakeMediaLibrary(), new FakePhotoClassifier(junk.byId));
 
-      const result = await useCase.classifyMore(junk.candidates, config());
+      const result = await useCase.classifyMore(junk.candidates, natureOnlyConfig());
 
       expect(result.consumed).toBe(3);
       expect(result.cappedEarly).toBe(false);
