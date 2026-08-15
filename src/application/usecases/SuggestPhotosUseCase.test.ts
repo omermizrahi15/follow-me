@@ -369,9 +369,9 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       const pending = await useCase.pendingCandidates(config(), new Set(), window);
 
       expect(pending.map(c => c.id)).toEqual(['june']);
+      // Exactly the stretch it was handed, and nothing else — the lookback is a
+      // different part of the trip entirely.
       expect(library.requestedWindows).toEqual([window]);
-      // Never the lookback: that is a different stretch of the trip entirely.
-      expect(library.lastLookbackDays).toBeNull();
     });
   });
 

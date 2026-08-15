@@ -28,12 +28,14 @@ export interface IPhotoClassifier {
 
 /** Reads photos from the device library within a date window. */
 export interface IMediaLibrary {
-  /** Photos created within the last `lookbackDays`, newest first. */
-  recentPhotos(lookbackDays: number): Promise<PhotoCandidate[]>;
   /**
-   * Photos created in `[start, end)`, newest first. The history backfill walks
-   * arbitrary past windows (issue #81), which `recentPhotos` — always anchored
-   * to now — can't express.
+   * Photos created in `[start, end)`, newest first.
+   *
+   * The only reader. A `recentPhotos(lookbackDays)` convenience used to sit
+   * alongside it, but every caller now computes its own window — the scan and
+   * the sync both start from the last post when the publisher is overdue, which
+   * a now-anchored helper cannot express. Leaving it declared would have been
+   * one more method that looks load-bearing and is read by nothing.
    */
   photosBetween(start: Date, end: Date): Promise<PhotoCandidate[]>;
 }
