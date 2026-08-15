@@ -1,9 +1,9 @@
-import { assert, assertEquals } from '@std/assert';
+import { assert, assertEquals, assertThrows } from '@std/assert';
 import {
+  asCategory,
   bytesToBase64,
   clamp01,
   classifyCaller,
-  normalizeCategory,
   parseClassification,
 } from './logic.ts';
 
@@ -17,12 +17,14 @@ Deno.test('clamp01 — clamps to [0,1] and defaults non-finite input to 0', () =
   assertEquals(clamp01(NaN), 0);
 });
 
-Deno.test('normalizeCategory — passes known categories through, maps unknowns to other', () => {
-  assertEquals(normalizeCategory('food'), 'food');
-  assertEquals(normalizeCategory('sunset_sunrise'), 'sunset_sunrise');
-  assertEquals(normalizeCategory('banana'), 'other');
-  assertEquals(normalizeCategory(42), 'other');
-  assertEquals(normalizeCategory(null), 'other');
+Deno.test('asCategory — passes known categories through, rejects anything else', () => {
+  assertEquals(asCategory('food'), 'food');
+  assertEquals(asCategory('sunset_sunrise'), 'sunset_sunrise');
+  // 'other' is a real answer the model gives on purpose, not a fallback.
+  assertEquals(asCategory('other'), 'other');
+  assertEquals(asCategory('banana'), null);
+  assertEquals(asCategory(42), null);
+  assertEquals(asCategory(null), null);
 });
 
 Deno.test('bytesToBase64 — round-trips through atob', () => {
@@ -55,9 +57,21 @@ Deno.test('parseClassification — normalizes a well-formed model response', () 
   });
 });
 
-Deno.test('parseClassification — defends against junk/missing fields', () => {
-  const c = parseClassification('id2', { category: 'weird', confidence: 5, quality: 'x', caption: 123 });
+Deno.test('parseClassification — defaults junk scores and text, keeping the stated category', () => {
+  const c = parseClassification('id2', { category: 'other', confidence: 5, quality: 'x', caption: 123 });
   assertEquals(c, { id: 'id2', category: 'other', confidence: 1, quality: 0, caption: '', scene: '' });
+});
+
+Deno.test('parseClassification — throws on an unknown category rather than inventing other', () => {
+  // A fabricated `other` is indistinguishable from a real one on the device,
+  // is excluded from the swap pool, and is cached for months — so a broken
+  // model contract has to fail loudly here instead of being smoothed over.
+  assertThrows(
+    () => parseClassification('id3', { category: 'weird', confidence: 0.5, quality: 0.5 }),
+    Error,
+    'unknown category',
+  );
+  assertThrows(() => parseClassification('id4', {}), Error, 'unknown category');
 });
 
 const SERVICE_KEY = 'service-role-key';

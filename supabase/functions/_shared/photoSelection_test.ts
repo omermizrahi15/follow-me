@@ -47,7 +47,7 @@ Deno.test('selectBatch — returns the caller\'s own row objects, not copies', (
   assert(selected === rows[0]);
 });
 
-Deno.test('selectBatch — round-robins categories, best quality first', () => {
+Deno.test('selectBatch — ranks by grade, with category priority as the tilt', () => {
   const rows = [
     row('f1', 'food', 0.99, 1),
     row('f2', 'food', 0.80, 2),
@@ -56,7 +56,11 @@ Deno.test('selectBatch — round-robins categories, best quality first', () => {
   ];
   const ids = selectBatch(rows, facts, { enabledCategories: ['food', 'nature'], photosPerPost: 4 }, new Set())
     .map(r => r.assetId);
-  assertEquals(ids, ['f1', 'n1', 'f2', 'n2']);
+  // food leads the priority order, so it carries the full weight; nature is
+  // scaled by LAST_WEIGHT. The order is score-descending throughout — the old
+  // round-robin would have interleaved these as f1, n1, f2, n2 regardless of
+  // how far apart the grades were.
+  assertEquals(ids, ['f1', 'f2', 'n1', 'n2']);
 });
 
 Deno.test('selectBatch — skips disabled categories and already-sent photos', () => {

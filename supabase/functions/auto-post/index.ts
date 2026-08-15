@@ -446,6 +446,10 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
     {
       enabledCategories: config.enabled_categories,
       photosPerPost: config.photos_per_post,
+      // The publisher's quality floor. Passed here too so the autonomous post
+      // and the one they'd have built by hand agree — the column has existed
+      // all along and neither runtime was reading it.
+      minQuality: config.min_quality,
     },
     alreadySent,
   );
@@ -550,6 +554,10 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     {
       enabledCategories: config.enabled_categories,
       photosPerPost: config.photos_per_post,
+      // The publisher's quality floor. Passed here too so the autonomous post
+      // and the one they'd have built by hand agree — the column has existed
+      // all along and neither runtime was reading it.
+      minQuality: config.min_quality,
     },
     alreadySent,
   );

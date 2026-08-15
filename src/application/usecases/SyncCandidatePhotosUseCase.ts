@@ -3,10 +3,12 @@ import type {
   IMediaLibrary,
   IStorageService,
   ICandidatePhotoRepository,
+  ISentPhotoTracker,
   ResolveLocalUri,
   ResolveAssetLocation,
 } from '../../domain/interfaces';
 import { mapInBatches, PHOTO_UPLOAD_BATCH_SIZE } from '../services/mapInBatches';
+import { windowStartMs } from '../../domain/services/suggestionWindow';
 
 const identityResolve: ResolveLocalUri = candidate => Promise.resolve(candidate.uri);
 /** Default: no GPS lookup (unit tests / environments without a media library). */
@@ -37,6 +39,12 @@ export class SyncCandidatePhotosUseCase {
     private readonly candidateRepo: ICandidatePhotoRepository,
     private readonly resolveLocalUri: ResolveLocalUri = identityResolve,
     private readonly resolveLocation: ResolveAssetLocation = noLocation,
+    /**
+     * Supplies the last-post anchor so the uploaded set covers the same stretch
+     * the on-device suggestion does. Optional: without it the sync falls back to
+     * the plain lookback, which is what it always did.
+     */
+    private readonly sentTracker?: ISentPhotoTracker,
   ) {}
 
   /**
@@ -58,7 +66,18 @@ export class SyncCandidatePhotosUseCase {
     shouldStop?: () => Promise<boolean>,
     onProgress?: (uploaded: number, total: number) => void,
   ): Promise<CandidatePhoto[]> {
-    const candidates = await this.mediaLibrary.recentPhotos(lookbackDays);
+    // The same stretch the suggestion scan reads, so an overdue publisher's
+    // extra days exist in the cloud too. While this was a plain now-anchored
+    // lookback, the phone offered those photos and the server's autonomous post
+    // could not see them — the same bug, fixed on only one side.
+    const now = Date.now();
+    const newestPosted = await this.sentTracker?.newestPostedPhotoAt(publisherId);
+    const start = windowStartMs({
+      now,
+      lookbackDays,
+      newestPostedPhotoAt: newestPosted?.getTime() ?? null,
+    });
+    const candidates = await this.mediaLibrary.photosBetween(new Date(start), new Date(now));
     const existing = await this.candidateRepo.existingAssetIds(publisherId);
     const fresh = candidates.filter(c => !existing.has(c.id));
     // Reported even when there is nothing to do, so the caller can distinguish

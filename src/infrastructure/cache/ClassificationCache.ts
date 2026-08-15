@@ -19,7 +19,19 @@ interface StoredGrade {
 
 type Store = Record<string, StoredGrade>;
 
-const STORAGE_KEY = 'photo_grades:v1';
+/**
+ * Bumped to v2 to abandon the v1 blob wholesale.
+ *
+ * Until the classify function stopped inventing grades, every failed call was
+ * remembered here as a real `other`/quality-0 verdict. Those entries are
+ * indistinguishable from genuine ones, they are excluded from the swap pool,
+ * and the 120-day TTL means a single bad afternoon retired those photos until
+ * well into the next season — no rescan would ever look at them again, because
+ * a remembered grade is never re-bought. A new key is the only way to let them
+ * be graded again; the cost is one re-grade of the genuinely-graded photos,
+ * which is exactly what the old key was silently charging anyway.
+ */
+const STORAGE_KEY = 'photo_grades:v2';
 
 /**
  * Grades older than this are dropped. Long enough to cover the widest posting
