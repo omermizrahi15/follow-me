@@ -41,9 +41,11 @@ export const colors = {
   /** Unselected icon on the floating glass nav — the ink, dialled back so the
    *  selected tab is the only thing with full contrast. */
   navIdle: '#6B7F8C',
-  /** Pill behind the selected nav icon. A tint of the accent, deep enough to
-   *  hold its shape against the bar's frosted white. */
-  navPill: '#D9E7EF',
+  /** Halo behind the selected nav tab (its icon and caption together). Neutral
+   *  grey rather than a tint of the accent: the blue tint competed with the
+   *  accent-coloured icon sitting on top of it. Deep enough to hold its shape
+   *  against the bar's frosted white. */
+  navPill: '#DCDFE3',
   /** Frosted floating-bar surface (slightly translucent cool white). */
   frosted: 'rgba(244,247,250,0.92)',
 
