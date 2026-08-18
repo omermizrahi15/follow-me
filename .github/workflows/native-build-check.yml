@@ -51,7 +51,9 @@ jobs:
       - if: env.EXPO_TOKEN != ''
         uses: expo/expo-github-action@v8
         with:
-          eas-version: latest
+          # Pinned to a major for the same reason as deploy-app.yml: this runs
+          # the same script, and a silent major bump made it misread every build.
+          eas-version: ^22.0.0
           token: ${{ secrets.EXPO_TOKEN }}
       - name: Will the post-merge OTA reach a device?
         # Skipped without EXPO_TOKEN — the offline heuristic above already
