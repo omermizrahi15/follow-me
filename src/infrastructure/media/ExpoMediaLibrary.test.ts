@@ -241,17 +241,3 @@ describe('ExpoMediaLibrary.photosBetween — window boundaries', () => {
   });
 });
 
-describe('ExpoMediaLibrary.recentPhotos', () => {
-  beforeEach(givenLibrary);
-
-  it('is the now-anchored case of photosBetween', async () => {
-    const before = Date.now();
-    await new ExpoMediaLibrary().recentPhotos(7);
-
-    const [{ createdAfter, createdBefore }] = getAssetsAsync.mock.calls[0] as [
-      { createdAfter: number; createdBefore: number },
-    ];
-    expect(createdBefore).toBeGreaterThanOrEqual(before);
-    expect(createdBefore - createdAfter).toBe(7 * 24 * 60 * 60 * 1000);
-  });
-});

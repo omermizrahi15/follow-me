@@ -23,7 +23,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { postingIdFor, publishBatch, twilioFromEnv, type PublishablePhoto } from '../_shared/publishBatch.ts';
 import { resolveBatchPlace } from '../_shared/geocode.ts';
-import type { Coordinate } from '../_shared/postingLocation.ts';
+import type { Coordinate } from '../../../src/domain/services/postingLocation.ts';
 import { postedPushContent, postFailedPushContent, publishablePhotos } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';

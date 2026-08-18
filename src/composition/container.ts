@@ -111,6 +111,13 @@ const notificationScheduler = new ExpoNotificationScheduler();
 // to read every column of every photo the publisher had ever posted (#116).
 const sentPhotoTracker: ISentPhotoTracker = {
   sentCandidateIds: publisherId => mediaRepo.postedAssetIds(publisherId),
+  // The newest photo they have already posted. Deleted postings still count:
+  // the publisher saw those photos and chose them once, so re-offering them as
+  // "new since your last post" would be a worse surprise than missing them.
+  //
+  // One row answers it: the store returns an owner's media newest first.
+  newestPostedPhotoAt: async publisherId =>
+    (await mediaRepo.findByOwner(publisherId, { limit: 1 }))[0]?.createdAt ?? null,
 };
 // Names the posting's place ("Lisbon, Portugal") from the batch's EXIF GPS.
 const geocoder = new BigDataCloudGeocoder();
@@ -159,6 +166,7 @@ export const syncCandidatePhotos = monitored('sync_candidate_photos', new SyncCa
   candidateRepo,
   expoResolveLocalUri,
   expoResolveAssetLocation,
+  sentPhotoTracker,
 ));
 /**
  * Tells the server's posting job what this device's photo sync is doing
@@ -201,22 +209,15 @@ export const scheduleTestNotification = (
  */
 export const saveTestApprovalBatch = async (
   publisherId: string,
-  photos: { id: string; url: string }[],
+  batch: CachedPhoto[],
+  pool: CachedPhoto[] = [],
 ): Promise<string> => {
   const batchId = `dev-${publisherId}-${Date.now().toString(36)}`;
-  await approvalBatchRepo.save(
-    batchId,
-    publisherId,
-    photos.map(p => ({
-      id: p.id,
-      url: p.url,
-      category: 'other' as const,
-      caption: '',
-      quality: 0,
-      scene: '',
-      createdAt: Date.now(),
-    })),
-  );
+  // The real grades, not stand-ins. This used to stamp every photo
+  // `category: 'other', quality: 0, caption: '', scene: ''` — the exact shape a
+  // failed classification used to produce — so a batch opened from a test push
+  // was indistinguishable from a broken one, and ranked bottom-first.
+  await approvalBatchRepo.save(batchId, publisherId, batch, pool);
   return batchId;
 };
 

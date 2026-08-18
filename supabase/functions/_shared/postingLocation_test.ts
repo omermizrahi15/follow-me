@@ -1,10 +1,13 @@
+// Deno-runtime coverage for the batch-location clustering the app and the
+// auto-post / post-batch functions share, plus the server-only geocode step
+// layered on top of it.
 import { assertEquals } from '@std/assert';
 import {
   type Coordinate,
   formatPlaceList,
   representativeCoordinate,
   representativeCoordinates,
-} from './postingLocation.ts';
+} from '../../../src/domain/services/postingLocation.ts';
 import { resolveBatchPlace } from './geocode.ts';
 
 const lisbon: Coordinate = { latitude: 38.72, longitude: -9.14 };

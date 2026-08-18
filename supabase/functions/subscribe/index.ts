@@ -19,7 +19,7 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { credsFromEnv, sendWhatsApp } from '../_shared/twilio.ts';
+import { credsFromEnv, sendWhatsApp } from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { logAcceptedSend } from '../_shared/messageLog.ts';
 import { publisherDisplayName } from '../_shared/publisher.ts';
 import { normalizeWhatsApp } from './logic.ts';

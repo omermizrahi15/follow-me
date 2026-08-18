@@ -67,6 +67,13 @@ const PREFETCH_IDLE_MS = 1200;
  */
 function emptyRoundNote(reason: TopUpReason | null, attempted: number): string | null {
   if (reason === 'quota') return "Today's AI limit is used up — try again tomorrow.";
+  // Not tomorrow: the provider's per-minute ceiling clears on its own, and
+  // telling publishers to come back the next day for a half-minute pause is
+  // what made the feature look broken on the first attempt (issue #141).
+  if (reason === 'busy') return 'The photo AI is busy right now — wait a moment and tap again.';
+  // Never phrased as a fact about the library: the round failed before it could
+  // learn anything about it.
+  if (reason === 'failed') return 'Could not reach the photo AI — nothing was analysed. Try again in a moment.';
   if (reason === 'capped') {
     return attempted > 0
       ? `Checked ${attempted} more photo${attempted === 1 ? '' : 's'} — nothing worth adding yet. Tap again to keep looking.`
@@ -97,6 +104,9 @@ function scanShortfallNote(stats: SuggestStats | null): string | null {
   if (stats == null) return null;
   if (stats.quotaExhausted) {
     return `Today’s AI limit ran out after ${stats.graded} photos — the rest of those days aren’t analysed yet.`;
+  }
+  if (stats.rateLimited) {
+    return `The photo AI was busy after ${stats.graded} photos — rescan in a moment to finish the rest.`;
   }
   if (stats.unreadable > 0) {
     return `${stats.unreadable} photo${stats.unreadable === 1 ? '' : 's'} couldn’t be read — usually iCloud originals that haven’t downloaded. Rescanning after they do will find them.`;
@@ -695,7 +705,10 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
               : scanSummary(batch.length, stats, found)
             : phase === 'classifying'
             ? unique > 0
-              ? `Checking ${unique} unique photos (${found} scanned, ${found - unique} duplicates removed)`
+              ? // Not "N duplicates removed" any more — nothing is removed. Every
+                // photo in the window stays reachable; bursts only affect the
+                // order they get looked at in.
+                `Checking ${found} photos from ${unique} moment${unique === 1 ? '' : 's'}`
               : 'Classifying photos…'
             : 'Scanning your library…'}
         </Text>
@@ -844,8 +857,14 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
                   <Text style={gridStyles.addLabelDisabled}>No more photos</Text>
                   {/* The reason lives in the header note, which is where the
                       publisher already is when a round comes back empty —
-                      repeating it here just said the same thing twice. */}
-                  <Text style={gridStyles.addHint}>Nothing else worth posting in those days</Text>
+                      repeating it here just said the same thing twice. This
+                      line is only safe as a default: when a note exists the
+                      round may have failed rather than come up empty, and
+                      "nothing worth posting" would then be a claim about the
+                      library that nothing established. */}
+                  {topUpNote == null && (
+                    <Text style={gridStyles.addHint}>Nothing else worth posting in those days</Text>
+                  )}
                   {split == null && (
                     <TouchableOpacity onPress={reload} hitSlop={8}>
                       <Text style={gridStyles.addRescanLink}>Rescan library</Text>

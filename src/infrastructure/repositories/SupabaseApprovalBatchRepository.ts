@@ -74,10 +74,22 @@ export class SupabaseApprovalBatchRepository {
    * batch to send and could only ask for the app — leaving the background-post
    * path untestable without waiting for the cron.
    */
-  async save(batchId: string, publisherId: string, batch: CachedPhoto[]): Promise<void> {
+  async save(
+    batchId: string,
+    publisherId: string,
+    batch: CachedPhoto[],
+    /**
+     * Swap alternatives. Was hardcoded to `[]`, which meant a batch opened from
+     * a test push had no swap material at all — the review screen could only
+     * show those exact photos and then say "no more photos". Since the test
+     * push is how this flow gets exercised, the bug looked like a product
+     * failure every time anyone checked it.
+     */
+    pool: CachedPhoto[] = [],
+  ): Promise<void> {
     const { error } = await this.client
       .from('approval_batches')
-      .insert({ batch_id: batchId, publisher_id: publisherId, batch, pool: [] });
+      .insert({ batch_id: batchId, publisher_id: publisherId, batch, pool });
     if (error != null) throw new Error(error.message);
   }
 }

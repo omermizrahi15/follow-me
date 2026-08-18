@@ -19,12 +19,19 @@ import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
 export type SuggestPhase = 'loading' | 'scanning' | 'classifying' | 'done' | 'error';
 
 /**
- * Why a top-up came back empty. The distinction matters: only `exhausted` and
- * `quota` mean "stop asking" — `capped` means the round hit its wave limit with
- * the window still unfinished, and reporting that as "nothing left" is what
- * greyed out the "+" on a library that had ninety photos to spare.
+ * Why a top-up came back empty. The distinction matters: only `exhausted`,
+ * `quota` and `failed` mean "stop asking" — `capped` means the round hit its
+ * wave limit with the window still unfinished, and reporting that as "nothing
+ * left" is what greyed out the "+" on a library that had ninety photos to
+ * spare. `failed` is the classifier itself erroring, which must never be
+ * reported as a fact about the publisher's photos.
+ *
+ * `busy` is the AI provider throttling us. It looks like `quota` from here —
+ * the round stops early either way — but it clears in seconds rather than at
+ * midnight, so it keeps the "+" alive and asks the publisher to try again
+ * shortly (issue #141).
  */
-export type TopUpReason = 'exhausted' | 'quota' | 'capped';
+export type TopUpReason = 'exhausted' | 'quota' | 'busy' | 'capped' | 'failed';
 
 /** Outcome of one "give me another photo" request. */
 export interface TopUpResult {
@@ -100,6 +107,11 @@ const INITIAL: State = {
  * happened: a publisher who opened the preview saw photos from three days ago,
  * none from today, and no obvious way to say "look again". The store's own
  * 32-day TTL is about garbage collection; this is about relevance.
+ *
+ * It is a ceiling, not the whole test. Any photo taken since the batch was
+ * computed supersedes it outright however recent it is — see the library check
+ * in `runScan`. Age was the *only* test for a long time, which is why a batch
+ * could keep replaying over a morning's worth of new photos.
  */
 const STALE_CACHE_MS = 6 * 60 * 60 * 1000;
 
@@ -160,7 +172,18 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         // than no cache, because it silently hides everything shot since.
         if (!skipCache) {
           const cached = await SuggestionCache.load(publisherId);
-          if (cached != null && Date.now() - cached.cachedAt < STALE_CACHE_MS) {
+          // Age alone is not staleness. A batch computed an hour ago is worthless
+          // if the publisher has been shooting since — those photos are the whole
+          // reason they opened the screen. The library check is metadata-only, so
+          // it costs a query rather than a scan.
+          const supersededByNewPhotos =
+            cached != null &&
+            (await suggestPhotos.hasPhotosSince(new Date(cached.cachedAt)).catch(() => false));
+          if (
+            cached != null &&
+            !supersededByNewPhotos &&
+            Date.now() - cached.cachedAt < STALE_CACHE_MS
+          ) {
             const batch = cached.batch.map(cachedPhotoToClassification);
             const pool = cached.pool.map(cachedPhotoToClassification);
             setState(s => ({
@@ -219,7 +242,18 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
           cachedAt: Date.now(),
         }).catch(() => undefined);
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Could not build suggestions';
+        // A classifier failure is the one error worth translating: its message
+        // is an HTTP status the publisher can do nothing with, and the scan
+        // aborting is the *point* — no batch is better than a batch built from
+        // invented grades. Matched by name rather than by class so the hook
+        // doesn't have to reach into the infrastructure layer.
+        const failedToClassify = e instanceof Error && e.name === 'ClassificationFailedError';
+        const message = failedToClassify
+          ? 'Could not reach the photo AI, so nothing was analysed. Your photos are untouched — try again in a moment.'
+          : e instanceof Error
+          ? e.message
+          : 'Could not build suggestions';
+        if (failedToClassify) console.warn('suggest scan aborted:', e);
         setState(s => ({ ...s, phase: 'error', error: message }));
       }
     })();
@@ -249,7 +283,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         // Built once per scan, then walked down: the library query is the slow
         // part and the window doesn't move while the screen is open.
         pendingRef.current ??= await suggestPhotos.pendingCandidates(config, knownRef.current);
-        const { classified, suggestions, consumed, quotaExhausted } =
+        const { classified, suggestions, consumed, quotaExhausted, rateLimited } =
           await suggestPhotos.classifyMore(pendingRef.current, config);
         pendingRef.current = pendingRef.current.slice(consumed);
 
@@ -262,19 +296,33 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         // limit leaves the queue standing, and saying "no more photos" there is
         // a claim about the library that the round never established.
         const exhausted = pendingRef.current.length === 0;
+        // Throttling deliberately does NOT close the door: the queue still has
+        // photos and the wall lifts in seconds, so greying out the "+" would
+        // strand the publisher for the rest of the session over a pause.
         if (quotaExhausted || exhausted) setCanTopUp(false);
 
         return {
           suggestions,
           reason:
-            suggestions.length > 0 ? null : quotaExhausted ? 'quota' : exhausted ? 'exhausted' : 'capped',
+            suggestions.length > 0
+              ? null
+              : quotaExhausted
+                ? 'quota'
+                : rateLimited
+                  ? 'busy'
+                  : exhausted
+                    ? 'exhausted'
+                    : 'capped',
           attempted: consumed,
         };
       } catch {
         // A failed scan or classify round is not worth retrying on every press;
-        // the publisher can rescan, which resets this.
+        // the publisher can rescan, which resets this. Reported as `failed`,
+        // never `exhausted`: the round established nothing about the library,
+        // and "that's every photo from those days" would be a claim this code
+        // has no basis for making.
         setCanTopUp(false);
-        return { suggestions: [], reason: 'exhausted', attempted: 0 };
+        return { suggestions: [], reason: 'failed', attempted: 0 };
       } finally {
         setToppingUp(false);
       }

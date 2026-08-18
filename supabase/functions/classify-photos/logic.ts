@@ -39,6 +39,57 @@ export function classifyCaller(
   return { kind: 'user-token', token };
 }
 
+/**
+ * Why a request was refused, when the answer is 429.
+ *
+ * Two entirely different walls used to share that status code with nothing to
+ * tell them apart, so the app announced both as "today's AI limit is used up".
+ * One of them clears in half a minute:
+ *
+ * - `daily_quota` — OUR per-user ceiling (increment_classify_quota). Real until
+ *   tomorrow; nothing the user does today will help.
+ * - `rate_limited` — Gemini's requests-per-minute cap on the API key. The free
+ *   tier allows 5/minute per model, and the app classifies 4 photos at a time,
+ *   so a scan trips this within seconds of starting and recovers on its own
+ *   seconds later. Carries `retry_after_seconds` from Gemini's own RetryInfo.
+ */
+export type RefusalReason = 'daily_quota' | 'rate_limited';
+
+/**
+ * Seconds Gemini asked us to wait, from a 429 body, or null when it didn't say.
+ *
+ * Google reports this twice — a `RetryInfo` detail with a duration string
+ * ("28s") and prose in `message` ("Please retry in 28.530505825s") — and which
+ * one is present varies. Read the structured field first and fall back to the
+ * prose, because guessing a delay is what turned a 28-second pause into "come
+ * back tomorrow".
+ */
+export function parseRetryDelaySeconds(body: string): number | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  const details = (parsed as { error?: { details?: unknown[] } })?.error?.details;
+  if (Array.isArray(details)) {
+    for (const detail of details) {
+      const delay = (detail as { retryDelay?: unknown })?.retryDelay;
+      if (typeof delay === 'string') {
+        const seconds = Number(delay.replace(/s$/, ''));
+        if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds);
+      }
+    }
+  }
+  const message = (parsed as { error?: { message?: unknown } })?.error?.message;
+  if (typeof message === 'string') {
+    const match = /retry in ([\d.]+)\s*s/i.exec(message);
+    const seconds = match != null ? Number(match[1]) : NaN;
+    if (Number.isFinite(seconds) && seconds >= 0) return Math.ceil(seconds);
+  }
+  return null;
+}
+
 export const CATEGORIES = [
   'selfie_with_view',
   'sunset_sunrise',
@@ -78,16 +129,32 @@ export function clamp01(n: unknown): number {
   return Math.max(0, Math.min(1, v));
 }
 
-/** Map an arbitrary value to a known Category, defaulting unknowns to 'other'. */
-export function normalizeCategory(c: unknown): Category {
-  return CATEGORIES.includes(c as Category) ? (c as Category) : 'other';
+/** The known Category for `c`, or null when the model returned something else. */
+export function asCategory(c: unknown): Category | null {
+  return CATEGORIES.includes(c as Category) ? (c as Category) : null;
 }
 
-/** Turn the model's parsed JSON into a safe Classification (bad/missing fields defaulted). */
+/**
+ * Turn the model's parsed JSON into a Classification.
+ *
+ * Scores and free text are still defaulted defensively — a missing caption is
+ * cosmetic — but an unrecognised `category` throws instead of becoming `other`.
+ * The distinction matters because `other` is a real answer the model gives on
+ * purpose (screenshots, receipts, blurry shots), so *inventing* one for a
+ * malformed response let a broken model contract reach the device disguised as
+ * a confident grade. Since `other` is excluded from the swap pool and grades
+ * are remembered for months, that quietly retired the photo for good.
+ */
 export function parseClassification(id: string, parsed: Record<string, unknown>): Classification {
+  const category = asCategory(parsed.category);
+  if (category == null) {
+    throw new Error(
+      `classify ${id}: model returned unknown category ${JSON.stringify(parsed.category)}`,
+    );
+  }
   return {
     id,
-    category: normalizeCategory(parsed.category),
+    category,
     confidence: clamp01(parsed.confidence),
     quality: clamp01(parsed.quality),
     caption: typeof parsed.caption === 'string' ? parsed.caption : '',

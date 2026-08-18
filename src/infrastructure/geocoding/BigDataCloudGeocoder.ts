@@ -1,14 +1,10 @@
 import type { Coordinate, IGeocoder } from '../../domain/interfaces';
-
-interface BigDataCloudResponse {
-  city?: string;
-  locality?: string;
-  principalSubdivision?: string;
-  countryName?: string;
-}
-
-/** A place lookup is a nice-to-have on the share path — give up quickly. */
-const TIMEOUT_MS = 5000;
+import {
+  GEOCODE_TIMEOUT_MS,
+  placeFromResponse,
+  reverseGeocodeUrl,
+  type BigDataCloudResponse,
+} from './bigDataCloud';
 
 /**
  * Reverse geocoding via BigDataCloud's free client-side endpoint — no API key,
@@ -16,28 +12,24 @@ const TIMEOUT_MS = 5000;
  * (falling back through locality and region), or null when the coordinate
  * can't be resolved or the lookup exceeds the timeout. Never throws: a failed
  * lookup must not block a share.
+ *
+ * The endpoint and the response parsing are in ./bigDataCloud, which the
+ * server's geocoder imports too; what stays here is the on-device fetch and the
+ * `__DEV__` logging.
  */
 export class BigDataCloudGeocoder implements IGeocoder {
   async reverseGeocode(coordinate: Coordinate): Promise<string | null> {
     const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), TIMEOUT_MS);
+    const timer = setTimeout(() => controller.abort(), GEOCODE_TIMEOUT_MS);
     try {
-      const params = `latitude=${coordinate.latitude}&longitude=${coordinate.longitude}&localityLanguage=en`;
-      const response = await fetch(
-        `https://api.bigdatacloud.net/data/reverse-geocode-client?${params}`,
-        { signal: controller.signal },
-      );
+      const response = await fetch(reverseGeocodeUrl(coordinate), { signal: controller.signal });
       if (!response.ok) {
-        if (__DEV__) console.warn(`[geocode] HTTP ${response.status} for ${params}`);
+        if (__DEV__) console.warn(`[geocode] HTTP ${response.status} for ${coordinate.latitude},${coordinate.longitude}`);
         return null;
       }
-      const data = (await response.json()) as BigDataCloudResponse;
-      const city = firstNonEmpty(data.city, data.locality, data.principalSubdivision);
-      const country = firstNonEmpty(data.countryName);
-      if (__DEV__) console.log(`[geocode] ${coordinate.latitude},${coordinate.longitude} → ${city ?? '?'}, ${country ?? '?'}`);
-      if (city == null && country == null) return null;
-      if (city != null && country != null) return `${city}, ${country}`;
-      return city ?? country;
+      const place = placeFromResponse((await response.json()) as BigDataCloudResponse);
+      if (__DEV__) console.log(`[geocode] ${coordinate.latitude},${coordinate.longitude} → ${place ?? '?'}`);
+      return place;
     } catch (e) {
       if (__DEV__) console.warn('[geocode] failed:', e instanceof Error ? e.message : e);
       return null;
@@ -45,11 +37,4 @@ export class BigDataCloudGeocoder implements IGeocoder {
       clearTimeout(timer);
     }
   }
-}
-
-function firstNonEmpty(...values: Array<string | undefined>): string | null {
-  for (const value of values) {
-    if (value != null && value.trim() !== '') return value;
-  }
-  return null;
 }

@@ -70,7 +70,7 @@ describe('ClassificationCache', () => {
 
   // A scan the publisher is waiting on must not fail because storage did.
   it('degrades to a miss when the stored blob is unreadable', async () => {
-    await AsyncStorage.setItem('photo_grades:v1', 'not json');
+    await AsyncStorage.setItem('photo_grades:v2', 'not json');
 
     await expect(ClassificationCache.load(['a'])).resolves.toEqual(new Map());
     await expect(ClassificationCache.save([grade('a')])).resolves.toBeUndefined();

@@ -1,6 +1,14 @@
-// Deno port of src/infrastructure/notifiers/TwilioClientAdapter.ts.
-// Plain fetch + btoa, both available in Deno (and in Node 18+, so jest tests
-// can import this file directly — see twilioSend.test.ts).
+/**
+ * Talking to Twilio's Messages API — one send, one batch, and the retry
+ * classification that decides whether a failure is worth trying again.
+ *
+ * DUAL RUNTIME. Everything the app and the Edge Functions do with Twilio goes
+ * through this file: `TwilioClientAdapter` wraps it for the app's `ITwilioClient`
+ * port, and the Deno `send-post` / `auto-post` / `subscribe` functions import it
+ * directly. It is written to web standards only (`fetch`, `btoa`,
+ * `URLSearchParams`), which every runtime we ship to provides, and stays
+ * import-free — see CONTRIBUTING.md.
+ */
 
 export interface TwilioCreds {
   accountSid: string;
@@ -66,7 +74,7 @@ export interface SendResult {
 const defaultSleep = (ms: number): Promise<void> => new Promise(resolve => setTimeout(resolve, ms));
 
 function authHeader(creds: TwilioCreds): string {
-  const pair = creds.apiKeySid && creds.apiKeySecret
+  const pair = creds.apiKeySid != null && creds.apiKeySid !== '' && creds.apiKeySecret != null && creds.apiKeySecret !== ''
     ? `${creds.apiKeySid}:${creds.apiKeySecret}`
     : `${creds.accountSid}:${creds.authToken}`;
   return `Basic ${btoa(pair)}`;
@@ -87,7 +95,9 @@ async function sendMessage(
 ): Promise<SendResult> {
   const { maxRetries = 3, baseDelayMs = 500, sleep = defaultSleep, fetchImpl = fetch } = options;
   const url = `https://api.twilio.com/2010-04-01/Accounts/${creds.accountSid}/Messages.json`;
-  if (creds.statusCallback) params.append('StatusCallback', creds.statusCallback);
+  if (creds.statusCallback != null && creds.statusCallback !== '') {
+    params.append('StatusCallback', creds.statusCallback);
+  }
 
   let lastError: TwilioSendError | null = null;
 
@@ -251,7 +261,11 @@ export async function sendBatch(
   return { sent, failed: errors.length, errors, sids, permanentError };
 }
 
-/** Builds TwilioCreds from the standard edge-function environment variables. */
+/**
+ * Builds TwilioCreds from the standard edge-function environment variables.
+ * Takes the environment as an argument (`Deno.env`, or any `{ get }`) rather
+ * than reaching for a global, so this module stays runtime-agnostic.
+ */
 export function credsFromEnv(env: { get(key: string): string | undefined }): TwilioCreds {
   const creds: TwilioCreds = {
     accountSid: env.get('TWILIO_ACCOUNT_SID') ?? '',
@@ -263,10 +277,12 @@ export function credsFromEnv(env: { get(key: string): string | undefined }): Twi
   const statusCallback = env.get('TWILIO_STATUS_CALLBACK_URL');
   const templatePostSid = env.get('TWILIO_TEMPLATE_POST_SID');
   const templatePostLocationSid = env.get('TWILIO_TEMPLATE_POST_LOCATION_SID');
-  if (apiKeySid) creds.apiKeySid = apiKeySid;
-  if (apiKeySecret) creds.apiKeySecret = apiKeySecret;
-  if (statusCallback) creds.statusCallback = statusCallback;
-  if (templatePostSid) creds.templatePostSid = templatePostSid;
-  if (templatePostLocationSid) creds.templatePostLocationSid = templatePostLocationSid;
+  if (apiKeySid != null && apiKeySid !== '') creds.apiKeySid = apiKeySid;
+  if (apiKeySecret != null && apiKeySecret !== '') creds.apiKeySecret = apiKeySecret;
+  if (statusCallback != null && statusCallback !== '') creds.statusCallback = statusCallback;
+  if (templatePostSid != null && templatePostSid !== '') creds.templatePostSid = templatePostSid;
+  if (templatePostLocationSid != null && templatePostLocationSid !== '') {
+    creds.templatePostLocationSid = templatePostLocationSid;
+  }
   return creds;
 }

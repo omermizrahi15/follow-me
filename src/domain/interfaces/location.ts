@@ -1,7 +1,9 @@
-export interface Coordinate {
-  latitude: number;
-  longitude: number;
-}
+// Defined by the pure clustering service rather than here: that module is
+// imported verbatim by the Deno Edge Functions, so it has to own every type it
+// touches (see CONTRIBUTING.md). Re-exported so `Coordinate` still reads as
+// part of the domain's vocabulary.
+export type { Coordinate } from '../services/postingLocation';
+import type { Coordinate } from '../services/postingLocation';
 
 export interface IGeocoder {
   /** Human place label ("City, Country") for a coordinate; null when unresolvable. */

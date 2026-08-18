@@ -1,12 +1,18 @@
+// Deno-runtime coverage for the inbound-webhook path. Command parsing, the
+// confirmation copy and the signature check are the app's own modules, imported
+// here exactly as join-webhook / twilio-status import them — so this file is
+// what proves they still run under Deno. Only formToParams is server-only.
 import { assert, assertEquals } from '@std/assert';
+import { formToParams } from './twilioWebhook.ts';
+import { parseInboundCommand } from '../../../src/domain/services/inboundCommand.ts';
 import {
   composeResubscribeConfirmation,
   composeUnsubscribeConfirmation,
+} from '../../../src/domain/services/optOutMessages.ts';
+import {
   computeTwilioSignature,
-  formToParams,
-  parseInboundCommand,
   verifyTwilioSignature,
-} from './optOut.ts';
+} from '../../../src/infrastructure/notifiers/twilioSignature.ts';
 
 Deno.test('formToParams — keeps string entries and drops File entries', () => {
   const form = new FormData();

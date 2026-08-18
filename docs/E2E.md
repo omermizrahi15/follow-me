@@ -15,6 +15,10 @@ Real-UI tests that drive the app on the iOS simulator with [Maestro](https://doc
    ```
 2. **Configure a Supabase test OTP** so sign-in works without a real WhatsApp message:
    Supabase Dashboard → Authentication → Providers → Phone → **Test OTPs**. Add a fake number and a fixed code, e.g. `+15005550006` → `123456`. Verifying that pair creates a real session against your project without sending anything.
+
+   > **The pair has a valid-until date, and it silently lapses.** Once past it, Supabase stops short-circuiting the number: `verify` starts returning `403 otp_expired`, and — because the app still gets a *successful* send — `sign-in` sails past "Enter the code" and dies at the very end on `home-settings-button is visible`, taking the nine auth flows after it down with the same misleading assertion. It read as an app bug for 19 days (2026-07-30 → 2026-08-18); it was a calendar field. Set the expiry as far out as the dashboard allows, or clear it. CI preflights the pair before the build so this fails in seconds with a real error message instead of after 45 minutes.
+   >
+   > A lapsed pair is also not harmless: the number falls through to Twilio, so every run sends a **real** WhatsApp code to whoever owns `E2E_PHONE`. Prefer a non-routable test number (`+15005550006`) over a personal one so a lapse can never text a human.
 3. **Build the app for the simulator** (Release config, so the JS bundle is embedded and Metro isn't needed). `.env` must exist in the checkout — the `EXPO_PUBLIC_*` values are baked into the bundle at build time.
    ```sh
    npm run e2e:ui:build
@@ -91,7 +95,7 @@ Note: `workflow_run` only fires once this workflow is on the default branch, and
 | --- | --- | --- |
 | `EXPO_PUBLIC_SUPABASE_URL` | all flows | Baked into the bundle; without it the app white-screens and even smoke fails |
 | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | all flows | Same |
-| `E2E_PHONE` | auth flows | Supabase **test OTP** number; auth flows are skipped if unset |
+| `E2E_PHONE` | auth flows | Supabase **test OTP** number; auth flows are skipped if unset. Must still match a *live* (unexpired) Test OTP entry in the dashboard — see the warning in [One-time setup](#one-time-setup) |
 | `E2E_OTP` | auth flows | The fixed code paired with `E2E_PHONE` |
 | `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` | optional | `container.ts` requires it at startup or the app white-screens; CI falls back to a placeholder (fine for UI flows). Set the real value only if a flow exercises photo upload. |
 | `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | optional | Same as above |

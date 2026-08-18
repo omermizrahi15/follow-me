@@ -7,8 +7,6 @@ import type { ResolveLocalUri, ResolveAssetLocation } from '../../domain/interfa
 import { validCoordinate } from '../../domain/services/coordinate';
 import { imageWidth } from './imageSize';
 
-const MS_PER_DAY = 24 * 60 * 60 * 1000;
-
 /**
  * How long one photo may spend coming down from iCloud during classification.
  * Long enough that a normal fetch on a normal connection completes, short
@@ -39,15 +37,9 @@ const CLASSIFY_JPEG_QUALITY = 0.7;
  *
  * Uses `createdAfter`/`createdBefore` for OS-level date filtering and paginates
  * through every matching page, so the full window is always scanned regardless
- * of how large the photo library is. `recentPhotos` is just the now-anchored
- * case of `photosBetween`.
+ * of how large the photo library is.
  */
 export class ExpoMediaLibrary implements IMediaLibrary {
-  async recentPhotos(lookbackDays: number): Promise<PhotoCandidate[]> {
-    const now = Date.now();
-    return this.photosBetween(new Date(now - lookbackDays * MS_PER_DAY), new Date(now));
-  }
-
   async photosBetween(start: Date, end: Date): Promise<PhotoCandidate[]> {
     const granted = await this.ensurePermission();
     if (!granted) throw new Error('Photo library permission not granted');
