@@ -6,12 +6,32 @@ const stats = (over: Partial<ScanStats> = {}): ScanStats => ({
   graded: 100,
   unreadable: 0,
   quotaExhausted: false,
+  rateLimited: false,
   ...over,
 });
 
 describe('emptyRoundNote', () => {
   it('says the day is spent when the AI budget ran out', () => {
     expect(emptyRoundNote('quota', 0)).toMatch(/limit is used up/);
+  });
+
+  it('sends a throttled publisher back in a moment, not tomorrow', () => {
+    // `busy` is a per-minute ceiling that clears itself; telling someone to
+    // come back the next day for a half-minute pause is what made the feature
+    // look broken on the first attempt (issue #141).
+    const note = emptyRoundNote('busy', 0);
+
+    expect(note).toMatch(/busy right now/);
+    expect(note).not.toMatch(/tomorrow/);
+  });
+
+  it('never blames the library when the round itself failed', () => {
+    // The round errored before it could learn anything about the library, so
+    // "nothing worth posting in those days" would be an unfounded claim.
+    const note = emptyRoundNote('failed', 0);
+
+    expect(note).toMatch(/Could not reach the photo AI/);
+    expect(note).not.toMatch(/nothing worth|every photo/i);
   });
 
   it('invites another tap when the round only hit its wave cap', () => {
@@ -61,6 +81,16 @@ describe('scanShortfallNote', () => {
   it('blames the daily budget first — it is the one the publisher cannot retry', () => {
     expect(scanShortfallNote(stats({ graded: 12, unreadable: 3, quotaExhausted: true }))).toMatch(
       /limit ran out after 12 photos/,
+    );
+  });
+
+  it('reports a throttled scan as resumable, and ranks it under the daily quota', () => {
+    expect(scanShortfallNote(stats({ graded: 40, rateLimited: true }))).toMatch(
+      /was busy after 40 photos — rescan in a moment/,
+    );
+    // Quota wins when both are set: it is the one a rescan cannot fix.
+    expect(scanShortfallNote(stats({ graded: 40, rateLimited: true, quotaExhausted: true }))).toMatch(
+      /limit ran out/,
     );
   });
 

@@ -5,6 +5,9 @@
 //
 // Keyword sets follow the standard messaging-compliance vocabulary Twilio's own
 // Advanced Opt-Out uses, so subscribers can use whichever word they expect.
+//
+// DUAL RUNTIME — the `join-webhook` / `twilio-status` Edge Functions import this
+// exact file, so it stays import-free; see CONTRIBUTING.md.
 
 export type InboundCommand =
   | { kind: 'stop' }

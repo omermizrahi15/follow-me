@@ -9,6 +9,7 @@ import {
   candidateUrlsByAssetIds,
   saveTestApprovalBatch,
   SuggestionCache,
+  type CachedPhoto,
 } from '../../composition/container';
 import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import { assetIdsNeedingLookup, resolveChosenGalleryUrls } from '../../domain/services/notificationGallery';
@@ -98,7 +99,8 @@ export function DevNotificationPanel({ publisherId, config }: Props): React.JSX.
       // batch supplies them, and only they can be persisted server-side — which
       // is what makes the test push's "Post now" exercise the real background
       // post instead of falling back to "open the app".
-      let postablePhotos: { id: string; url: string }[] = [];
+      let postablePhotos: CachedPhoto[] = [];
+      let postablePool: CachedPhoto[] = [];
       log.push(`want: ${want} photos`);
 
       // 1. Show the photos the review screen actually chose. A device-scanned batch
@@ -125,7 +127,18 @@ export function DevNotificationPanel({ publisherId, config }: Props): React.JSX.
         usedChosenBatch = resolved.urls.length > 0;
         missingFromBatch = resolved.missing.length;
         galleryUrls.push(...resolved.urls);
-        postablePhotos = resolved.photos;
+        // Carry each photo's real grade across, replacing only the uri with the
+        // cloud copy the server can read. Passing bare {id, url} pairs meant the
+        // saved batch had to invent category/quality/caption/scene, and what it
+        // invented — `other`, quality 0 — is exactly what a failed
+        // classification looks like, so the test push exercised the broken
+        // shape rather than the real one.
+        const gradeById = new Map(cached.batch.map(p => [p.id, p]));
+        postablePhotos = resolved.photos.flatMap(p => {
+          const grade = gradeById.get(p.id);
+          return grade == null ? [] : [{ ...grade, url: p.url }];
+        });
+        postablePool = cached.pool;
         localUris.push(...(await downloadAll(resolved.urls, 'dev-notif', log)));
         log.push(`cache downloaded: ${localUris.length}`);
       }
@@ -183,7 +196,7 @@ export function DevNotificationPanel({ publisherId, config }: Props): React.JSX.
       let batchId: string | undefined;
       if (postablePhotos.length > 0) {
         try {
-          batchId = await saveTestApprovalBatch(publisherId, postablePhotos);
+          batchId = await saveTestApprovalBatch(publisherId, postablePhotos, postablePool);
           log.push(`postable batch saved: ${batchId}`);
         } catch (e) {
           log.push(`batch save failed: ${e instanceof Error ? e.message : String(e)}`);

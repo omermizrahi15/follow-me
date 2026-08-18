@@ -1,4 +1,4 @@
-import { representativeCoordinates, formatPlaceList } from '../../domain/services/postingLocation';
+import { resolveBatchPlace } from '../../domain/services/postingLocation';
 import type { Coordinate, IGeocoder } from '../../domain/interfaces';
 
 /**
@@ -7,21 +7,13 @@ import type { Coordinate, IGeocoder } from '../../domain/interfaces';
  * and joins them ("Lisbon, Portugal & Porto, Portugal"). Null when no
  * coordinate resolves — a share must never block on naming the place.
  * Used by ShareMediaUseCase and by the review screen's editable place field.
+ *
+ * The flow itself is in the domain, where the auto-post / post-batch Edge
+ * Functions reach it too; this only binds it to the app's geocoder port.
  */
-export async function resolvePostingPlace(
+export function resolvePostingPlace(
   geocoder: IGeocoder,
   coordinates: Coordinate[],
 ): Promise<string | null> {
-  const representatives = representativeCoordinates(coordinates, 3);
-  const places: string[] = [];
-  for (const coordinate of representatives) {
-    try {
-      const place = await geocoder.reverseGeocode(coordinate);
-      // Nearby clusters can resolve to the same "City, Country" — dedupe.
-      if (place != null && !places.includes(place)) places.push(place);
-    } catch {
-      // A failed lookup skips one place, never the whole posting.
-    }
-  }
-  return formatPlaceList(places);
+  return resolveBatchPlace(coordinates, coordinate => geocoder.reverseGeocode(coordinate));
 }

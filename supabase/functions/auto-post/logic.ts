@@ -1,6 +1,7 @@
 // Pure helpers for the auto-post service, split out of index.ts for unit
-// testing. Scheduling itself lives in _shared/autoPostSchedule.ts; the batch
-// selection in _shared/photoSelection.ts — both already covered.
+// testing. Scheduling itself lives in the app's domain layer
+// (src/domain/services/autoPostSchedule.ts), the batch selection in
+// src/domain/services/photoSelection.ts — both already covered.
 
 /**
  * Split `items` into consecutive groups of at most `size`, in order.

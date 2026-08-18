@@ -172,7 +172,10 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
               : scanSummary(batch.length, stats, found)
             : phase === 'classifying'
             ? unique > 0
-              ? `Checking ${unique} unique photos (${found} scanned, ${found - unique} duplicates removed)`
+              ? // Not "N duplicates removed" any more — nothing is removed. Every
+                // photo in the window stays reachable; bursts only affect the
+                // order they get looked at in.
+                `Checking ${found} photos from ${unique} moment${unique === 1 ? '' : 's'}`
               : 'Classifying photos…'
             : 'Scanning your library…'}
         </Text>
@@ -247,6 +250,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
                 canOfferMore={slots.canOfferMore}
                 kept={kept.length}
                 photosPerPost={photosPerPost}
+                hasNote={slots.topUpNote != null}
                 onAdd={slots.addSlot}
                 onRescan={split.accepted == null ? reload : null}
               />

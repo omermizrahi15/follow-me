@@ -14,11 +14,13 @@ import { colors, radius, spacing, typography } from '../../theme/theme';
  * that needs backing up.
  */
 
-export function AddPhotoSlot({ busy, canOfferMore, kept, photosPerPost, onAdd, onRescan }: {
+export function AddPhotoSlot({ busy, canOfferMore, kept, photosPerPost, hasNote, onAdd, onRescan }: {
   busy: boolean;
   canOfferMore: boolean;
   kept: number;
   photosPerPost: number;
+  /** The header is already explaining why the last round came back empty. */
+  hasNote: boolean;
   onAdd: () => void;
   /** Null mid-split: a rescan there would throw away the remaining legs. */
   onRescan: (() => void) | null;
@@ -70,8 +72,13 @@ export function AddPhotoSlot({ busy, canOfferMore, kept, photosPerPost, onAdd, o
       <Text style={styles.addLabelDisabled}>No more photos</Text>
       {/* The reason lives in the header note, which is where the publisher
           already is when a round comes back empty — repeating it here just said
-          the same thing twice. */}
-      <Text style={styles.addHint}>Nothing else worth posting in those days</Text>
+          the same thing twice. This line is only safe as a default: when a note
+          exists the round may have failed rather than come up empty, and
+          "nothing worth posting" would then be a claim about the library that
+          nothing established. */}
+      {!hasNote && (
+        <Text style={styles.addHint}>Nothing else worth posting in those days</Text>
+      )}
       {onRescan != null && (
         <TouchableOpacity onPress={onRescan} hitSlop={8}>
           <Text style={styles.addRescanLink}>Rescan library</Text>

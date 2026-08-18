@@ -81,8 +81,8 @@ shipping the new build first is harmless (the old policies still permit it).
 
 What the code does now:
 
-- **Retry with back-off** — every server-side send (`_shared/twilio.ts`, used
-  by `send-post`, `auto-post`, `subscribe`) retries transient Twilio failures
+- **Retry with back-off** — every send (`src/infrastructure/notifiers/twilioClient.ts`,
+  used by the app and by `send-post`, `auto-post`, `subscribe`) retries transient Twilio failures
   (429 / 5xx / network) up to 3 times with exponential back-off
   (0.5s → 1s → 2s). Permanent 4xx failures (invalid number, blocked
   recipient, auth) are never retried.

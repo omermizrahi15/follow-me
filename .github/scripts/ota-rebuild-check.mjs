@@ -24,8 +24,11 @@
 // built and waiting to be installed, is green — the summary carries the QR.
 
 import { execSync } from 'node:child_process';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, readFileSync } from 'node:fs';
 import QRCode from 'qrcode';
+
+// Owner and slug, for the one link EAS's payload may not give us (see PROJECT).
+const APP_JSON = JSON.parse(readFileSync(new URL('../../app.json', import.meta.url), 'utf8'));
 
 const CHANNEL = process.env.CHANNEL;
 const PROFILE = process.env.PROFILE;
@@ -87,9 +90,31 @@ const local = () =>
 // --- 1. the runtimeVersion this update is (or would be) tagged with ---
 const runtimeVersion = process.env.RUNTIME_VERSION || local().hash;
 
+// A build's payload is read through these two, never by field name: eas-cli 22
+// renamed them (`runtimeVersion` → `runtime.version`, `project` → `app`), and
+// `eas-version: latest` picked that major up mid-August. Reading `.runtimeVersion`
+// straight off the object silently became `undefined`, which reads as "no build
+// is compatible" — three needless builds were started before the missing project
+// URL crashed the job. Both shapes are accepted so neither major can do it again.
+const runtimeVersionOf = (b) => b.runtimeVersion ?? b.runtime?.version;
+const appOf = (b) => b.project ?? b.app;
+
 // --- 2. every build on this channel, newest first ---
 const builds = eas(`build:list --platform ios --channel ${CHANNEL} --limit 50`);
-const compatible = builds.filter((b) => b.runtimeVersion === runtimeVersion);
+
+// "I can't read this payload" and "nothing here is compatible" look identical
+// downstream, and the second one spends a build. Refuse to guess: if not one
+// build reports a runtimeVersion, the shape moved again — say so and stop.
+if (builds.length && !builds.some(runtimeVersionOf)) {
+  console.error(
+    `None of the ${builds.length} builds on \`${CHANNEL}\` reports a runtimeVersion — the eas-cli JSON shape has changed again.\n` +
+      `Fields seen: ${Object.keys(builds[0]).join(', ')}\n` +
+      `Fix runtimeVersionOf() in this script; refusing to start a build off a payload this script cannot read.`
+  );
+  process.exit(MODE === 'cd' ? 1 : 0);
+}
+
+const compatible = builds.filter((b) => runtimeVersionOf(b) === runtimeVersion);
 const reachable = compatible.filter((b) => b.status === 'FINISHED');
 const pending = compatible.filter((b) => PENDING.has(b.status));
 
@@ -130,11 +155,17 @@ const explainAgainst = (build) => {
 };
 
 // A freshly started build carries no project in its payload, so fall back to the
-// one every listed build reports — it's the same project either way.
-const PROJECT = builds.find((b) => b.project)?.project;
+// one every listed build reports — it's the same project either way, and to
+// app.json after that. The last fallback is what keeps this honest: every link
+// and the QR below are built from it, at the very end of a job that has already
+// spent 20 minutes building, so it must not be able to come back empty.
+const PROJECT = builds.map(appOf).find(Boolean) ?? {
+  ownerAccount: { name: APP_JSON.expo?.owner },
+  slug: APP_JSON.expo?.slug,
+};
 const buildUrl = (b) => {
-  const p = b.project ?? PROJECT;
-  return p && `https://expo.dev/accounts/${p.ownerAccount?.name}/projects/${p.slug}/builds/${b.id}`;
+  const p = appOf(b) ?? PROJECT;
+  return `https://expo.dev/accounts/${p.ownerAccount?.name}/projects/${p.slug}/builds/${b.id}`;
 };
 
 // A scannable QR of the build page, so the phone that has to install the .ipa
@@ -154,12 +185,18 @@ const INSTALL_PAGE = (() => {
   return `https://${owner}.github.io/${repo}/install/`;
 })();
 
+// Falls back to the plain build URL: a convenience that can't be drawn is not a
+// reason to red a run whose binary is sitting there built.
 const scanLink = (url) => {
-  const { modules } = QRCode.create(url, { errorCorrectionLevel: 'L' });
-  const { size, data } = modules;
-  const bytes = Buffer.alloc(Math.ceil((size * size) / 8));
-  for (let i = 0; i < size * size; i++) if (data[i]) bytes[i >> 3] |= 128 >> (i & 7);
-  return `${INSTALL_PAGE}#${size}.${bytes.toString('base64url')}.${encodeURIComponent(url)}`;
+  try {
+    const { modules } = QRCode.create(url, { errorCorrectionLevel: 'L' });
+    const { size, data } = modules;
+    const bytes = Buffer.alloc(Math.ceil((size * size) / 8));
+    for (let i = 0; i < size * size; i++) if (data[i]) bytes[i >> 3] |= 128 >> (i & 7);
+    return `${INSTALL_PAGE}#${size}.${bytes.toString('base64url')}.${encodeURIComponent(url)}`;
+  } catch {
+    return url;
+  }
 };
 
 // --- 4. render ---
@@ -183,7 +220,7 @@ if (reachable.length) {
 
   const latest = builds.find((b) => b.status === 'FINISHED');
   if (latest) {
-    push(`The newest installed \`${CHANNEL}\` build is on \`${latest.runtimeVersion}\`. What moved:`, '');
+    push(`The newest installed \`${CHANNEL}\` build is on \`${runtimeVersionOf(latest)}\`. What moved:`, '');
     try {
       const changes = explainAgainst(latest);
       if (changes.length) {

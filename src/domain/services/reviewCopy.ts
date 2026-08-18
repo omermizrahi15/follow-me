@@ -16,11 +16,12 @@
 /**
  * Why a round of "look for another photo" produced nothing.
  *
- * Only `exhausted` and `quota` mean stop asking. `capped` means the round hit
- * its own wave limit with the window still unfinished — reporting that as
- * "nothing left" is what greyed out the "+" on libraries with photos to spare.
+ * Only `exhausted`, `quota` and `failed` mean stop asking. `capped` means the
+ * round hit its own wave limit with the window still unfinished — reporting
+ * that as "nothing left" is what greyed out the "+" on libraries with photos to
+ * spare. `busy` is the provider throttling us, which clears on its own.
  */
-export type EmptyRoundReason = 'exhausted' | 'quota' | 'capped';
+export type EmptyRoundReason = 'exhausted' | 'quota' | 'busy' | 'capped' | 'failed';
 
 /** What a finished scan actually managed. Mirrors the use case's SuggestStats. */
 export interface ScanStats {
@@ -32,6 +33,8 @@ export interface ScanStats {
   unreadable: number;
   /** The day's classification budget ran out during the scan. */
   quotaExhausted: boolean;
+  /** The provider throttled us mid-scan — unlike the quota, this clears itself. */
+  rateLimited: boolean;
 }
 
 /**
@@ -44,6 +47,13 @@ export interface ScanStats {
  */
 export function emptyRoundNote(reason: EmptyRoundReason | null, attempted: number): string | null {
   if (reason === 'quota') return "Today's AI limit is used up — try again tomorrow.";
+  // Not tomorrow: the provider's per-minute ceiling clears on its own, and
+  // telling publishers to come back the next day for a half-minute pause is
+  // what made the feature look broken on the first attempt (issue #141).
+  if (reason === 'busy') return 'The photo AI is busy right now — wait a moment and tap again.';
+  // Never phrased as a fact about the library: the round failed before it could
+  // learn anything about it.
+  if (reason === 'failed') return 'Could not reach the photo AI — nothing was analysed. Try again in a moment.';
   if (reason === 'capped') {
     return attempted > 0
       ? `Checked ${attempted} more photo${attempted === 1 ? '' : 's'} — nothing worth adding yet. Tap again to keep looking.`
@@ -74,6 +84,9 @@ export function scanShortfallNote(stats: ScanStats | null): string | null {
   if (stats == null) return null;
   if (stats.quotaExhausted) {
     return `Today’s AI limit ran out after ${stats.graded} photos — the rest of those days aren’t analysed yet.`;
+  }
+  if (stats.rateLimited) {
+    return `The photo AI was busy after ${stats.graded} photos — rescan in a moment to finish the rest.`;
   }
   if (stats.unreadable > 0) {
     return `${stats.unreadable} photo${stats.unreadable === 1 ? '' : 's'} couldn’t be read — usually iCloud originals that haven’t downloaded. Rescanning after they do will find them.`;

@@ -1,7 +1,9 @@
 import { computeTwilioSignature, verifyTwilioSignature } from './twilioSignature';
 
 // A fixed, independently-reproducible vector (HMAC-SHA1, base64) computed from
-// the algorithm Twilio documents. Locks the implementation against regression.
+// the algorithm Twilio documents. Locks the implementation against regression —
+// including the move from node:crypto to Web Crypto, which has to keep
+// producing this exact string for the edge functions to accept real webhooks.
 const AUTH_TOKEN = '12345';
 const URL = 'https://mycompany.com/myapp.php?foo=1&bar=2';
 const PARAMS = {
@@ -13,74 +15,74 @@ const PARAMS = {
 const EXPECTED = 'V4AdhXOYoGGDl714zmEWoHCrr0A=';
 
 describe('computeTwilioSignature', () => {
-  it('produces the documented signature for the known vector', () => {
-    expect(computeTwilioSignature(AUTH_TOKEN, URL, PARAMS)).toBe(EXPECTED);
+  it('produces the documented signature for the known vector', async () => {
+    await expect(computeTwilioSignature(AUTH_TOKEN, URL, PARAMS)).resolves.toBe(EXPECTED);
   });
 
-  it('is independent of parameter insertion order (params are sorted by name)', () => {
+  it('is independent of parameter insertion order (params are sorted by name)', async () => {
     const reordered = {
       To: '+18005551212',
       From: '+14158675309',
       Caller: '+14158675309',
       Digits: '1234',
     };
-    expect(computeTwilioSignature(AUTH_TOKEN, URL, reordered)).toBe(EXPECTED);
+    await expect(computeTwilioSignature(AUTH_TOKEN, URL, reordered)).resolves.toBe(EXPECTED);
   });
 
-  it('changes when the URL changes', () => {
-    const other = computeTwilioSignature(AUTH_TOKEN, URL + '&x=1', PARAMS);
-    expect(other).not.toBe(EXPECTED);
+  it('changes when the URL changes', async () => {
+    await expect(computeTwilioSignature(AUTH_TOKEN, URL + '&x=1', PARAMS)).resolves.not.toBe(EXPECTED);
   });
 
-  it('changes when a parameter value changes', () => {
-    const other = computeTwilioSignature(AUTH_TOKEN, URL, { ...PARAMS, Digits: '9999' });
-    expect(other).not.toBe(EXPECTED);
+  it('changes when a parameter value changes', async () => {
+    await expect(
+      computeTwilioSignature(AUTH_TOKEN, URL, { ...PARAMS, Digits: '9999' }),
+    ).resolves.not.toBe(EXPECTED);
   });
 
-  it('changes when the auth token changes', () => {
-    expect(computeTwilioSignature('99999', URL, PARAMS)).not.toBe(EXPECTED);
+  it('changes when the auth token changes', async () => {
+    await expect(computeTwilioSignature('99999', URL, PARAMS)).resolves.not.toBe(EXPECTED);
   });
 });
 
 describe('verifyTwilioSignature', () => {
-  it('accepts a correct signature', () => {
-    expect(
+  it('accepts a correct signature', async () => {
+    await expect(
       verifyTwilioSignature({ authToken: AUTH_TOKEN, url: URL, params: PARAMS, signature: EXPECTED }),
-    ).toBe(true);
+    ).resolves.toBe(true);
   });
 
-  it('rejects a tampered signature', () => {
-    expect(
+  it('rejects a tampered signature', async () => {
+    await expect(
       verifyTwilioSignature({
         authToken: AUTH_TOKEN,
         url: URL,
         params: PARAMS,
         signature: 'AAAAAAAAAAAAAAAAAAAAAAAAAAA=',
       }),
-    ).toBe(false);
+    ).resolves.toBe(false);
   });
 
-  it('rejects a signature computed with the wrong auth token', () => {
-    const forged = computeTwilioSignature('wrong-token', URL, PARAMS);
-    expect(
+  it('rejects a signature computed with the wrong auth token', async () => {
+    const forged = await computeTwilioSignature('wrong-token', URL, PARAMS);
+    await expect(
       verifyTwilioSignature({ authToken: AUTH_TOKEN, url: URL, params: PARAMS, signature: forged }),
-    ).toBe(false);
+    ).resolves.toBe(false);
   });
 
-  it('rejects when params have been tampered with after signing', () => {
-    expect(
+  it('rejects when params have been tampered with after signing', async () => {
+    await expect(
       verifyTwilioSignature({
         authToken: AUTH_TOKEN,
         url: URL,
         params: { ...PARAMS, From: '+10000000000' },
         signature: EXPECTED,
       }),
-    ).toBe(false);
+    ).resolves.toBe(false);
   });
 
-  it.each([null, undefined, ''])('rejects a missing signature (%s)', signature => {
-    expect(
+  it.each([null, undefined, ''])('rejects a missing signature (%s)', async signature => {
+    await expect(
       verifyTwilioSignature({ authToken: AUTH_TOKEN, url: URL, params: PARAMS, signature }),
-    ).toBe(false);
+    ).resolves.toBe(false);
   });
 });
