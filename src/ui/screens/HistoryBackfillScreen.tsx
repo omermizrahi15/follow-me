@@ -6,13 +6,10 @@ import {
   ScrollView,
   ActivityIndicator,
   StyleSheet,
-  SafeAreaView,
   Alert,
 } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { useNavigation } from '@react-navigation/native';
-import type { RootNavigationProp } from '../navigation/types';
 import { usePublisherId } from '../context/AuthContext';
 import {
   useHistoryBackfill,
@@ -799,44 +796,17 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
   );
 }
 
-// ---------- full-screen wrapper (modal route) ----------
-
-/** The same flow as its own page, for the `HistoryBackfill` modal route. */
-export function HistoryBackfillScreen(): React.JSX.Element {
-  const navigation = useNavigation<RootNavigationProp>();
-  return (
-    <SafeAreaView style={styles.screen}>
-      <View style={styles.header}>
-        <TouchableOpacity
-          testID="backfill-close"
-          onPress={() => navigation.goBack()}
-          hitSlop={10}
-          accessibilityLabel="Close"
-        >
-          <Ionicons name="close" size={24} color={colors.text} />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Rebuild my history</Text>
-        <View style={styles.headerSpacer} />
-      </View>
-      <HistoryBackfillContent onDone={() => navigation.goBack()} />
-    </SafeAreaView>
-  );
-}
+/*
+ * There is no navigator wrapper here any more.
+ *
+ * This flow had two mount paths — inline in the Me sheet, and a `HistoryBackfill`
+ * modal route that nothing ever navigated to — which meant two sets of layout
+ * assumptions to verify on every change, one of them dead. The sheet is the one
+ * the publisher reaches (issue #118).
+ */
 
 const styles = StyleSheet.create({
-  screen: { flex: 1, backgroundColor: colors.background },
   content: { flex: 1 },
-  header: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    paddingHorizontal: spacing.lg,
-    paddingVertical: spacing.md,
-    borderBottomWidth: StyleSheet.hairlineWidth,
-    borderBottomColor: colors.border,
-  },
-  headerTitle: { ...typography.heading, color: colors.text },
-  headerSpacer: { width: 24 },
 
   body: { padding: spacing.lg, gap: spacing.md },
   lead: { ...typography.body, color: colors.textSecondary, lineHeight: 21 },

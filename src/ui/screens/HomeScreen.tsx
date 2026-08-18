@@ -83,6 +83,8 @@ export function HomeScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, 'Home'>>();
   const requestedSection = route.params?.section;
+  // Nonce from a reminder-notification tap — see RootStackParamList.Home.
+  const suggestionRequest = route.params?.suggestionRequest;
   const { shareInvite } = useInviteLink();
   const publisherId = usePublisherId();
   const { profile, reload: reloadProfile } = useProfile(publisherId);
@@ -125,6 +127,16 @@ export function HomeScreen(): React.JSX.Element {
   useEffect(() => {
     if (requestedSection != null) setSection(requestedSection);
   }, [requestedSection]);
+
+  // Tapping the reminder opens the suggested-post sheet. This is the only way
+  // in from a notification now that the review screen has no modal route of its
+  // own; the nonce is what makes a second tap reopen a sheet already closed.
+  useEffect(() => {
+    if (suggestionRequest == null) return;
+    setSuggestionKey(k => k + 1);
+    setShowingSuggestions(true);
+    snapTo(FULL_H);
+  }, [suggestionRequest]);
 
   // The Me page never unmounts (sections are local state, Upload is a modal on
   // top), so refresh the followers count and the profile whenever the screen
