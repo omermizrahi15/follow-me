@@ -73,6 +73,13 @@ export interface SuggestStats {
   unreadable: number;
   /** The day's classification budget ran out during the scan. */
   quotaExhausted: boolean;
+  /**
+   * The scan stopped short because the AI provider was throttling us. Same
+   * visible effect as a quota wall — fewer photos graded than found — but it
+   * lifts in seconds, so the shortfall is worth re-running now rather than
+   * tomorrow (issue #141).
+   */
+  rateLimited: boolean;
 }
 
 export interface SuggestResult {
@@ -101,6 +108,12 @@ export interface ClassifyMoreResult {
   /** The day's classification budget ran out mid-round — nothing more will work today. */
   quotaExhausted: boolean;
   /**
+   * The round stopped because the AI provider was throttling us, not because
+   * the day's budget is gone. Reported separately because the right advice is
+   * the opposite: wait a moment and try again, rather than come back tomorrow.
+   */
+  rateLimited: boolean;
+  /**
    * The round stopped at its wave limit with candidates still queued, rather
    * than because the window was spent. The distinction is the whole point of
    * the limit: "nothing found yet" must not be reported as "nothing exists".
@@ -120,7 +133,7 @@ export interface SuggestWindow {
 }
 
 function emptyStats(scanned: number, unique: number): SuggestStats {
-  return { scanned, unique, graded: 0, unreadable: 0, quotaExhausted: false };
+  return { scanned, unique, graded: 0, unreadable: 0, quotaExhausted: false, rateLimited: false };
 }
 
 /**
@@ -298,6 +311,7 @@ export class SuggestPhotosUseCase {
 
     const [batch, pool] = this.split(accumulated, config, alreadySent);
     const quotaExhausted = this.classifier.quotaExhausted?.() === true;
+    const rateLimited = this.classifier.rateLimited?.() === true;
     return {
       batch,
       pool,
@@ -311,8 +325,11 @@ export class SuggestPhotosUseCase {
         // whose bytes were unreadable. A quota wall is a different story, told
         // by `quotaExhausted` in its own words: the photos it skipped were
         // never attempted, so counting them as unreadable would be a lie.
-        unreadable: quotaExhausted ? 0 : ungraded.length - freshlyGraded.length,
+        // A throttled scan skipped photos it never attempted, for the same
+        // reason a quota wall does — neither is an unreadable file.
+        unreadable: quotaExhausted || rateLimited ? 0 : ungraded.length - freshlyGraded.length,
         quotaExhausted,
+        rateLimited,
       },
     };
   }
@@ -402,6 +419,7 @@ export class SuggestPhotosUseCase {
     let consumed = 0;
     let waves = 0;
     let quotaExhausted = false;
+    let rateLimited = false;
 
     while (consumed < candidates.length && suggestions.length < want && waves < maxWaves) {
       waves++;
@@ -427,6 +445,13 @@ export class SuggestPhotosUseCase {
         quotaExhausted = true;
         break;
       }
+      // Same reasoning, different wall: the provider is throttling and every
+      // remaining photo in this round would be throttled too. Stop here, but
+      // keep it distinguishable — this one clears in seconds.
+      if (this.classifier.rateLimited?.() === true) {
+        rateLimited = true;
+        break;
+      }
     }
 
     return {
@@ -434,9 +459,15 @@ export class SuggestPhotosUseCase {
       suggestions,
       consumed,
       quotaExhausted,
+      rateLimited,
       // Only a wave limit counts as "capped": a round that stopped because it
-      // found what it wanted, or because the queue ran dry, is not unfinished.
-      cappedEarly: suggestions.length < want && !quotaExhausted && consumed < candidates.length,
+      // found what it wanted, because the queue ran dry, or because it hit a
+      // wall, is not unfinished in the sense the "+" cares about.
+      cappedEarly:
+        suggestions.length < want &&
+        !quotaExhausted &&
+        !rateLimited &&
+        consumed < candidates.length,
     };
   }
 }
