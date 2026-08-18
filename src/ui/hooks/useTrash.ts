@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { listFeed, trashPosting } from '../../composition/container';
 import { toFeedPosting, type FeedPosting } from '../data/feed';
+import { invalidateFeed } from '../data/queries';
 
 interface TrashState {
   postings: FeedPosting[];
@@ -55,6 +56,8 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
       }));
       try {
         await trashPosting.restore({ publisherId, postingId });
+        // Back in the feed — the Me page and the globe pick it up from here.
+        invalidateFeed(publisherId);
       } catch (e: unknown) {
         const message = e instanceof Error ? e.message : 'Could not restore this post';
         setState(prev => ({ ...prev, postings: previous, error: message }));
@@ -72,16 +75,22 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
  * swipe plus a deliberate tap on a red Delete button already is the
  * confirmation, exactly as an iOS list row behaves. Safe to do without asking
  * because it is a soft delete: Settings → Deleted posts brings it back.
+ *
+ * `onTrashed` is optional and only for what the caller has to do beyond the
+ * data changing (the story viewer closes itself); the feed refreshes on its own.
  */
 export function moveToTrash(
   publisherId: string | null,
   posting: FeedPosting,
-  onTrashed: () => void,
+  onTrashed?: () => void,
 ): void {
   if (publisherId == null) return;
   void trashPosting
     .trash({ publisherId, postingId: posting.id })
-    .then(onTrashed)
+    .then(() => {
+      invalidateFeed(publisherId);
+      onTrashed?.();
+    })
     .catch(() => Alert.alert('Could not delete this post', 'Please try again.'));
 }
 
@@ -108,7 +117,10 @@ export function confirmMoveToTrash(
         onPress: () => {
           void trashPosting
             .trash({ publisherId, postingId: posting.id })
-            .then(onTrashed)
+            .then(() => {
+              invalidateFeed(publisherId);
+              onTrashed();
+            })
             .catch(() => Alert.alert('Could not delete this post', 'Please try again.'));
         },
       },

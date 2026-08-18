@@ -20,6 +20,7 @@ import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotif
 import { registerExpoPushToken } from '../infrastructure/notifiers/ExpoPushToken';
 import type { Coordinate, ISentPhotoTracker, PhotoSyncState } from '../domain/interfaces';
 import { resolvePostingPlace } from '../application/services/resolvePostingPlace';
+import { createQueryCache } from '../application/services/queryCache';
 import { ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
 import { WhatsAppEdgeNotifier } from '../infrastructure/notifiers/WhatsAppEdgeNotifier';
 import { RetryingNotifier } from '../infrastructure/notifiers/RetryingNotifier';
@@ -321,6 +322,14 @@ async function deleteCandidates(body: { olderThanDays?: number }): Promise<{ del
 
 /** Crash and event reporting. Callers pass the operation name that failed. */
 export { reportError, reportMessage };
+
+/**
+ * The app's one read cache (issue #114). Every screen that wants the feed, the
+ * profile or the followers goes through it, so the same row is fetched once and
+ * shared rather than once per hook instance. Bound here because "which cache"
+ * is a composition decision; the hooks only know the interface.
+ */
+export const queryCache = createQueryCache();
 
 /** Local URI for a media-library asset, and that asset's recorded GPS fix. */
 export { expoResolveLocalUri, mediaLibraryAssetLocation };
