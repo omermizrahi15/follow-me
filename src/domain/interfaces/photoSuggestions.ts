@@ -24,6 +24,17 @@ export interface IPhotoClassifier {
    * remaining windows producing empty posts (issue #81).
    */
   quotaExhausted?(): boolean;
+
+  /**
+   * Whether the last run stopped because the AI provider was rate limiting us,
+   * rather than because the day's budget is gone.
+   *
+   * Same shape of answer as `quotaExhausted` — stop the run, keep the grades —
+   * but a completely different thing to tell the publisher: this one clears in
+   * seconds, so "try again tomorrow" is both wrong and the reason the feature
+   * looked broken on the first attempt of the day (issue #141).
+   */
+  rateLimited?(): boolean;
 }
 
 /** Reads photos from the device library within a date window. */
