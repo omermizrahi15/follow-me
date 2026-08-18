@@ -43,7 +43,11 @@ jobs:
       - run: npm ci
       - uses: expo/expo-github-action@v8
         with:
-          eas-version: latest
+          # Ranged, not `latest`: eas-cli 22 renamed fields in `build:list --json`
+          # and `latest` walked into it between two merges, so the rebuild check
+          # read every build as incompatible and started builds nobody needed.
+          # Patches and minors still arrive; a major is now a deliberate edit.
+          eas-version: ^22.0.0
           token: ${{ secrets.EXPO_TOKEN }}
       - name: Resolve channel + bundle-time env
         run: |
@@ -86,7 +90,12 @@ jobs:
             const at = raw.search(/[[{]/);
             if (at < 0) throw new Error('no JSON in eas update output: ' + raw.slice(0, 200));
             const groups = JSON.parse(raw.slice(at));
-            const rv = (Array.isArray(groups) ? groups : [groups]).map((u) => u.runtimeVersion).find(Boolean);
+            // eas-cli 22 renamed this field on build payloads (runtimeVersion →
+            // runtime.version); read both here so an update payload following
+            // suit can't take the deploy down.
+            const rv = (Array.isArray(groups) ? groups : [groups])
+              .map((u) => u.runtimeVersion ?? u.runtime?.version)
+              .find(Boolean);
             if (!rv) throw new Error('no runtimeVersion in eas update output');
             console.log('RUNTIME_VERSION=' + rv);
           " >> "$GITHUB_ENV"
