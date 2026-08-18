@@ -57,6 +57,26 @@ function respondQuotaExhausted(): void {
     ok: false,
     status: 429,
     text: () => Promise.resolve('Daily classification quota exceeded'),
+    json: () =>
+      Promise.resolve({ error: 'Daily classification quota exceeded', reason: 'daily_quota' }),
+  });
+}
+
+/**
+ * Every request answers 429 with the provider's per-minute reason — the wall
+ * that clears in seconds, not the one that lasts until tomorrow (issue #141).
+ */
+function respondRateLimited(retryAfterSeconds = 0): void {
+  mockFetch.mockResolvedValue({
+    ok: false,
+    status: 429,
+    text: () => Promise.resolve('Classification rate limited'),
+    json: () =>
+      Promise.resolve({
+        error: 'Classification rate limited',
+        reason: 'rate_limited',
+        retry_after_seconds: retryAfterSeconds,
+      }),
   });
 }
 
@@ -194,6 +214,88 @@ describe('GeminiPhotoClassifier — daily quota (issue #81)', () => {
     await sut.classify([candidate('p2')]);
 
     expect(sut.quotaExhausted()).toBe(false);
+  });
+
+  it('does not treat the provider’s per-minute limit as the daily quota', async () => {
+    // The bug in issue #141: staging logs showed Gemini answering 429
+    // ("GenerateRequestsPerMinutePerProjectPerModel-FreeTier", limit 5) four
+    // seconds into a scan, with the next request succeeding — and the app
+    // telling the publisher their daily AI limit was gone, on the first try of
+    // the day. A throttle must never set the flag that means "come back
+    // tomorrow", and must never be filed as a spent budget.
+    respondRateLimited();
+    const sut = makeSut();
+
+    const results = await sut.classify([candidate('p1'), candidate('p2')]);
+
+    expect(results).toEqual([]);
+    expect(sut.quotaExhausted()).toBe(false);
+    expect(sut.rateLimited()).toBe(true);
+    expect(reportedQuota).not.toHaveBeenCalled();
+  });
+
+  it('waits out a throttle and finishes the run rather than abandoning it', async () => {
+    // The common case by far: one burst trips the per-minute ceiling, the
+    // window reopens, and the scan completes. Retrying the same photo is the
+    // whole point — the old code returned null for it and stopped the run.
+    let calls = 0;
+    mockFetch.mockImplementation(() => {
+      calls++;
+      if (calls === 1) {
+        return Promise.resolve({
+          ok: false,
+          status: 429,
+          text: () => Promise.resolve('rate limited'),
+          json: () => Promise.resolve({ reason: 'rate_limited', retry_after_seconds: 0 }),
+        });
+      }
+      return Promise.resolve({
+        ok: true,
+        status: 200,
+        json: () =>
+          Promise.resolve({
+            classifications: [
+              { id: 'p1', category: 'nature', confidence: 0.9, quality: 0.9, caption: 'c', scene: 's' },
+            ],
+          }),
+      });
+    });
+
+    const sut = makeSut();
+    const results = await sut.classify([candidate('p1')]);
+
+    expect(results).toHaveLength(1);
+    expect(sut.rateLimited()).toBe(false);
+    expect(sut.quotaExhausted()).toBe(false);
+  });
+
+  it('clears the throttle flag on the next run', async () => {
+    respondRateLimited();
+    const sut = makeSut();
+    await sut.classify([candidate('p1')]);
+    expect(sut.rateLimited()).toBe(true);
+
+    respondWithDelay(() => 1);
+    await sut.classify([candidate('p2')]);
+
+    expect(sut.rateLimited()).toBe(false);
+  });
+
+  it('treats a 429 with no reason as the daily quota, for older deployments', async () => {
+    // A client ahead of the function must not sit in a retry loop against a
+    // wall that genuinely lasts until tomorrow.
+    mockFetch.mockResolvedValue({
+      ok: false,
+      status: 429,
+      text: () => Promise.resolve('Daily classification quota exceeded'),
+      json: () => Promise.resolve({ error: 'Daily classification quota exceeded' }),
+    });
+    const sut = makeSut();
+
+    await sut.classify([candidate('p1')]);
+
+    expect(sut.quotaExhausted()).toBe(true);
+    expect(sut.rateLimited()).toBe(false);
   });
 
   it('does not report or flag the quota for an ordinary server failure', async () => {

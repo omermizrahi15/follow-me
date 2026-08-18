@@ -20,7 +20,7 @@ import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
-import { SectionNav, type HomeSection } from '../navigation/SectionNav';
+import { SectionNav, SECTION_NAV_HEIGHT, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
 import { PostCard, POST_CARD_HEIGHT } from '../components/PostCard';
 import { RouteGlobe } from '../map/RouteGlobe';
@@ -44,7 +44,7 @@ const MEDIUM_H = Math.round(SCREEN_H * 0.42);
 const FULL_H = Math.round(SCREEN_H * 0.84);
 const SNAPS = [SMALL_H, MEDIUM_H, FULL_H];
 /** Height of the floating nav bar — the sheet's lowest band stays glassy so the nav reads as glass. */
-const NAV_BAR_H = 56;
+const NAV_BAR_H = SECTION_NAV_HEIGHT;
 
 /**
  * The sheet is always FULL_H tall and slides down to shrink, instead of being
@@ -552,15 +552,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 11 },
-  // The bar spans the screen rather than hugging the left edge: it is the app's
-  // primary navigation, and the tabs inside it share the full width evenly.
-  // The bar spans the width between these insets; `stretch` is what hands it
-  // that width. Centring it instead let it collapse to the size of its own
-  // tabs, which is what made it look squeezed into the middle of the screen.
+  // A centred capsule 80% of the screen wide: percentage insets rather than
+  // fixed points, so it keeps those proportions on a small phone and a tablet
+  // alike. `stretch` is what hands the bar that width — without it the bar
+  // collapses to the size of its own tabs and drifts off centre.
   navWrap: {
     position: 'absolute',
-    left: spacing.md,
-    right: spacing.md,
+    left: '10%',
+    right: '10%',
     flexDirection: 'row',
     alignItems: 'stretch',
   },

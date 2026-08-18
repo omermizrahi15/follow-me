@@ -440,6 +440,12 @@ export class FakePhotoClassifier implements IPhotoClassifier {
    * first call succeeds and every call after it comes back empty.
    */
   quotaExhaustedFromCallIndex: number | null = null;
+  /**
+   * Same idea for the provider's per-minute ceiling (issue #141) — the wall
+   * that clears in seconds. Kept separate from the quota so tests can prove the
+   * two are never conflated.
+   */
+  rateLimitedFromCallIndex: number | null = null;
 
   constructor(private readonly byId: Map<string, PhotoClassification> = new Map()) {}
 
@@ -447,6 +453,12 @@ export class FakePhotoClassifier implements IPhotoClassifier {
     return (
       this.quotaExhaustedFromCallIndex != null &&
       this.callCount >= this.quotaExhaustedFromCallIndex
+    );
+  }
+
+  rateLimited(): boolean {
+    return (
+      this.rateLimitedFromCallIndex != null && this.callCount >= this.rateLimitedFromCallIndex
     );
   }
 
@@ -459,8 +471,10 @@ export class FakePhotoClassifier implements IPhotoClassifier {
     this.receivedCandidateIds = [];
     const results: PhotoClassification[] = [];
     const total = candidates.length;
-    // Out of budget: the real function 429s every photo, yielding nothing.
-    if (this.quotaExhausted()) return Promise.resolve(results);
+    // Out of budget, or throttled after exhausting its patience: the real
+    // classifier yields nothing in both cases — what differs is the reason it
+    // reports, which is the point of keeping the two flags apart.
+    if (this.quotaExhausted() || this.rateLimited()) return Promise.resolve(results);
     for (const c of candidates) {
       this.receivedCandidateIds.push(c.id);
       const r = this.byId.get(c.id);

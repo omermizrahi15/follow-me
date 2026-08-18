@@ -42,6 +42,41 @@ export class ClassificationFailedError extends Error {
   }
 }
 
+/**
+ * Why classify-photos answered 429.
+ *
+ * `rate_limited` is Gemini's per-minute cap on the shared API key and clears in
+ * seconds; `daily_quota` is our own per-user ceiling and lasts until tomorrow.
+ * They shared a bare 429 with nothing to tell them apart, which is what made a
+ * half-minute pause read as "come back tomorrow" on the first scan of the day.
+ */
+interface Refusal {
+  reason: 'rate_limited' | 'daily_quota';
+  retryAfterSeconds: number;
+}
+
+/**
+ * Reads the reason off a 429.
+ *
+ * Falls back to `daily_quota` when the body says nothing — an older deployment
+ * of the function, which only ever sent the bare daily-quota 429. Guessing
+ * `rate_limited` there would make the app wait and retry against a wall that
+ * genuinely lasts until tomorrow.
+ */
+async function readRefusal(res: Response): Promise<Refusal> {
+  const body = (await res.json().catch(() => null)) as {
+    reason?: unknown;
+    retry_after_seconds?: unknown;
+  } | null;
+  const seconds = Number(body?.retry_after_seconds);
+  return {
+    reason: body?.reason === 'rate_limited' ? 'rate_limited' : 'daily_quota',
+    // Zero is a real answer ("the window is open again"), so it must survive
+    // the fallback — only a missing or nonsensical value gets the default.
+    retryAfterSeconds: Number.isFinite(seconds) && seconds >= 0 ? seconds : 30,
+  };
+}
+
 interface RawClassification {
   id: string;
   category: PhotoCategory;
@@ -74,6 +109,18 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
   /** Attempts per photo — transient network drops get one retry. */
   private static readonly MAX_ATTEMPTS = 2;
 
+  /**
+   * How many times one photo will sit out a rate-limit window before the run
+   * gives up on it. Three waits covers the ordinary case — a burst trips the
+   * per-minute cap, the window reopens, the scan finishes — without leaving a
+   * publisher staring at a progress bar for minutes because the key is
+   * genuinely saturated.
+   */
+  private static readonly MAX_RATE_LIMIT_WAITS = 3;
+
+  /** Longest single wait honoured, whatever the server asks for. */
+  private static readonly MAX_RATE_LIMIT_WAIT_MS = 60_000;
+
   constructor(
     private readonly functionUrl: string,
     private readonly authKey: string,
@@ -102,8 +149,47 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
   /** Photos the current classify() run started with — reported alongside a quota hit. */
   private runSize = 0;
 
+  /**
+   * Set when the run gave up waiting on Gemini's per-minute cap. Distinct from
+   * `hitQuota`: this one says "busy, try again shortly", not "come back
+   * tomorrow", and conflating the two is the whole of issue #141.
+   */
+  private hitRateLimit = false;
+
+  /**
+   * When the next request may go out, as an epoch ms. Shared by every in-flight
+   * worker so a tripped rate limit pauses the whole run rather than the one
+   * photo that happened to hit it.
+   */
+  private rateLimitedUntil = 0;
+
   quotaExhausted(): boolean {
     return this.hitQuota;
+  }
+
+  rateLimited(): boolean {
+    return this.hitRateLimit;
+  }
+
+  /**
+   * Whether the run has hit a wall that every remaining photo would hit too.
+   * Once either is set, further requests are wasted round trips — stop feeding
+   * the queue and keep what has already been graded.
+   */
+  private stopped(): boolean {
+    return this.hitQuota || this.hitRateLimit;
+  }
+
+  /** Hold every worker back until `seconds` from now. */
+  private pauseFor(seconds: number): void {
+    const wait = Math.min(seconds * 1000, GeminiPhotoClassifier.MAX_RATE_LIMIT_WAIT_MS);
+    this.rateLimitedUntil = Math.max(this.rateLimitedUntil, Date.now() + wait);
+  }
+
+  /** Resolves once the current rate-limit window (if any) has passed. */
+  private async awaitRateLimitWindow(): Promise<void> {
+    const remaining = this.rateLimitedUntil - Date.now();
+    if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
   }
 
   async classify(
@@ -112,6 +198,8 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     shouldStop?: () => boolean,
   ): Promise<PhotoClassification[]> {
     this.hitQuota = false;
+    this.hitRateLimit = false;
+    this.rateLimitedUntil = 0;
     this.runSize = candidates.length;
     if (candidates.length === 0) return [];
 
@@ -149,7 +237,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           !settled &&
           // Once the day's budget is gone every further request is a wasted
           // round trip that answers 429 — stop feeding the queue.
-          !this.hitQuota &&
+          !this.stopped() &&
           inFlight() < GeminiPhotoClassifier.CONCURRENCY &&
           nextIdx < total
         ) {
@@ -169,7 +257,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
               onEach?.(result, results.length, total);
             }
 
-            if ((shouldStop?.() ?? false) || completed >= total || this.hitQuota) {
+            if ((shouldStop?.() ?? false) || completed >= total || this.stopped()) {
               finish();
             } else {
               launch();
@@ -207,7 +295,16 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     const bearer = userToken ?? this.authKey;
 
     let lastNetworkError: unknown;
-    for (let attempt = 1; attempt <= GeminiPhotoClassifier.MAX_ATTEMPTS; attempt++) {
+    let networkAttempts = 0;
+    let rateLimitWaits = 0;
+
+    while (networkAttempts < GeminiPhotoClassifier.MAX_ATTEMPTS) {
+      // Every worker sits out a rate-limit window, not only the one that hit it:
+      // with four photos in flight against a five-per-minute ceiling, letting
+      // the others keep firing just spends the next window before it opens.
+      await this.awaitRateLimitWindow();
+
+      networkAttempts++;
       let res: Response;
       try {
         res = await fetch(this.functionUrl, {
@@ -226,10 +323,35 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         continue;
       }
 
-      // 429 is the daily quota, not a broken classifier: the grades already in
-      // hand are real and worth keeping, and the caller reports the wall in its
-      // own words ("today's AI limit ran out after N photos"). Soft on purpose.
       if (res.status === 429) {
+        const refusal = await readRefusal(res);
+
+        // Gemini's per-minute cap, which clears on its own in seconds. This is
+        // the overwhelmingly common 429 and it used to be indistinguishable
+        // from the daily ceiling, so the app told publishers to come back
+        // tomorrow on the first scan of the day — while the very next request
+        // would have succeeded. Wait the window out and try the same photo again.
+        if (refusal.reason === 'rate_limited' && rateLimitWaits < GeminiPhotoClassifier.MAX_RATE_LIMIT_WAITS) {
+          rateLimitWaits++;
+          // A throttled request never reached the model, so it must not spend
+          // one of the two attempts reserved for genuine network trouble.
+          networkAttempts--;
+          this.pauseFor(refusal.retryAfterSeconds);
+          continue;
+        }
+
+        // Still throttled after waiting as long as we're willing to. Soft-stop
+        // the run like the quota wall — the grades in hand are real — but say
+        // "busy", because tomorrow has nothing to do with it.
+        if (refusal.reason === 'rate_limited') {
+          this.hitRateLimit = true;
+          console.warn(`classify-photos still rate limited for ${c.id} after ${rateLimitWaits} waits`);
+          return null;
+        }
+
+        // The daily quota: our own per-user ceiling. The grades already in hand
+        // are real and worth keeping, and the caller reports the wall in its own
+        // words ("today's AI limit ran out after N photos"). Soft on purpose.
         if (!this.hitQuota) {
           this.hitQuota = true;
           // Reported once per run, not once per photo: a quota wall trips

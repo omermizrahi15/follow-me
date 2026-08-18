@@ -33,6 +33,16 @@ tags:
 - tapOn:
     id: "signin-verify-button"
 # Home = the Me page; the settings gear only exists there.
+#
+# If this is the assertion you are staring at, check the test-OTP pair BEFORE
+# you go looking at Home. A lapsed pair (the dashboard entry carries a
+# valid-until date) fails `verify` with 403 otp_expired, which leaves the app on
+# the code screen showing `signin-error` — and the first thing that notices is
+# this line, 15s later, naming the wrong screen. CI preflights the pair for
+# exactly this reason; locally:
+#   curl -s -X POST "$SUPABASE_URL/auth/v1/verify" -H "apikey: $ANON_KEY" \
+#     -H 'Content-Type: application/json' \
+#     -d '{"type":"sms","phone":"'"$E2E_PHONE"'","token":"'"$E2E_OTP"'"}'
 - extendedWaitUntil:
     visible:
       id: "home-settings-button"
