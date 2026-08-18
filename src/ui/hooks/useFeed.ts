@@ -1,48 +1,37 @@
-import { useCallback, useState } from 'react';
-import { useFocusEffect } from '@react-navigation/native';
 import { listFeed } from '../../composition/container';
 import { toFeedPosting, type FeedPosting } from '../data/feed';
+import { feedKey } from '../data/queries';
+import { useCachedQuery } from './useCachedQuery';
 
-interface FeedState {
+interface UseFeed {
   postings: FeedPosting[];
   loading: boolean;
   error: string | null;
-}
-
-interface UseFeed extends FeedState {
   reload: () => Promise<void>;
 }
 
-/** The publisher's real feed — uploaded media grouped into postings, newest first. */
+/**
+ * The publisher's real feed — uploaded media grouped into postings, newest first.
+ *
+ * Served from the shared cache (issue #114), so the Me page and the map render
+ * the same array from one request, and coming back to Home shows it instantly
+ * while any refresh happens behind. Writes that change the feed invalidate it
+ * (see `ui/data/queries`), so nothing has to ask for a reload by hand.
+ *
+ * Still refreshes on focus: a post can appear without this app fetching
+ * anything — the approval notification's "Post now" publishes server-side while
+ * the app is backgrounded.
+ */
 export function useFeed(publisherId: string | null): UseFeed {
-  const [state, setState] = useState<FeedState>({ postings: [], loading: true, error: null });
-
-  const reload = useCallback(async (): Promise<void> => {
-    if (publisherId == null) {
-      // Callers should mount the feed only after auth resolves; surface the
-      // mistake in dev instead of silently rendering an empty feed.
-      if (__DEV__) console.warn('useFeed: no publisherId — rendering an empty feed');
-      setState({ postings: [], loading: false, error: null });
-      return;
-    }
-    setState(prev => ({ ...prev, loading: true, error: null }));
-    try {
-      const dtos = await listFeed.list(publisherId);
-      setState({ postings: dtos.map(toFeedPosting), loading: false, error: null });
-    } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Could not load your posts';
-      setState({ postings: [], loading: false, error: message });
-    }
-  }, [publisherId]);
-
-  // Refetch on every focus, not just mount — the Home screen stays mounted
-  // under pushed screens (Upload, review), so returning from a post would
-  // otherwise show a stale feed.
-  useFocusEffect(
-    useCallback(() => {
-      void reload();
-    }, [reload]),
+  const { data, loading, error, reload } = useCachedQuery(
+    publisherId != null ? feedKey(publisherId) : null,
+    async () => {
+      // Unreachable while signed out: a null key means the query never runs.
+      if (publisherId == null) return [];
+      return (await listFeed.list(publisherId)).map(toFeedPosting);
+    },
+    { revalidateOnFocus: true },
   );
 
-  return { ...state, reload };
+  return { postings: data ?? [], loading, error, reload };
 }
