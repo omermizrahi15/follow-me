@@ -571,15 +571,15 @@ const styles = StyleSheet.create({
   inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 11 },
   // The bar spans the screen rather than hugging the left edge: it is the app's
   // primary navigation, and the tabs inside it share the full width evenly.
-  // The bar sizes itself to its tabs; this only centres it and keeps it clear
-  // of the screen edges on narrow phones.
+  // The bar spans the width between these insets; `stretch` is what hands it
+  // that width. Centring it instead let it collapse to the size of its own
+  // tabs, which is what made it look squeezed into the middle of the screen.
   navWrap: {
     position: 'absolute',
     left: spacing.md,
     right: spacing.md,
     flexDirection: 'row',
-    justifyContent: 'center',
-    alignItems: 'center',
+    alignItems: 'stretch',
   },
   // "New post" chooser
   chooserBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,12,18,0.45)' },
