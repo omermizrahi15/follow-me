@@ -78,16 +78,32 @@ export function clamp01(n: unknown): number {
   return Math.max(0, Math.min(1, v));
 }
 
-/** Map an arbitrary value to a known Category, defaulting unknowns to 'other'. */
-export function normalizeCategory(c: unknown): Category {
-  return CATEGORIES.includes(c as Category) ? (c as Category) : 'other';
+/** The known Category for `c`, or null when the model returned something else. */
+export function asCategory(c: unknown): Category | null {
+  return CATEGORIES.includes(c as Category) ? (c as Category) : null;
 }
 
-/** Turn the model's parsed JSON into a safe Classification (bad/missing fields defaulted). */
+/**
+ * Turn the model's parsed JSON into a Classification.
+ *
+ * Scores and free text are still defaulted defensively — a missing caption is
+ * cosmetic — but an unrecognised `category` throws instead of becoming `other`.
+ * The distinction matters because `other` is a real answer the model gives on
+ * purpose (screenshots, receipts, blurry shots), so *inventing* one for a
+ * malformed response let a broken model contract reach the device disguised as
+ * a confident grade. Since `other` is excluded from the swap pool and grades
+ * are remembered for months, that quietly retired the photo for good.
+ */
 export function parseClassification(id: string, parsed: Record<string, unknown>): Classification {
+  const category = asCategory(parsed.category);
+  if (category == null) {
+    throw new Error(
+      `classify ${id}: model returned unknown category ${JSON.stringify(parsed.category)}`,
+    );
+  }
   return {
     id,
-    category: normalizeCategory(parsed.category),
+    category,
     confidence: clamp01(parsed.confidence),
     quality: clamp01(parsed.quality),
     caption: typeof parsed.caption === 'string' ? parsed.caption : '',

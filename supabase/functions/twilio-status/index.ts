@@ -22,7 +22,8 @@
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { formToParams, verifyTwilioSignature } from '../_shared/optOut.ts';
+import { formToParams } from '../_shared/twilioWebhook.ts';
+import { verifyTwilioSignature } from '../../../src/infrastructure/notifiers/twilioSignature.ts';
 import { markSubscriberUnreachable } from '../_shared/messageLog.ts';
 import { shouldMarkUnreachable } from './logic.ts';
 

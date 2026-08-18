@@ -1,6 +1,9 @@
 /**
- * Tests for the Deno `_shared/twilio.ts` module used by the edge functions —
- * the PRODUCTION WhatsApp send path (send-post / auto-post / subscribe).
+ * Tests for the Twilio client behind the PRODUCTION WhatsApp send path
+ * (send-post / auto-post / subscribe). One module, two runtimes: the Edge
+ * Functions import it directly and there is a matching Deno suite in
+ * supabase/functions/_shared/twilioClient_test.ts.
+ *
  * Covers issue #24's retry acceptance criterion: transient Twilio errors are
  * retried with exponential back-off (a mock that fails twice then succeeds),
  * permanent failures are never retried, and the message SID is surfaced for
@@ -11,7 +14,7 @@ import {
   sendBatch,
   TwilioSendError,
   type TwilioCreds,
-} from '../../../supabase/functions/_shared/twilio';
+} from '../notifiers/twilioClient';
 import {
   isFailureStatus,
   isUnreachableErrorCode,
@@ -29,7 +32,7 @@ function twilioError(status: number, code?: number): Response {
   return new Response(JSON.stringify({ code: code ?? null, message: 'boom' }), { status });
 }
 
-describe('sendWhatsApp (edge _shared/twilio)', () => {
+describe('sendWhatsApp (twilioClient)', () => {
   it('retries and succeeds when Twilio fails twice with 429 then accepts', async (): Promise<void> => {
     const fetchImpl = jest
       .fn<Promise<Response>, Parameters<typeof fetch>>()

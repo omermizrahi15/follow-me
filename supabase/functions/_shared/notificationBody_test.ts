@@ -1,5 +1,5 @@
 import { assertStringIncludes } from '@std/assert';
-import { composeAutoPostBody } from './notificationBody.ts';
+import { composeAutoPostBody } from '../../../src/domain/services/notificationBody.ts';
 
 Deno.test('headline without a place', () => {
   assertStringIncludes(composeAutoPostBody('Uri'), "Check out Uri's latest photos");

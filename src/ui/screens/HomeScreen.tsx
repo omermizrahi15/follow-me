@@ -554,12 +554,15 @@ const styles = StyleSheet.create({
   inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 11 },
   // The bar spans the screen rather than hugging the left edge: it is the app's
   // primary navigation, and the tabs inside it share the full width evenly.
+  // The bar sizes itself to its tabs; this only centres it and keeps it clear
+  // of the screen edges on narrow phones.
   navWrap: {
     position: 'absolute',
     left: spacing.md,
     right: spacing.md,
     flexDirection: 'row',
-    alignItems: 'stretch',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   // "New post" chooser
   chooserBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,12,18,0.45)' },

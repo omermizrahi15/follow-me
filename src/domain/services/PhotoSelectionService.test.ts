@@ -53,48 +53,61 @@ beforeEach(() => {
   makeSeq = 0;
 });
 
-describe('PhotoSelectionService — burst dedup', () => {
+describe('PhotoSelectionService — burst ordering', () => {
   function candidate(id: string, ms: number): PhotoCandidate {
     return { id, uri: `https://cdn.test/${id}.jpg`, createdAt: new Date(ms) };
   }
 
   it('returns empty for empty input', () => {
-    expect(service.deduplicateCandidates([])).toEqual([]);
+    expect(service.gradingOrder([])).toEqual([]);
   });
 
   it('keeps a single photo', () => {
     const c = candidate('a', 0);
-    expect(service.deduplicateCandidates([c])).toEqual([c]);
+    expect(service.gradingOrder([c])).toEqual([c]);
   });
 
-  it('keeps only the first photo of a burst group', () => {
-    const result = service.deduplicateCandidates([
+  it('puts one photo per burst first, then the followers — losing none', () => {
+    const result = service.gradingOrder([
       candidate('a', 0),
       candidate('b', 10_000),  // 10s after a → same burst
       candidate('c', 25_000),  // 25s after a → same burst
       candidate('d', 30_000),  // exactly 30s after a → new group (>= threshold)
       candidate('e', 35_000),  // 5s after d → same burst as d
     ]);
-    expect(result.map(c => c.id)).toEqual(['a', 'd']);
+    // Leaders newest-first (d, a), then followers newest-first (e, c, b).
+    // Every photo is still here: the old dedup returned just ['a', 'd'] and
+    // the other three were unreachable by any route the publisher had.
+    expect(result.map(c => c.id)).toEqual(['d', 'a', 'e', 'c', 'b']);
   });
 
-  it('keeps all photos when every gap exceeds the window', () => {
-    const result = service.deduplicateCandidates([
+  it('treats every photo as its own moment when the gaps are wide', () => {
+    const result = service.gradingOrder([
       candidate('a', 0),
       candidate('b', 30_000),
       candidate('c', 60_000),
     ]);
-    expect(result.map(c => c.id)).toEqual(['a', 'b', 'c']);
+    expect(result.map(c => c.id)).toEqual(['c', 'b', 'a']);
   });
 
-  it('sorts by createdAt before deduplicating (input order independent)', () => {
-    // b is listed first but is earlier than a — after sort, a is kept
-    const result = service.deduplicateCandidates([
+  it('sorts by createdAt first, so input order cannot change the grouping', () => {
+    const result = service.gradingOrder([
       candidate('b', 10_000),
       candidate('a', 0),
     ]);
-    // both within 30s → only earliest (a) is kept
-    expect(result.map(c => c.id)).toEqual(['a']);
+    // a leads its burst (it is earliest); b follows rather than vanishing.
+    expect(result.map(c => c.id)).toEqual(['a', 'b']);
+  });
+
+  it('counts distinct moments without discarding anything', () => {
+    const shots = [
+      candidate('a', 0),
+      candidate('b', 10_000),
+      candidate('c', 30_000),
+      candidate('d', 35_000),
+    ];
+    expect(service.distinctMoments(shots)).toBe(2);
+    expect(service.gradingOrder(shots)).toHaveLength(4);
   });
 });
 
@@ -136,37 +149,80 @@ describe('PhotoSelectionService — filtering', () => {
     expect(ids(batch)).toEqual(['fresh']);
   });
 
-  it('deduplicates photos with the same scene in pass 1, but uses them in pass 2 to fill quota', () => {
+  it('caps how many photos may share one scene, then fills by score', () => {
     const cfg = config({ enabledCategories: ['nature'], photosPerPost: 5 });
     const batch = service.selectBatch(
       [
         { ...make({ id: 'a', category: 'nature', quality: 0.9 }), scene: 'beach-sunset' },
         { ...make({ id: 'b', category: 'nature', quality: 0.8 }), scene: 'beach-sunset' },
+        { ...make({ id: 'x', category: 'nature', quality: 0.75 }), scene: 'beach-sunset' },
         { ...make({ id: 'c', category: 'nature', quality: 0.7 }), scene: 'mountain-view' },
       ],
       cfg,
     );
-    // Pass 1: a + c (scene-diverse). Pass 2: b fills the remaining slot (quota=5, only 3 photos total).
-    expect(ids(batch)).toEqual(['a', 'c', 'b']);
+    // Two beach-sunsets are allowed, the third waits; mountain-view goes ahead
+    // of it. With the quota unmet, 'x' then fills the remaining slot.
+    expect(ids(batch)).toEqual(['a', 'b', 'c', 'x']);
   });
 
-  it('deduplicates same-scene photos across different categories (global scene set)', () => {
-    // 'a' (selfie_with_view) and 'b' (nature) share scene "beach-sunset" — different categories.
-    // Without global scene dedup they would both appear; with it, only 'a' (higher quality) does.
+  it('caps a scene across categories, not per category', () => {
+    // 'a' (selfie_with_view) and 'b' (nature) share scene "beach-sunset". The
+    // cap is global: two photos of one place is two photos of one place,
+    // whatever the classifier called them.
     const cfg = config({ enabledCategories: ['selfie_with_view', 'nature'], photosPerPost: 5 });
     const batch = service.selectBatch(
       [
         { ...make({ id: 'a', category: 'selfie_with_view', quality: 0.9 }), scene: 'beach-sunset' },
         { ...make({ id: 'b', category: 'nature', quality: 0.85 }), scene: 'beach-sunset' },
+        { ...make({ id: 'x', category: 'nature', quality: 0.8 }), scene: 'beach-sunset' },
         { ...make({ id: 'c', category: 'nature', quality: 0.7 }), scene: 'mountain-view' },
       ],
       cfg,
     );
-    // Pass 1: a (beach-sunset taken → b skipped), c (mountain-view taken). Only 2 unique scenes.
-    // Pass 2: b fills the remaining slot.
-    expect(ids(batch)).toEqual(['a', 'c', 'b']);
-    // The key assertion: 'a' and 'b' are NOT both in the first two slots.
-    expect(ids(batch).slice(0, 2)).not.toContain('b');
+    expect(ids(batch).slice(0, 3)).toEqual(['a', 'b', 'c']);
+    // The third beach-sunset is deferred past the differently-scened photo.
+    expect(ids(batch).indexOf('x')).toBeGreaterThan(ids(batch).indexOf('c'));
+  });
+
+  it('prefers the better photo over the higher-priority category', () => {
+    // The old round-robin dealt one photo per category in turn, so a mediocre
+    // photo in the first category outranked an excellent one in the second no
+    // matter the grades. Quality leads now; priority only tilts.
+    const cfg = config({ enabledCategories: ['nature', 'food'], photosPerPost: 5 });
+    const batch = service.selectBatch(
+      [
+        make({ id: 'great-food', category: 'food', quality: 0.95 }),
+        make({ id: 'poor-nature', category: 'nature', quality: 0.2 }),
+        make({ id: 'good-food', category: 'food', quality: 0.9 }),
+      ],
+      cfg,
+    );
+    expect(ids(batch)).toEqual(['great-food', 'good-food', 'poor-nature']);
+  });
+
+  it('lets category priority break a tie between equally good photos', () => {
+    const cfg = config({ enabledCategories: ['nature', 'food'], photosPerPost: 5 });
+    const batch = service.selectBatch(
+      [
+        make({ id: 'f', category: 'food', quality: 0.8 }),
+        make({ id: 'n', category: 'nature', quality: 0.8 }),
+      ],
+      cfg,
+    );
+    expect(ids(batch)).toEqual(['n', 'f']);
+  });
+
+  it('honours the publisher’s quality floor rather than padding the post', () => {
+    // minQuality was stored on PublisherConfig and read by nothing at all.
+    const cfg = config({ enabledCategories: ['nature'], photosPerPost: 5, minQuality: 0.5 });
+    const batch = service.selectBatch(
+      [
+        make({ id: 'good', category: 'nature', quality: 0.9 }),
+        make({ id: 'weak', category: 'nature', quality: 0.3 }),
+      ],
+      cfg,
+    );
+    expect(ids(batch)).toEqual(['good']);
   });
 
   it('never dedups photos with blank or whitespace-only scenes', () => {
@@ -227,23 +283,26 @@ describe('PhotoSelectionService — ranking within a category', () => {
 });
 
 describe('PhotoSelectionService — diversity', () => {
-  it('round-robins across categories instead of filling with one', () => {
-    // food has more, higher-quality photos, but nature must still appear.
+  it('lets a much better category win the post outright', () => {
+    // The old round-robin guaranteed nature a slot per round regardless of how
+    // much better the food photos were, which is precisely the behaviour the
+    // grades were supposed to decide. Variety is now the scene cap's job, not
+    // the category's — these all have distinct scenes, so nothing holds the
+    // strong photos back.
     const cfg = config({ enabledCategories: ['nature', 'food'] });
     const batch = service.selectBatch(
       [
-        make({ id: 'f1', category: 'food', quality: 0.99 }),
-        make({ id: 'f2', category: 'food', quality: 0.98 }),
-        make({ id: 'f3', category: 'food', quality: 0.97 }),
-        make({ id: 'f4', category: 'food', quality: 0.96 }),
-        make({ id: 'f5', category: 'food', quality: 0.95 }),
-        make({ id: 'v1', category: 'nature', quality: 0.7 }),
-        make({ id: 'v2', category: 'nature', quality: 0.6 }),
+        { ...make({ id: 'f1', category: 'food', quality: 0.99 }), scene: 's1' },
+        { ...make({ id: 'f2', category: 'food', quality: 0.98 }), scene: 's2' },
+        { ...make({ id: 'f3', category: 'food', quality: 0.97 }), scene: 's3' },
+        { ...make({ id: 'f4', category: 'food', quality: 0.96 }), scene: 's4' },
+        { ...make({ id: 'f5', category: 'food', quality: 0.95 }), scene: 's5' },
+        { ...make({ id: 'v1', category: 'nature', quality: 0.7 }), scene: 's6' },
+        { ...make({ id: 'v2', category: 'nature', quality: 0.6 }), scene: 's7' },
       ],
       cfg,
     );
-    // interleave in enabledCategories order until nature is exhausted, then food fills
-    expect(ids(batch)).toEqual(['v1', 'f1', 'v2', 'f2', 'f3']);
+    expect(ids(batch)).toEqual(['f1', 'f2', 'f3', 'f4', 'f5']);
   });
 
   it('falls back to a single category when only one is present', () => {
@@ -283,8 +342,12 @@ describe('isSuggestablePhoto', () => {
     expect(isSuggestablePhoto(make({ category: 'food' }), config())).toBe(true);
   });
 
-  it('rejects the `other` bucket — screenshots and receipts are not suggestions', () => {
-    expect(isSuggestablePhoto(make({ category: 'other' }), config())).toBe(false);
+  it('accepts the `other` bucket, which ranking sinks to the bottom instead', () => {
+    // Hiding `other` outright is what made "nothing else worth posting in those
+    // days" a lie: far more photos land there than the name suggests, and they
+    // were graded and held in the pool only to be filtered out of every offer.
+    // They are offerable now and simply score last.
+    expect(isSuggestablePhoto(make({ category: 'other' }), config())).toBe(true);
   });
 
   it('rejects categories the publisher switched off', () => {

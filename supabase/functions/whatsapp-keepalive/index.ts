@@ -29,7 +29,11 @@
  *      deliverable outside the session window).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { credsFromEnv, sendWhatsAppTemplate, TwilioSendError } from '../_shared/twilio.ts';
+import {
+  credsFromEnv,
+  sendWhatsAppTemplate,
+  TwilioSendError,
+} from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { buildPostTemplate } from '../_shared/postTemplate.ts';
 import { logAcceptedSend, logRejectedSend } from '../_shared/messageLog.ts';
 

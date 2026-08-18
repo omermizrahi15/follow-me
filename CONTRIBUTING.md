@@ -50,6 +50,52 @@ There are no `eslint-disable` waivers on these rules, and new ones shouldn't be 
 
 If you need to add a new delivery mechanism (email, push notifications, etc.), implement the `INotifier` interface in `infrastructure/notifiers/`. Do not modify any use case.
 
+## Code that runs in both runtimes
+
+The app is not the only thing that runs our business rules. The Supabase Edge Functions post autonomously, answer Twilio's webhooks, and pick photo batches with no device involved — so a handful of modules under `src/` execute in **two runtimes**: React Native (via Metro) and Deno (via `supabase functions deploy`).
+
+**There is one copy of each, and it lives in `src/`.** The Edge Functions import it by relative path:
+
+```ts
+// supabase/functions/auto-post/index.ts
+import { selectBatch } from '../../../src/domain/services/photoSelection.ts';
+```
+
+Until #117 these were hand-maintained Deno mirrors under `supabase/functions/_shared/`, kept in step by a `// KEEP IN SYNC` comment. Six of them, ~2,000 lines, one of which decided which photos a publisher's followers actually receive. Don't bring that back: `src/dualRuntime.test.ts` fails on any file under `supabase/functions/` carrying a mirror marker.
+
+What lives there now:
+
+| Module | Runs the |
+|---|---|
+| `domain/services/photoSelection.ts` | batch selection, app-side and in `auto-post` |
+| `domain/services/autoPostSchedule.ts` | cadence check |
+| `domain/services/postingLocation.ts` | GPS clustering and place naming |
+| `domain/services/notificationBody.ts` | message copy |
+| `domain/services/inboundCommand.ts`, `optOutMessages.ts` | STOP/START/JOIN handling |
+| `infrastructure/notifiers/twilioClient.ts`, `twilioSignature.ts` | WhatsApp sends, webhook verification |
+| `infrastructure/geocoding/bigDataCloud.ts` | reverse-geocode endpoint and parsing |
+
+### Three rules for a dual-runtime module
+
+1. **It imports nothing.** Deno resolves relative specifiers as URLs, so it cannot follow the extensionless imports the rest of the app is written in. One `import type { Foo } from '../entities/Foo'` and every Edge Function stops resolving. A module that needs a type must declare it and let the barrel re-export it — that's why `Coordinate` is defined in `postingLocation.ts` and re-exported from `domain/interfaces`. `src/dualRuntime.test.ts` enforces this on every module the functions import.
+2. **Web standards only.** `fetch`, `crypto.subtle`, `btoa`, `URLSearchParams` — yes. `node:crypto`, `__DEV__`, `expo-*`, anything from `react-native` — no. Where a runtime genuinely differs, keep the pure part shared and the platform part separate: `bigDataCloud.ts` holds the endpoint and the parsing, while each runtime keeps its own fetch because only the app has `__DEV__` logging.
+3. **Take the runtime's differences as arguments.** `resolveBatchPlace` takes a lookup function, `credsFromEnv` takes the environment object, `selectBatch` takes a projection so each side keeps its own row type. Nothing reaches for a global.
+
+### How each runtime consumes it
+
+- **App** — a normal import; Metro and `ts-jest` resolve it like any other module. Jest suites sit beside the code as `*.test.ts`.
+- **Deno** — imported with the `.ts` extension. The Deno-side suites live in `supabase/functions/_shared/*_test.ts`, run by `deno task test`, and exist to prove the module still compiles and behaves under Deno; the exhaustive behavioural coverage stays in Jest.
+- **Deploys** — `scripts/deploy-functions.sh` passes `--use-api`, which is required: the default Docker bundler cannot follow an import out of `supabase/`.
+- **CI** — `scripts/changed-functions.sh` derives the dual-runtime file list from the imports themselves, so editing one of these fans out to every service's test and deploy job. Editing anything else under `src/` doesn't.
+
+Run both before pushing:
+
+```bash
+npm run validate     # typecheck + lint + jest
+deno task test       # the Deno side
+deno task check      # deno check on every function entrypoint
+```
+
 ## Verifying the auth deep link manually
 
 The magic-link redirect (`followme://auth#access_token=...`) can't be unit tested end-to-end — `subscribeToAuthDeepLinks` (`src/infrastructure/auth/deepLinkSubscription.ts`) has full unit coverage for the JS-side wiring, but whether iOS actually hands the URL to the app depends on native config that only a simulator/device can confirm.

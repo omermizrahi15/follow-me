@@ -407,15 +407,9 @@ export class FakeTwilioClient implements ITwilioClient {
 }
 
 export class FakeMediaLibrary implements IMediaLibrary {
-  lastLookbackDays: number | null = null;
   /** Every window `photosBetween` was asked for, in call order (issue #81). */
   readonly requestedWindows: { start: Date; end: Date }[] = [];
   constructor(private readonly photos: PhotoCandidate[] = []) {}
-
-  recentPhotos(lookbackDays: number): Promise<PhotoCandidate[]> {
-    this.lastLookbackDays = lookbackDays;
-    return Promise.resolve(this.photos);
-  }
 
   /** Filters the preset photos by `createdAt`, like the real library does. */
   photosBetween(start: Date, end: Date): Promise<PhotoCandidate[]> {
@@ -481,9 +475,16 @@ export class FakePhotoClassifier implements IPhotoClassifier {
 }
 
 export class FakeSentPhotoTracker implements ISentPhotoTracker {
-  constructor(private readonly ids: Set<string> = new Set()) {}
+  constructor(
+    private readonly ids: Set<string> = new Set(),
+    /** Null (the default) means "never posted", so the window is the plain lookback. */
+    private readonly newestPosted: Date | null = null,
+  ) {}
   sentCandidateIds(): Promise<Set<string>> {
     return Promise.resolve(this.ids);
+  }
+  newestPostedPhotoAt(): Promise<Date | null> {
+    return Promise.resolve(this.newestPosted);
   }
 }
 

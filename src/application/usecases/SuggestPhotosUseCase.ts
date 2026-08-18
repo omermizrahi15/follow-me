@@ -8,6 +8,7 @@ import type {
   ISentPhotoTracker,
 } from '../../domain/interfaces';
 import { PhotoSelectionService, isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
+import { windowStartMs } from '../../domain/services/suggestionWindow';
 
 export interface SuggestProgress {
   onScanning(): void;
@@ -47,15 +48,27 @@ export interface SuggestProgress {
 export interface SuggestStats {
   /** Photos the library returned for the window. */
   scanned: number;
-  /** After burst dedup — the set actually worth grading. */
+  /**
+   * How many distinct moments those photos cover — bursts counted once.
+   *
+   * Purely descriptive now. It used to be the count that survived dedup, i.e.
+   * the only photos that would ever be graded or offered; the rest were gone.
+   * Every photo in the window is reachable today, so this says "you shot 37
+   * frames across 12 moments", not "25 were thrown away".
+   */
   unique: number;
   /** Grades in hand at the end (fresh + remembered from earlier scans). */
   graded: number;
   /**
    * Photos the AI was asked about that produced nothing — an iCloud original
-   * that didn't come down in time, an unreadable file, a failed call. They are
-   * neither in the batch nor the pool, and they are the usual reason a big
-   * window yields a thin one.
+   * that didn't come down in time, or an unreadable file. They are neither in
+   * the batch nor the pool, and they are the usual reason a big window yields
+   * a thin one.
+   *
+   * A *failed classifier* is deliberately not in here: that aborts the scan
+   * with an error instead of quietly shrinking the result, because "the AI is
+   * down" and "these particular photos wouldn't load" call for different
+   * things from the publisher.
    */
   unreadable: number;
   /** The day's classification budget ran out during the scan. */
@@ -163,6 +176,47 @@ export class SuggestPhotosUseCase {
     private readonly maxPerScan: number = SuggestPhotosUseCase.MAX_PER_SCAN,
   ) {}
 
+  /**
+   * The stretch a live suggestion draws from: everything since the last post,
+   * but never less than the configured lookback.
+   *
+   * `min`, not `max`, is the whole point. The lookback is a floor — a weekly
+   * publisher always sees at least their week — and the last post extends it
+   * backwards when they are overdue. Anchoring to `now - lookbackDays` alone
+   * meant a missed reminder silently swallowed the days between: open the app
+   * two days late and the two oldest days of the window had rolled out of it,
+   * taking exactly the photos the reminder was sent about.
+   *
+   * Clamped to MAX_LOOKBACK_DAYS so a long absence can't open an unbounded scan.
+   */
+  private async liveWindow(config: PublisherConfig, now: number): Promise<SuggestWindow> {
+    const newestPosted = await this.sentTracker.newestPostedPhotoAt(config.publisherId);
+    const start = windowStartMs({
+      now,
+      lookbackDays: config.lookbackDays,
+      newestPostedPhotoAt: newestPosted?.getTime() ?? null,
+    });
+    return { start: new Date(start), end: new Date(now) };
+  }
+
+  /**
+   * Whether anything has been shot since `since` — the cheap check that decides
+   * if a cached batch still describes the library.
+   *
+   * Metadata only: no grading, no bytes, no iCloud fetch. That is what makes it
+   * affordable on every open, and it is the difference between a cache that
+   * saves a scan and one that hides the photos the publisher just took. A
+   * cached batch was previously served for a flat six hours, so a morning's
+   * shooting was invisible until the afternoon — the "it loads photos from
+   * before and can't load new ones" report.
+   */
+  async hasPhotosSince(since: Date): Promise<boolean> {
+    const now = new Date();
+    if (since.getTime() >= now.getTime()) return false;
+    const shot = await this.mediaLibrary.photosBetween(since, now);
+    return shot.length > 0;
+  }
+
   async execute(
     config: PublisherConfig,
     progress?: SuggestProgress,
@@ -170,39 +224,41 @@ export class SuggestPhotosUseCase {
   ): Promise<SuggestResult> {
     progress?.onScanning();
 
+    const scanWindow = window ?? (await this.liveWindow(config, Date.now()));
+
     // Scan + already-sent in parallel so we have both before classification starts.
     const [candidates, alreadySent] = await Promise.all([
-      window != null
-        ? this.mediaLibrary.photosBetween(window.start, window.end)
-        : this.mediaLibrary.recentPhotos(config.lookbackDays),
+      this.mediaLibrary.photosBetween(scanWindow.start, scanWindow.end),
       this.sentTracker.sentCandidateIds(config.publisherId),
     ]);
     if (candidates.length === 0) {
       return { batch: [], pool: [], stats: emptyStats(0, 0) };
     }
 
-    // Remove burst/near-duplicate shots before AI classification.
-    const deduplicated = this.selection.deduplicateCandidates(candidates);
-    progress?.onScanned(candidates.length, deduplicated.length);
+    // One photo per burst first, then the rest — an ordering, not a filter.
+    // Nothing is discarded: a photo the old dedup dropped was unreachable
+    // forever, because the top-up queue applied the same rule.
+    const prioritised = this.selection.gradingOrder(candidates);
+    progress?.onScanned(candidates.length, this.selection.distinctMoments(candidates));
 
     // Grades already bought for these photos — free, and the reason the whole
-    // window is affordable at all. `deduplicateCandidates` returns oldest-first
-    // (burst dedup keeps the first shot of each group); grading walks the other
-    // way so a capped or quota-stopped run always spends its budget on the most
-    // recent photos, which are the ones worth posting.
+    // window is affordable at all.
     const remembered =
-      (await this.grades?.load(deduplicated.map(c => c.id))) ??
+      (await this.grades?.load(prioritised.map(c => c.id))) ??
       new Map<string, PhotoClassification>();
-    const newestFirst = [...deduplicated].reverse();
     // The backfill reconstructs one post per past interval and never swaps, so
     // it keeps the old shallow grading — grading every window in full would
     // multiply its cost by the number of intervals for photos nobody browses.
     const limit = window != null ? config.photosPerPost * 2 : this.maxPerScan;
-    const ungraded = newestFirst.filter(c => !remembered.has(c.id)).slice(0, limit);
+    // `prioritised` is already leaders-then-followers, each newest-first, so a
+    // run cut short by this cap or by the daily quota spends what it has on
+    // recent, distinct moments — and the burst siblings it skipped are still
+    // reachable, either from a later scan or from the "+".
+    const ungraded = prioritised.filter(c => !remembered.has(c.id)).slice(0, limit);
 
     // Cached grades count towards the batch from the very first render, so a
     // rescan of an already-graded window shows a full post with no AI at all.
-    const accumulated: PhotoClassification[] = newestFirst
+    const accumulated: PhotoClassification[] = prioritised
       .map(c => remembered.get(c.id))
       .filter((c): c is PhotoClassification => c != null);
 
@@ -216,34 +272,47 @@ export class SuggestPhotosUseCase {
     announceIfReady();
 
     const freshlyGraded: PhotoClassification[] = [];
-    await this.classifier.classify(ungraded, (result, index, total) => {
-      accumulated.push(result);
-      freshlyGraded.push(result);
-      progress?.onClassifying(
-        index,
-        total,
-        this.selection.selectBatch(accumulated, config, alreadySent),
-      );
-      announceIfReady();
-    });
-
-    // Written once at the end rather than per photo: a scan is hundreds of
-    // grades, and re-serialising the whole blob each time would cost more than
-    // the classification it is saving.
-    if (freshlyGraded.length > 0) await this.grades?.save(freshlyGraded);
+    try {
+      await this.classifier.classify(ungraded, (result, index, total) => {
+        accumulated.push(result);
+        freshlyGraded.push(result);
+        progress?.onClassifying(
+          index,
+          total,
+          this.selection.selectBatch(accumulated, config, alreadySent),
+        );
+        announceIfReady();
+      });
+    } finally {
+      // Written once at the end rather than per photo: a scan is hundreds of
+      // grades, and re-serialising the whole blob each time would cost more
+      // than the classification it is saving.
+      //
+      // In a `finally` because a classifier failure aborts the scan, and the
+      // grades bought before it are still real — dropping them would make the
+      // retry pay for them a second time. What must never be written is a
+      // *guess*: the classifier throws rather than inventing a grade, so
+      // nothing in here is a placeholder.
+      if (freshlyGraded.length > 0) await this.grades?.save(freshlyGraded);
+    }
 
     const [batch, pool] = this.split(accumulated, config, alreadySent);
+    const quotaExhausted = this.classifier.quotaExhausted?.() === true;
     return {
       batch,
       pool,
       stats: {
         scanned: candidates.length,
-        unique: deduplicated.length,
+        unique: this.selection.distinctMoments(candidates),
         graded: accumulated.length,
         // Asked about but never came back — the gap between "109 photos" and a
-        // pool with nothing in it.
-        unreadable: ungraded.length - freshlyGraded.length,
-        quotaExhausted: this.classifier.quotaExhausted?.() === true,
+        // pool with nothing in it. Reaching this line means the classifier
+        // itself worked (a broken one throws), so the difference is photos
+        // whose bytes were unreadable. A quota wall is a different story, told
+        // by `quotaExhausted` in its own words: the photos it skipped were
+        // never attempted, so counting them as unreadable would be a lie.
+        unreadable: quotaExhausted ? 0 : ungraded.length - freshlyGraded.length,
+        quotaExhausted,
       },
     };
   }
@@ -252,6 +321,11 @@ export class SuggestPhotosUseCase {
    * Splits everything graded so far into the post itself and the ranked
    * remainder. The pool is every other graded photo, best first — with the
    * whole window graded this is what makes a swap a lookup instead of a wait.
+   *
+   * Both halves come from the same ranking. The pool used to be sorted by raw
+   * `quality` while the batch was chosen by a category round-robin, so the two
+   * could disagree about which of two photos was better — and a swap could hand
+   * back something the rules rated *below* what it replaced.
    */
   private split(
     accumulated: PhotoClassification[],
@@ -260,13 +334,9 @@ export class SuggestPhotosUseCase {
   ): [PhotoClassification[], PhotoClassification[]] {
     const batch = this.selection.selectBatch(accumulated, config, alreadySent);
     const batchIds = new Set(batch.map(c => c.candidate.id));
-    const pool = accumulated
-      .filter(c => !batchIds.has(c.candidate.id) && !alreadySent.has(c.candidate.id))
-      .sort(
-        (a, b) =>
-          b.quality - a.quality ||
-          b.candidate.createdAt.getTime() - a.candidate.createdAt.getTime(),
-      );
+    const pool = this.selection
+      .rank(accumulated, config, alreadySent)
+      .filter(c => !batchIds.has(c.candidate.id));
     return [batch, pool];
   }
 
@@ -295,19 +365,20 @@ export class SuggestPhotosUseCase {
     known: ReadonlySet<string> = new Set(),
     window?: SuggestWindow,
   ): Promise<PhotoCandidate[]> {
+    // The same window the scan used, so the "+" can never draw from a
+    // different stretch than the post it is adding to.
+    const queueWindow = window ?? (await this.liveWindow(config, Date.now()));
     const [candidates, alreadySent] = await Promise.all([
-      window != null
-        ? this.mediaLibrary.photosBetween(window.start, window.end)
-        : this.mediaLibrary.recentPhotos(config.lookbackDays),
+      this.mediaLibrary.photosBetween(queueWindow.start, queueWindow.end),
       this.sentTracker.sentCandidateIds(config.publisherId),
     ]);
-    // Same dedup as the scan, so bursts stay collapsed here too — the top-up
-    // must not start offering the near-identical shots the batch skipped.
-    // Reversed for the same reason the scan grades newest-first: whatever the
-    // publisher gets next should come from the recent end of the window.
+    // Same ordering as the scan — distinct moments first, newest first within
+    // each tier — so the "+" offers a fresh moment before it offers the third
+    // frame of a burst. Crucially it *offers* that third frame eventually: the
+    // old code ran the same discarding dedup here, which is what made a photo
+    // dropped during the scan unreachable by any route the publisher had.
     return this.selection
-      .deduplicateCandidates(candidates)
-      .reverse()
+      .gradingOrder(candidates)
       .filter(c => !known.has(c.id) && !alreadySent.has(c.id));
   }
 

@@ -162,15 +162,19 @@ function SetupStep({ onStart, initialStartDate = null, gapCount = null, bottomIn
 }
 
 /**
- * "12 photos scanned · 3 duplicates removed" — the same accounting the live
- * review screen gives, so a stretch that produced few photos says whether that
- * is all there was or all that survived deduplication.
+ * "12 photos scanned · 4 moments" — the same accounting the live review screen
+ * gives, so a stretch that produced few photos says whether that is all there
+ * was or all that was worth showing.
+ *
+ * It used to read "3 duplicates removed", computed as found − unique. That
+ * stopped being true when dedup became an ordering rather than a filter:
+ * nothing is removed now, and `unique` counts distinct moments. The old line
+ * would have reported photos as deleted that were sitting in the pool.
  */
 function scanSummary(scanned: { found: number; unique: number }): string {
-  const duplicates = Math.max(0, scanned.found - scanned.unique);
   const photos = `${scanned.found} ${scanned.found === 1 ? 'photo' : 'photos'} scanned`;
-  return duplicates > 0
-    ? `${photos} · ${duplicates} duplicate${duplicates === 1 ? '' : 's'} removed`
+  return scanned.unique > 0 && scanned.unique < scanned.found
+    ? `${photos} · ${scanned.unique} moment${scanned.unique === 1 ? '' : 's'}`
     : photos;
 }
 
