@@ -20,7 +20,7 @@ import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
-import { SectionNav, type HomeSection } from '../navigation/SectionNav';
+import { SectionNav, SECTION_NAV_HEIGHT, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
 import { PostCard, POST_CARD_HEIGHT } from '../components/PostCard';
 import { RouteGlobe } from '../map/RouteGlobe';
@@ -44,7 +44,7 @@ const MEDIUM_H = Math.round(SCREEN_H * 0.42);
 const FULL_H = Math.round(SCREEN_H * 0.84);
 const SNAPS = [SMALL_H, MEDIUM_H, FULL_H];
 /** Height of the floating nav bar — the sheet's lowest band stays glassy so the nav reads as glass. */
-const NAV_BAR_H = 56;
+const NAV_BAR_H = SECTION_NAV_HEIGHT;
 
 /**
  * The sheet is always FULL_H tall and slides down to shrink, instead of being
@@ -574,10 +574,12 @@ const styles = StyleSheet.create({
   // The bar spans the width between these insets; `stretch` is what hands it
   // that width. Centring it instead let it collapse to the size of its own
   // tabs, which is what made it look squeezed into the middle of the screen.
+  // Inset well in from the screen edges so the bar reads as a floating capsule
+  // over the sheet rather than a full-width strip pinned to the bezel.
   navWrap: {
     position: 'absolute',
-    left: spacing.md,
-    right: spacing.md,
+    left: spacing.xl,
+    right: spacing.xl,
     flexDirection: 'row',
     alignItems: 'stretch',
   },

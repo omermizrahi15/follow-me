@@ -29,11 +29,22 @@ const ITEMS: { key: HomeSection; label: string; active: IconName; inactive: Icon
 const SLOT_W = 56;
 /** The pill drawn around the selected icon, and the icon row it sits in. */
 const PILL_W = 40;
-const PILL_H = 30;
+const PILL_H = 36;
 /** Glass inset around the row of tabs. */
-const PAD = 6;
+const PAD = 10;
 /** Breathing room between the selected pill and the edges of its slot. */
 const PILL_INSET = 8;
+/** Caption line box under each icon. */
+const LABEL_H = 12;
+/** Gap between an icon and its caption. */
+const LABEL_GAP = 2;
+
+/**
+ * The bar's outer height. Derived rather than hardcoded so the screen behind it
+ * can pad its content past the bar without the two drifting apart when the
+ * padding or the pill changes.
+ */
+export const SECTION_NAV_HEIGHT = PAD * 2 + PILL_H + LABEL_GAP + LABEL_H;
 
 interface Props {
   active: HomeSection;
@@ -119,7 +130,7 @@ export function SectionNav({ active, onChange, showHistory = false }: Props): Re
               <View style={styles.icon}>
                 <Ionicons
                   name={isActive ? item.active : item.inactive}
-                  size={22}
+                  size={24}
                   color={isActive ? colors.accent : colors.navIdle}
                 />
               </View>
@@ -178,11 +189,11 @@ const styles = StyleSheet.create({
   },
   // Equal shares of the bar, however many tabs there are. `minWidth: 0` lets a
   // long label ellipsize rather than push its neighbours out of the row.
-  tab: { flex: 1, minWidth: 0, alignItems: 'center', gap: 2 },
+  tab: { flex: 1, minWidth: 0, alignItems: 'center', gap: LABEL_GAP },
   icon: { height: PILL_H, alignItems: 'center', justifyContent: 'center' },
   label: {
     fontSize: 10,
-    lineHeight: 12,
+    lineHeight: LABEL_H,
     fontWeight: '600',
     letterSpacing: -0.1,
     color: colors.navIdle,
