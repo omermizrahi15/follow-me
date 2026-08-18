@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { shareMedia } from '../../composition/container';
+import { invalidateFeed } from '../data/queries';
 import type { MediaDto } from '../../application/dtos';
 import type { ShareProgress } from '../../application/usecases/ShareMediaUseCase';
 import type { Coordinate } from '../../domain/interfaces';
@@ -55,6 +56,9 @@ export function useShareMedia(): ShareMediaState & {
           setState(s => ({ ...s, progress }));
         },
       );
+      // The feed just gained a post — every screen showing it (the Me list, the
+      // globe) refreshes from this rather than each one refetching on focus.
+      invalidateFeed(ownerId);
       setState({ loading: false, error: null, result: dtos, progress: null });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Something went wrong';
