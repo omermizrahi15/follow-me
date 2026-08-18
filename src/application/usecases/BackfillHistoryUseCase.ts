@@ -90,6 +90,12 @@ export interface BackfillHistoryResult {
   scannedWindows: number;
   /** True when the day's classification budget stopped the run early. */
   quotaExhausted: boolean;
+  /**
+   * True when AI throttling stopped the run early. Kept apart from
+   * `quotaExhausted` because resuming is a matter of seconds, not of waiting
+   * for tomorrow (issue #141).
+   */
+  rateLimited: boolean;
 }
 
 /**
@@ -107,7 +113,7 @@ export interface BackfillHistoryResult {
 export class BackfillHistoryUseCase {
   constructor(
     private readonly suggestPhotos: Pick<SuggestPhotosUseCase, 'execute'>,
-    private readonly classifier: Pick<IPhotoClassifier, 'quotaExhausted'>,
+    private readonly classifier: Pick<IPhotoClassifier, 'quotaExhausted' | 'rateLimited'>,
   ) {}
 
   /**
@@ -151,6 +157,7 @@ export class BackfillHistoryUseCase {
     const maxPosts = input.maxWindows ?? MAX_HISTORY_WINDOWS;
     let scannedWindows = 0;
     let quotaExhausted = false;
+    let rateLimited = false;
 
     for (const [i, window] of plan.windows.entries()) {
       await input.beforeWindow?.();
@@ -193,8 +200,17 @@ export class BackfillHistoryUseCase {
         quotaExhausted = true;
         break;
       }
+
+      // Same stop, different wall. Grinding the remaining windows against a
+      // throttled provider would produce empty posts and spend the budget the
+      // next window needs, so bank what is reconstructed and let the publisher
+      // resume shortly.
+      if (this.classifier.rateLimited?.() === true) {
+        rateLimited = true;
+        break;
+      }
     }
 
-    return { drafts, plan, scannedWindows, quotaExhausted };
+    return { drafts, plan, scannedWindows, quotaExhausted, rateLimited };
   }
 }

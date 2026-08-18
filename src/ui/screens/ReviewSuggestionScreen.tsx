@@ -67,6 +67,10 @@ const PREFETCH_IDLE_MS = 1200;
  */
 function emptyRoundNote(reason: TopUpReason | null, attempted: number): string | null {
   if (reason === 'quota') return "Today's AI limit is used up — try again tomorrow.";
+  // Not tomorrow: the provider's per-minute ceiling clears on its own, and
+  // telling publishers to come back the next day for a half-minute pause is
+  // what made the feature look broken on the first attempt (issue #141).
+  if (reason === 'busy') return 'The photo AI is busy right now — wait a moment and tap again.';
   // Never phrased as a fact about the library: the round failed before it could
   // learn anything about it.
   if (reason === 'failed') return 'Could not reach the photo AI — nothing was analysed. Try again in a moment.';
@@ -100,6 +104,9 @@ function scanShortfallNote(stats: SuggestStats | null): string | null {
   if (stats == null) return null;
   if (stats.quotaExhausted) {
     return `Today’s AI limit ran out after ${stats.graded} photos — the rest of those days aren’t analysed yet.`;
+  }
+  if (stats.rateLimited) {
+    return `The photo AI was busy after ${stats.graded} photos — rescan in a moment to finish the rest.`;
   }
   if (stats.unreadable > 0) {
     return `${stats.unreadable} photo${stats.unreadable === 1 ? '' : 's'} couldn’t be read — usually iCloud originals that haven’t downloaded. Rescanning after they do will find them.`;
