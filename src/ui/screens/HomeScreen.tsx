@@ -578,8 +578,8 @@ const styles = StyleSheet.create({
   // over the sheet rather than a full-width strip pinned to the bezel.
   navWrap: {
     position: 'absolute',
-    left: spacing.xl,
-    right: spacing.xl,
+    left: spacing.xxl,
+    right: spacing.xxl,
     flexDirection: 'row',
     alignItems: 'stretch',
   },
