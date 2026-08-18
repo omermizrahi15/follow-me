@@ -569,17 +569,14 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 11 },
-  // The bar spans the screen rather than hugging the left edge: it is the app's
-  // primary navigation, and the tabs inside it share the full width evenly.
-  // The bar spans the width between these insets; `stretch` is what hands it
-  // that width. Centring it instead let it collapse to the size of its own
-  // tabs, which is what made it look squeezed into the middle of the screen.
-  // Inset well in from the screen edges so the bar reads as a floating capsule
-  // over the sheet rather than a full-width strip pinned to the bezel.
+  // A centred capsule 80% of the screen wide: percentage insets rather than
+  // fixed points, so it keeps those proportions on a small phone and a tablet
+  // alike. `stretch` is what hands the bar that width — without it the bar
+  // collapses to the size of its own tabs and drifts off centre.
   navWrap: {
     position: 'absolute',
-    left: spacing.xxl,
-    right: spacing.xxl,
+    left: '10%',
+    right: '10%',
     flexDirection: 'row',
     alignItems: 'stretch',
   },
