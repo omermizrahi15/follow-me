@@ -27,24 +27,31 @@ const ITEMS: { key: HomeSection; label: string; active: IconName; inactive: Icon
  * rather than a deliberate capsule. The tabs share the real width now.
  */
 const SLOT_W = 56;
-/** The pill drawn around the selected icon, and the icon row it sits in. */
+/** Narrowest the selected halo may get, however tight its slot is. */
 const PILL_W = 40;
-const PILL_H = 36;
+/** The icon's row within a tab. */
+const ICON_H = 28;
 /** Glass inset around the row of tabs. */
-const PAD = 10;
-/** Breathing room between the selected pill and the edges of its slot. */
+const PAD = 6;
+/** Breathing room between the selected halo and the edges of its slot. */
 const PILL_INSET = 8;
 /** Caption line box under each icon. */
 const LABEL_H = 12;
 /** Gap between an icon and its caption. */
 const LABEL_GAP = 2;
+/**
+ * The selected halo wraps the whole tab — icon and caption together — rather
+ * than sitting behind the icon alone, which read as a highlight the label had
+ * been left out of.
+ */
+const PILL_H = ICON_H + LABEL_GAP + LABEL_H;
 
 /**
  * The bar's outer height. Derived rather than hardcoded so the screen behind it
  * can pad its content past the bar without the two drifting apart when the
- * padding or the pill changes.
+ * padding or the halo changes.
  */
-export const SECTION_NAV_HEIGHT = PAD * 2 + PILL_H + LABEL_GAP + LABEL_H;
+export const SECTION_NAV_HEIGHT = PAD * 2 + PILL_H;
 
 interface Props {
   active: HomeSection;
@@ -63,8 +70,9 @@ interface Props {
  * Followers) while the feed stays put behind it.
  *
  * Shaped like the bottom bars in Instagram and WhatsApp: a big icon over a
- * small caption, and the selected one marked by a filled pill that slides
- * between tabs. It spans the width it is given and the tabs divide that
+ * small caption, and the selected one marked by a grey halo — around the icon
+ * and its caption together — that slides between tabs as the selection moves.
+ * It spans the width it is given and the tabs divide that
  * between them, the way those bars do — a row of evenly spaced destinations,
  * not a clump of them sized by their own labels.
  */
@@ -130,7 +138,7 @@ export function SectionNav({ active, onChange, showHistory = false }: Props): Re
               <View style={styles.icon}>
                 <Ionicons
                   name={isActive ? item.active : item.inactive}
-                  size={24}
+                  size={22}
                   color={isActive ? colors.accent : colors.navIdle}
                 />
               </View>
@@ -178,8 +186,9 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: 'rgba(255,255,255,0.85)',
   },
-  // Sits behind the selected icon — centred in its slot — and slides between
-  // them. `left` and `width` are supplied at render time from the measured slot.
+  // Sits behind the selected tab — icon and caption both — centred in its slot,
+  // and slides between them. `left` and `width` are supplied at render time
+  // from the measured slot.
   pill: {
     position: 'absolute',
     top: PAD,
@@ -190,7 +199,7 @@ const styles = StyleSheet.create({
   // Equal shares of the bar, however many tabs there are. `minWidth: 0` lets a
   // long label ellipsize rather than push its neighbours out of the row.
   tab: { flex: 1, minWidth: 0, alignItems: 'center', gap: LABEL_GAP },
-  icon: { height: PILL_H, alignItems: 'center', justifyContent: 'center' },
+  icon: { height: ICON_H, alignItems: 'center', justifyContent: 'center' },
   label: {
     fontSize: 10,
     lineHeight: LABEL_H,
