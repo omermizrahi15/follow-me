@@ -36,6 +36,8 @@ import { CloudinaryStorageService } from '../infrastructure/storage/CloudinarySt
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
 import { monitored, reportError, reportMessage } from '../infrastructure/monitoring/sentry';
+import { ConnectivityMonitor } from '../infrastructure/connectivity/ConnectivityMonitor';
+import { netInfoSource } from '../infrastructure/connectivity/netInfoSource';
 import { mediaLibraryAssetLocation } from '../infrastructure/media/assetLocation';
 import {
   SuggestionCache,
@@ -324,6 +326,17 @@ async function deleteCandidates(body: { olderThanDays?: number }): Promise<{ del
 
 /** Crash and event reporting. Callers pass the operation name that failed. */
 export { reportError, reportMessage };
+
+/**
+ * The app's single answer to "are we online?" (issue #145) — started by the
+ * root, read through `ui/data/connectivity`.
+ *
+ * One instance for the process, so every consumer sees the same settled status
+ * and the platform is subscribed to once. The NetInfo binding is named here for
+ * the usual reason: swapping it (or handing a fake to a screen under test)
+ * stays a one-line change in the composition root.
+ */
+export const connectivity = new ConnectivityMonitor(netInfoSource);
 
 /** Local URI for a media-library asset, and that asset's recorded GPS fix. */
 export { expoResolveLocalUri, mediaLibraryAssetLocation };
