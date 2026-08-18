@@ -106,6 +106,51 @@ jobs:
           echo "SUPABASE host: $(printf '%s' "$url" | sed -E 's#https?://##')"
           echo "auth/v1/health from runner: $(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "$url/auth/v1/health" 2>&1 || echo 'UNREACHABLE')"
 
+      # The test-OTP pair is project config with an EXPIRY DATE
+      # (Auth -> Providers -> Phone -> Test OTPs -> "valid until"), not something
+      # this repo controls. When it lapses, nothing here changes: the build is
+      # green, `onboarding` passes, the app happily shows "Enter the code", and
+      # then every one of the ten auth flows dies on the same unhelpful
+      # `home-settings-button is visible` assertion — 45 min per run, three
+      # retries deep, with the real cause (403 otp_expired) nowhere in the log.
+      # That is exactly how the suite sat red from 2026-07-30 to 2026-08-18.
+      #
+      # Worse, a lapsed pair is not inert: Supabase stops short-circuiting the
+      # number and hands it to Twilio, so every attempt sends a REAL WhatsApp
+      # code to whoever owns E2E_PHONE.
+      #
+      # So verify the pair actually mints a session before paying for the build.
+      # /auth/v1/verify sends no message, and a valid test OTP is static, so this
+      # neither costs anything nor consumes the code.
+      - name: Verify the test OTP still signs in
+        env:
+          E2E_PHONE: ${{ secrets.E2E_PHONE }}
+          E2E_OTP: ${{ secrets.E2E_OTP }}
+        run: |
+          if [ -z "$E2E_PHONE" ] || [ -z "$E2E_OTP" ]; then
+            echo "E2E_PHONE/E2E_OTP not set — auth flows will be skipped, nothing to verify."
+            exit 0
+          fi
+          url=$(grep '^EXPO_PUBLIC_SUPABASE_URL=' .env | cut -d= -f2-)
+          key=$(grep '^EXPO_PUBLIC_SUPABASE_ANON_KEY=' .env | cut -d= -f2-)
+          body=$(curl -s --max-time 20 -X POST "$url/auth/v1/verify" \
+            -H "apikey: $key" -H "Content-Type: application/json" \
+            -d "{\"type\":\"sms\",\"phone\":\"$E2E_PHONE\",\"token\":\"$E2E_OTP\"}")
+          # Never print $body — it carries an access token on success and echoes
+          # the phone number on failure. Only the error_code is safe to surface.
+          if printf '%s' "$body" | grep -q '"access_token"'; then
+            echo "Test OTP signs in OK."
+            exit 0
+          fi
+          code=$(printf '%s' "$body" | sed -n 's/.*"error_code":"\([^"]*\)".*/\1/p')
+          echo "Full diagnosis (auth error_code): ${code:-unknown}"
+          if [ "$code" = "otp_expired" ]; then
+            echo "::error::The E2E test OTP has expired. Supabase Dashboard -> Authentication -> Providers -> Phone -> Test OTPs: the entry for E2E_PHONE is past its valid-until date. Extend it (or clear the expiry) and re-run. Stopping here instead of after a 45-minute build that would fail all ten auth flows on 'home-settings-button is visible' and text a real WhatsApp code to E2E_PHONE on each of three attempts."
+          else
+            echo "::error::The E2E test OTP no longer signs in (error_code: ${code:-unknown}). Check that the E2E_PHONE/E2E_OTP secrets still match a live entry under Supabase Dashboard -> Authentication -> Providers -> Phone -> Test OTPs. Stopping here instead of after a 45-minute build that would fail all ten auth flows on 'home-settings-button is visible'."
+          fi
+          exit 1
+
       - name: Install Maestro
         run: |
           curl -fsSL https://get.maestro.mobile.dev | bash
