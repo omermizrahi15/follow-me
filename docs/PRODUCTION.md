@@ -129,7 +129,12 @@ Setup:
    back to the free-form caption (fine in the sandbox / before approval). Do
    NOT set these secrets until the templates show `approved`, or sends fail
    with 63016. Template bodies mirror `composeAutoPostBody`; the variable order
-   is asserted by `postTemplate.test.ts` — re-cut both together. The invite
+   is asserted by `postTemplate.test.ts` — re-cut both together.
+   The reply link is a whole *variable* value (`{{5}}` / `{{6}}`), not part of
+   the approved body text, so issue #143's switch to a pre-filled
+   `wa.me/<phone>?text=Re%3A…` needs **no** re-approval — the templates are
+   untouched. Keep it that way: put URL changes in the variable, never in the
+   body. The invite
    share text (`buildInviteMessage`) is sent from the publisher's own phone via
    the OS share sheet, NOT through Twilio, so it needs no template.
 
