@@ -5,7 +5,8 @@ import type { SubscriberDto } from '../../application/dtos';
 interface SubscribersState {
   subscribers: SubscriberDto[];
   loading: boolean;
-  error: string | null;
+  /** The caught failure itself — see the note in useFeed. */
+  error: unknown;
 }
 
 interface UseSubscribers extends SubscribersState {
@@ -30,8 +31,7 @@ export function useSubscribers(publisherId: string | null): UseSubscribers {
       const subscribers = await listSubscribers.list(publisherId);
       setState({ subscribers, loading: false, error: null });
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Could not load followers';
-      setState({ subscribers: [], loading: false, error: message });
+      setState({ subscribers: [], loading: false, error: e });
     }
   }, [publisherId]);
 
@@ -52,8 +52,7 @@ export function useSubscribers(publisherId: string | null): UseSubscribers {
       try {
         await removeSubscriber.remove({ publisherId, subscriberId });
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Could not remove follower';
-        setState(prev => ({ ...prev, subscribers: previous, error: message }));
+        setState(prev => ({ ...prev, subscribers: previous, error: e }));
         throw e;
       }
     },

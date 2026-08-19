@@ -13,7 +13,8 @@ interface MediaItem {
 
 interface ShareMediaState {
   loading: boolean;
-  error: string | null;
+  /** The caught failure itself — see the note in useFeed. */
+  error: unknown;
   result: MediaDto[] | null;
   /** Live stage/count while a share is in flight (null when idle). */
   progress: ShareProgress | null;
@@ -57,8 +58,7 @@ export function useShareMedia(): ShareMediaState & {
       );
       setState({ loading: false, error: null, result: dtos, progress: null });
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Something went wrong';
-      setState({ loading: false, error: message, result: null, progress: null });
+      setState({ loading: false, error: e, result: null, progress: null });
       throw e;
     }
   }

@@ -7,7 +7,8 @@ import { toFeedPosting, type FeedPosting } from '../data/feed';
 interface TrashState {
   postings: FeedPosting[];
   loading: boolean;
-  error: string | null;
+  /** The caught failure itself — see the note in useFeed. */
+  error: unknown;
 }
 
 interface UseTrashedPostings extends TrashState {
@@ -29,8 +30,7 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
       const dtos = await listFeed.listDeleted(publisherId);
       setState({ postings: dtos.map(toFeedPosting), loading: false, error: null });
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Could not load deleted posts';
-      setState({ postings: [], loading: false, error: message });
+      setState({ postings: [], loading: false, error: e });
     }
   }, [publisherId]);
 
@@ -54,8 +54,7 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
       try {
         await trashPosting.restore({ publisherId, postingId });
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Could not restore this post';
-        setState(prev => ({ ...prev, postings: previous, error: message }));
+        setState(prev => ({ ...prev, postings: previous, error: e }));
         throw e;
       }
     },

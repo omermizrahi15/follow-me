@@ -23,6 +23,8 @@ import type { RootNavigationProp, RootStackParamList } from '../navigation/types
 import { SectionNav, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
 import { PostCard, POST_CARD_HEIGHT } from '../components/PostCard';
+import { ErrorState } from '../components/ErrorState';
+import { PostCardSkeleton, SkeletonList } from '../components/Skeleton';
 import { RouteGlobe } from '../map/RouteGlobe';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { ReviewSuggestionContent } from './ReviewSuggestionScreen';
@@ -87,7 +89,7 @@ export function HomeScreen(): React.JSX.Element {
   const publisherId = usePublisherId();
   const { profile, reload: reloadProfile } = useProfile(publisherId);
   const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
-  const { postings, loading: feedLoading, reload: reloadFeed } = useFeed(publisherId);
+  const { postings, loading: feedLoading, error: feedError, reload: reloadFeed } = useFeed(publisherId);
   // The History tab exists only when some stretch of the trip has no posting —
   // including a hole in the middle, not just a missing beginning (issue #81).
   const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings);
@@ -307,7 +309,18 @@ export function HomeScreen(): React.JSX.Element {
               windowSize={5}
               removeClippedSubviews
               ListEmptyComponent={
-                feedLoading ? null : (
+                // The three states this list can be in, told apart. Until
+                // #145 a failed load rendered the empty state, so a publisher
+                // whose feed had not arrived was told they had never posted.
+                feedLoading ? (
+                  <SkeletonList count={3} render={() => <PostCardSkeleton />} />
+                ) : feedError != null ? (
+                  <ErrorState
+                    error={feedError}
+                    title="Couldn’t load your posts"
+                    onRetry={() => void reloadFeed()}
+                  />
+                ) : (
                   <View style={styles.emptyFeed}>
                     <Ionicons name="images-outline" size={32} color={colors.textMuted} />
                     <Text style={styles.emptyTitle}>No posts yet</Text>

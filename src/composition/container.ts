@@ -47,6 +47,7 @@ import {
   type CachedSuggestion,
 } from '../infrastructure/cache/SuggestionCache';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../infrastructure/supabase/client';
+import { slowFetch } from '../infrastructure/http/appFetch';
 import { env } from '../infrastructure/env';
 import Constants from 'expo-constants';
 
@@ -266,7 +267,7 @@ export const publishApprovalBatch = monitored(
   async (batchId: string): Promise<{ postingId: string | null }> => {
     const token = (await authService.getSession())?.access_token;
     if (token == null) throw new Error('Not signed in');
-    const res = await fetch(`${supabaseUrl}/functions/v1/post-batch`, {
+    const res = await slowFetch(`${supabaseUrl}/functions/v1/post-batch`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ batchId }),
@@ -301,7 +302,7 @@ export const pruneUploadedPhotos = monitored(
 async function deleteCandidates(body: { olderThanDays?: number }): Promise<{ deletedRows: number }> {
   const token = (await authService.getSession())?.access_token;
   if (token == null) throw new Error('Not signed in');
-  const res = await fetch(`${supabaseUrl}/functions/v1/delete-candidates`, {
+  const res = await slowFetch(`${supabaseUrl}/functions/v1/delete-candidates`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,

@@ -21,6 +21,7 @@ import { useSubscribers } from '../hooks/useSubscribers';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { usePublisherId } from '../context/AuthContext';
 import { InviteLinkCard } from '../components/InviteLinkCard';
+import { ErrorState } from '../components/ErrorState';
 import { PlaceField } from '../components/PlaceField';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -46,7 +47,9 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const [pickedAssets, setPickedAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  // The raw failure, so the copy can tell a dead connection from a broken
+  // server rather than showing whatever `e.message` happened to say (#145).
+  const [error, setError] = useState<unknown>(null);
   const [promptDismissed, setPromptDismissed] = useState(false);
   // Posting place — auto-resolved from the picked photos' EXIF GPS, editable.
   const [place, setPlace] = useState('');
@@ -141,7 +144,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
         await share(items, publisherId, location, pickedCoordinate);
         setDone(true);
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Upload failed');
+        setError(e);
       } finally {
         setLoading(false);
       }
@@ -277,7 +280,15 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
             </ScrollView>
 
             <View style={[styles.footer, keyboardPadding > 0 && { paddingBottom: keyboardPadding }]}>
-              {error != null && <Text style={styles.errorNote}>{error}</Text>}
+              {error != null && (
+                <ErrorState
+                  error={error}
+                  title="Couldn’t send this post"
+                  onRetry={handleShare}
+                  retrying={loading}
+                  compact
+                />
+              )}
               <PlaceField
                 value={place}
                 loading={placeLoading}
@@ -402,7 +413,6 @@ const styles = StyleSheet.create({
   // Footer
   footer: { paddingVertical: spacing.md },
   placeSpacer: { height: spacing.sm },
-  errorNote: { color: colors.danger, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm },
   followerNote: { color: colors.textMuted, fontSize: 12, textAlign: 'center', marginBottom: spacing.md },
   shareButton: {
     backgroundColor: colors.accent,

@@ -1,6 +1,8 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { IPhotoClassifier } from '../../domain/interfaces';
+import { slowFetch } from '../http/appFetch';
+import { sleep } from '../timers';
 
 /** Wire shape sent to the classify-photos Edge Function for one photo. */
 export interface PhotoPayload {
@@ -73,6 +75,13 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
 
   /** Attempts per photo — transient network drops get one retry. */
   private static readonly MAX_ATTEMPTS = 2;
+
+  /**
+   * Wait before the retry. The old loop went straight back out on the failed
+   * connection, which on a phone that has just lost signal is two failures in
+   * the time of one — and on a rate-limited quota, two rejections (issue #145).
+   */
+  private static readonly RETRY_DELAY_MS = 800;
 
   constructor(
     private readonly functionUrl: string,
@@ -210,7 +219,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     for (let attempt = 1; attempt <= GeminiPhotoClassifier.MAX_ATTEMPTS; attempt++) {
       let res: Response;
       try {
-        res = await fetch(this.functionUrl, {
+        res = await slowFetch(this.functionUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -223,6 +232,9 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         // Network-level failure (upload dropped mid-flight) — retry once, then
         // give up and let it surface.
         lastNetworkError = err;
+        if (attempt < GeminiPhotoClassifier.MAX_ATTEMPTS) {
+          await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS);
+        }
         continue;
       }
 

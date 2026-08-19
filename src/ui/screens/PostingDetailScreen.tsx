@@ -20,6 +20,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { toFeedPosting, type FeedMedia, type FeedPosting } from '../data/feed';
+import { ErrorState } from '../components/ErrorState';
 import { usePublisherId } from '../context/AuthContext';
 import { confirmMoveToTrash } from '../hooks/useTrash';
 import { listFeed } from '../../composition/container';
@@ -226,20 +227,28 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
  */
 function usePostingParam(
   params: RootStackParamList['Posting'],
-): { posting: FeedPosting | null; loading: boolean } {
+): { posting: FeedPosting | null; loading: boolean; error: unknown; retry: () => void } {
   const publisherId = usePublisherId();
   const postingId = 'postingId' in params ? params.postingId : null;
   const [resolved, setResolved] = useState<FeedPosting | null>(null);
   const [loading, setLoading] = useState(postingId != null);
+  // The failure is kept rather than swallowed: a lookup that failed because
+  // the phone is offline is not the same as a post that does not exist, and
+  // this screen used to tell the user the second thing for both (issue #145).
+  const [error, setError] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (postingId == null) return;
+    setLoading(true);
+    setError(null);
     // Object property (not a local) so eslint doesn't flow-narrow it — the
     // cleanup closure flips it after this effect body has been analysed.
     const run = { cancelled: false };
     // Checked via a function call so lint doesn't flow-narrow across awaits.
     const isStale = (): boolean => run.cancelled;
     void (async (): Promise<void> => {
+      let lastError: unknown = null;
       for (const delayMs of [0, 1500]) {
         if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
         if (isStale()) return;
@@ -252,23 +261,30 @@ function usePostingParam(
             setLoading(false);
             return;
           }
-        } catch {
-          /* retry, then fall through to the empty state */
+          // A clean answer that simply doesn't contain it — the post really is
+          // missing (still propagating, or deleted). Not a failure.
+          lastError = null;
+        } catch (e: unknown) {
+          lastError = e;
         }
       }
-      if (!isStale()) setLoading(false);
+      if (isStale()) return;
+      setError(lastError);
+      setLoading(false);
     })();
     return () => { run.cancelled = true; };
-  }, [postingId, publisherId]);
+  }, [postingId, publisherId, attempt]);
 
-  if ('posting' in params) return { posting: params.posting, loading: false };
-  return { posting: resolved, loading };
+  if ('posting' in params) {
+    return { posting: params.posting, loading: false, error: null, retry: () => undefined };
+  }
+  return { posting: resolved, loading, error, retry: () => setAttempt(a => a + 1) };
 }
 
 export function PostingDetailScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, 'Posting'>>();
-  const { posting, loading } = usePostingParam(route.params);
+  const { posting, loading, error, retry } = usePostingParam(route.params);
 
   if (posting != null) return <StoryViewer posting={posting} />;
 
@@ -277,6 +293,13 @@ export function PostingDetailScreen(): React.JSX.Element {
       <StatusBar barStyle="light-content" />
       {loading ? (
         <ActivityIndicator color="#FFFFFF" />
+      ) : error != null ? (
+        <>
+          <ErrorState error={error} title="Couldn’t open this post" onRetry={retry} onDark />
+          <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()} hitSlop={8}>
+            <Ionicons name="close" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        </>
       ) : (
         <>
           <Text style={styles.missing}>This post isn&apos;t available yet.</Text>

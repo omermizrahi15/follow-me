@@ -6,7 +6,12 @@ import { toFeedPosting, type FeedPosting } from '../data/feed';
 interface FeedState {
   postings: FeedPosting[];
   loading: boolean;
-  error: string | null;
+  /**
+   * The caught failure itself, not a message. The screen turns it into copy via
+   * `describeFailure`, which needs the error's shape to tell a dead connection
+   * from a broken server — flattening it to `e.message` here threw that away.
+   */
+  error: unknown;
 }
 
 interface UseFeed extends FeedState {
@@ -30,8 +35,7 @@ export function useFeed(publisherId: string | null): UseFeed {
       const dtos = await listFeed.list(publisherId);
       setState({ postings: dtos.map(toFeedPosting), loading: false, error: null });
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Could not load your posts';
-      setState({ postings: [], loading: false, error: message });
+      setState({ postings: [], loading: false, error: e });
     }
   }, [publisherId]);
 

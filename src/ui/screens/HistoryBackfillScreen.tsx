@@ -21,6 +21,7 @@ import {
   hasRoomForMore,
 } from '../hooks/useHistoryBackfill';
 import { PlaceField } from '../components/PlaceField';
+import { ErrorState } from '../components/ErrorState';
 import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
 import type { ReviewablePosting } from '../hooks/useHistoryBackfill';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
@@ -710,7 +711,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
   const {
     phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error, config,
     scanClassified, scanOf, scanBatch, scanWindow, paused, togglePause, publishOne,
-    run, toggleDropped, setPlace, swapPhoto, addPhoto, publish, reset,
+    run, toggleDropped, setPlace, swapPhoto, addPhoto, publish, reset, retry,
   } = useHistoryBackfill(publisherId);
 
   function handlePublish(): void {
@@ -785,9 +786,10 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
 
       {phase === 'error' && (
         <View style={styles.centered}>
-          <Ionicons name="alert-circle-outline" size={40} color={colors.danger} />
-          <Text style={styles.scanTitle}>Something went wrong</Text>
-          <Text style={styles.scanSub}>{error}</Text>
+          {/* Retry repeats the same scan; starting over means re-choosing a
+              start date and cadence, which is a lot to ask of someone whose
+              only problem was a tunnel. Both are offered. */}
+          <ErrorState error={error} title="Couldn’t rebuild your history" onRetry={retry} />
           <TouchableOpacity
             style={styles.secondaryButton}
             onPress={reset}

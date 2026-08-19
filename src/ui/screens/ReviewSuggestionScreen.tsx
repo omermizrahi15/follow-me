@@ -32,6 +32,7 @@ import { suggestPlaceSplit } from '../../domain/services/splitSuggestion';
 import { relativeTime } from '../../domain/services/photoSyncCopy';
 import type { PlaceSplitSegment } from '../../domain/services/splitSuggestion';
 import { PlaceField } from '../components/PlaceField';
+import { ErrorState } from '../components/ErrorState';
 import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -784,12 +785,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
 
       {/* body */}
       {phase === 'error' ? (
-        <View style={innerStyles.centered}>
-          <Text style={innerStyles.errorNote}>{error}</Text>
-          <TouchableOpacity style={innerStyles.secondaryButton} onPress={reload}>
-            <Text style={innerStyles.secondaryText}>Try again</Text>
-          </TouchableOpacity>
-        </View>
+        <ErrorState error={error} title="Couldn’t build a suggestion" onRetry={reload} />
       ) : kept.length === 0 && phase === 'done' ? (
         <View style={innerStyles.centered}>
           <Text style={innerStyles.hint}>No new photos to suggest right now.</Text>
@@ -891,7 +887,15 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
 
           {phase === 'done' && kept.length > 0 && (
             <View style={[innerStyles.footer, keyboardPadding > 0 && { paddingBottom: keyboardPadding }]}>
-              {shareError != null && <Text style={innerStyles.errorNote}>{shareError}</Text>}
+              {shareError != null && (
+                <ErrorState
+                  error={shareError}
+                  title="Couldn’t send this post"
+                  onRetry={handleConfirm}
+                  retrying={sharing}
+                  compact
+                />
+              )}
               <PlaceField
                 value={place}
                 loading={placeLoading}
