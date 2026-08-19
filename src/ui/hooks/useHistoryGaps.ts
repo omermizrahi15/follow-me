@@ -33,16 +33,23 @@ function parseLocalDate(value: string): Date | null {
  * Guessing from the oldest post would be wrong in the one case that matters:
  * someone who started posting late has an oldest post that says nothing about
  * when they actually set off.
+ *
+ * `postingsComplete` says whether `postings` is the whole feed or just the
+ * pages loaded so far (issue #116). A partial feed answers the same "unknown":
+ * every stretch older than the last page loaded would look empty, and offering
+ * to reconstruct a trip that was posted all along would duplicate it.
  */
 export function useHistoryGaps(
   profile: ProfileDto | null,
   postings: FeedPosting[],
+  postingsComplete: boolean,
   frequency: Frequency = 'weekly',
 ): HistoryGapsState {
   return useMemo(() => {
     const raw = profile?.tripStartDate;
     const tripStartDate = raw != null ? parseLocalDate(raw) : null;
     if (tripStartDate == null) return { gaps: [], hasGaps: false, tripStartDate: null };
+    if (!postingsComplete) return { gaps: [], hasGaps: false, tripStartDate };
 
     const { gaps } = findHistoryGaps({
       tripStartDate,
@@ -52,5 +59,5 @@ export function useHistoryGaps(
     });
 
     return { gaps, hasGaps: gaps.length > 0, tripStartDate };
-  }, [profile?.tripStartDate, postings, frequency]);
+  }, [profile?.tripStartDate, postings, postingsComplete, frequency]);
 }
