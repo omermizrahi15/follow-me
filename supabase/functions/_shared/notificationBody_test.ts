@@ -17,3 +17,15 @@ Deno.test('includes the gallery link and photo count', () => {
 Deno.test('includes a wa.me reply link with the + stripped', () => {
   assertStringIncludes(composeAutoPostBody('Uri', '+15551234567'), 'https://wa.me/15551234567');
 });
+
+// Issue #143 — the link pre-fills the subject, since WhatsApp offers no way to
+// open a quoted reply to the post message itself.
+Deno.test('reply link pre-fills the place the post came from', () => {
+  const body = composeAutoPostBody('Uri', '+15551234567', null, 'Lisbon');
+  assertStringIncludes(decodeURIComponent(body), 'Re: your photos from Lisbon ✨');
+});
+
+Deno.test('reply link falls back to "your latest photos" for a place-less post', () => {
+  const body = composeAutoPostBody('Uri', '+15551234567');
+  assertStringIncludes(decodeURIComponent(body), 'Re: your latest photos ✨');
+});
