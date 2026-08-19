@@ -15,6 +15,7 @@ import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import { saveProfile, storage } from '../../../composition/container';
+import { invalidateProfile } from '../../data/queries';
 import { PublisherProfile } from '../../../domain/entities/PublisherProfile';
 import { OnboardingHeader } from './OnboardingHeader';
 import { CalendarPicker } from '../../components/CalendarPicker';
@@ -103,6 +104,8 @@ export function ProfileSetupStep({ publisherId, step, totalSteps, onDone }: Prop
             tripStartDate: tripStart,
           }),
         );
+        // The invite card on the next step reads the profile for its avatar.
+        invalidateProfile(publisherId);
         onDone();
       } catch (e: unknown) {
         setError(e instanceof Error ? e.message : 'Could not save your profile. Please try again.');

@@ -1,14 +1,12 @@
-import { useCallback, useEffect, useState } from 'react';
 import { loadProfile } from '../../composition/container';
 import type { ProfileDto } from '../../application/dtos';
+import { profileKey } from '../data/queries';
+import { useCachedQuery } from './useCachedQuery';
 
-interface ProfileState {
+interface UseProfile {
   /** The publisher's profile, or null if they haven't set one up yet. */
   profile: ProfileDto | null;
   loading: boolean;
-}
-
-interface UseProfile extends ProfileState {
   reload: () => Promise<void>;
 }
 
@@ -18,39 +16,39 @@ function isoDateOnly(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
+/**
+ * The publisher's profile, from the shared cache (issue #114).
+ *
+ * Home, the Me header, `useInviteLink` (for the avatar it attaches to the share
+ * sheet) and the edit form all call this, and before the cache each one owned
+ * its own fetch of the same row. Now they share one.
+ *
+ * No refresh on focus, unlike the feed: nothing but this app writes a profile,
+ * so saving it invalidates the key (see `ui/data/queries`) and every mounted
+ * reader updates from that. It also has to work outside a navigator —
+ * onboarding shows the invite card above the NavigationContainer.
+ */
 export function useProfile(publisherId: string | null): UseProfile {
-  const [state, setState] = useState<ProfileState>({ profile: null, loading: true });
+  const { data, loading, reload } = useCachedQuery(
+    publisherId != null ? profileKey(publisherId) : null,
+    async (): Promise<ProfileDto | null> => {
+      // Unreachable while signed out: a null key means the query never runs.
+      if (publisherId == null) return null;
+      try {
+        const profile = await loadProfile.execute(publisherId);
+        if (profile == null) return null;
+        return {
+          publisherId: profile.publisherId,
+          displayName: profile.displayName,
+          avatarUrl: profile.avatarUrl,
+          tripStartDate: profile.tripStartDate != null ? isoDateOnly(profile.tripStartDate) : null,
+        };
+      } catch {
+        // Treat a load failure as "no profile yet" so the Me page still renders.
+        return null;
+      }
+    },
+  );
 
-  const reload = useCallback(async (): Promise<void> => {
-    if (publisherId == null) {
-      setState({ profile: null, loading: false });
-      return;
-    }
-    setState(prev => ({ ...prev, loading: true }));
-    try {
-      const profile = await loadProfile.execute(publisherId);
-      setState({
-        profile:
-          profile == null
-            ? null
-            : {
-                publisherId: profile.publisherId,
-                displayName: profile.displayName,
-                avatarUrl: profile.avatarUrl,
-                tripStartDate:
-                  profile.tripStartDate != null ? isoDateOnly(profile.tripStartDate) : null,
-              },
-        loading: false,
-      });
-    } catch {
-      // Treat a load failure as "no profile yet" so the Me page still renders.
-      setState({ profile: null, loading: false });
-    }
-  }, [publisherId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
-
-  return { ...state, reload };
+  return { profile: data ?? null, loading, reload };
 }
