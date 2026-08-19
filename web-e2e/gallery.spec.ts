@@ -247,15 +247,35 @@ test.describe('post gallery', () => {
     await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 1/2');
   });
 
-  test('closing the story with ✕ lands on the feed', async ({ page }) => {
+  test('the story exit lands on the feed', async ({ page }) => {
     await mockSupabase(page);
     await page.goto('/gallery.html?id=post-linked');
     await expect(story(page)).toBeVisible();
-    await page.getByRole('button', { name: 'Close' }).click();
+    await page.getByRole('button', { name: "Omer's posts" }).click();
 
     await expect(story(page)).toBeHidden();
     await expect(feed(page)).toBeVisible();
     await expect(cards(page)).toHaveCount(3);
+  });
+
+  // Issue #160: a bare ✕ read as "dismiss", hiding the fact that leaving a post
+  // opens everything else the publisher shared. The control has to say so.
+  test('the story exit names the publisher feed it opens', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/gallery.html?id=post-linked');
+
+    await expect(page.locator('#storyExitLabel')).toHaveText("Omer's posts");
+  });
+
+  // Without a profile row there is no name to own the posts, so it stays generic
+  // rather than rendering "'s posts" or the "Your friend" placeholder.
+  test('the story exit stays generic when the publisher has no name', async ({ page }) => {
+    await mockSupabase(page);
+    await page.route('**/rest/v1/publisher_profile*', route => json(route, []));
+    await page.goto('/gallery.html?id=post-linked');
+
+    await expect(story(page)).toBeVisible();
+    await expect(page.locator('#storyExitLabel')).toHaveText('All posts');
   });
 
   test('an unknown post id shows a friendly error', async ({ page }) => {
