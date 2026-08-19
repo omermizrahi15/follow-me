@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import { authService } from '../../composition/container';
+import { forgetContactNames } from '../hooks/useContactNames';
 
 interface AuthState {
   publisherId: string | null;
@@ -42,6 +43,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }): React
   }
 
   async function signOut(): Promise<void> {
+    // Names resolved from the address book are session state, not account data
+    // (issue #144) — drop them with the session rather than letting the next
+    // publisher on this device inherit them.
+    forgetContactNames();
     await authService.signOut();
   }
 

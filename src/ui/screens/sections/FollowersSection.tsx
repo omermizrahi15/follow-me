@@ -1,10 +1,13 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { usePublisherId } from '../../context/AuthContext';
+import { Image } from 'expo-image';
+import { useAuth, usePublisherId } from '../../context/AuthContext';
 import { useSubscribers } from '../../hooks/useSubscribers';
+import { useContactNames } from '../../hooks/useContactNames';
 import { useInviteLink } from '../../hooks/useInviteLink';
 import type { SubscriberDto } from '../../../application/dtos';
+import { sortByResolvedName } from '../../../domain/services/contactNames';
 import { colors, radius, spacing, typography } from '../../theme/theme';
 
 interface Props {
@@ -15,14 +18,31 @@ interface Props {
 /** Compact followers list + invite, rendered inside the Me-page bottom sheet. */
 export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
+  const { publisherPhone } = useAuth();
   const { subscribers, loading, error, remove } = useSubscribers(publisherId);
   const { shareInvite } = useInviteLink();
   const unreachableCount = subscribers.filter(s => s.status === 'unreachable').length;
 
+  // Followers are shown by contact name where the device address book knows the
+  // number (issue #144). Matching happens on the device; nothing about the
+  // publisher's contacts is sent anywhere.
+  const handles = useMemo(() => subscribers.map(s => s.contactHandle), [subscribers]);
+  const { names, access, enable } = useContactNames(handles, publisherPhone);
+  const rows = useMemo(
+    () => sortByResolvedName(subscribers, s => names.get(s.contactHandle)?.name ?? null, s => s.contactHandle),
+    [subscribers, names],
+  );
+
   function confirmRemove(subscriber: SubscriberDto): void {
+    // Name the follower where we can: "Remove +972501234567" is exactly the
+    // prompt where the publisher cannot tell who they are about to cut off.
+    const contact = names.get(subscriber.contactHandle);
+    const who = contact != null
+      ? `${contact.name} (${subscriber.contactHandle})`
+      : subscriber.contactHandle;
     Alert.alert(
       'Remove follower',
-      `${subscriber.contactHandle} will stop receiving your photos. You can re-add them later with your invite link.`,
+      `${who} will stop receiving your photos. You can re-add them later with your invite link.`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -52,6 +72,21 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
         </Text>
       )}
 
+      {access === 'undetermined' && subscribers.length > 0 && (
+        <TouchableOpacity
+          testID="followers-use-contacts"
+          style={styles.contactsPrompt}
+          onPress={() => void enable()}
+          activeOpacity={0.85}
+        >
+          <Ionicons name="person-circle-outline" size={18} color={colors.accentDark} />
+          <Text style={styles.contactsPromptText}>
+            Show names instead of numbers — match followers against this phone's contacts. Your
+            contacts stay on the device.
+          </Text>
+        </TouchableOpacity>
+      )}
+
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>
       ) : error != null ? (
@@ -59,24 +94,39 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
       ) : subscribers.length === 0 ? (
         <Text style={styles.empty}>No followers yet — share your invite link to get started.</Text>
       ) : (
-        subscribers.map(s => (
-          <View key={s.id} style={styles.row}>
-            <View style={styles.avatar}>
-              <Ionicons name="person" size={18} color={colors.accentDark} />
-            </View>
-            <View style={styles.rowInfo}>
-              <Text style={styles.rowHandle}>{s.contactHandle}</Text>
-              {s.status === 'unreachable' ? (
-                <Text style={styles.rowStatusUnreachable}>Unreachable</Text>
+        rows.map(s => {
+          const contact = names.get(s.contactHandle);
+          return (
+            <View key={s.id} style={styles.row}>
+              {contact?.imageUri != null ? (
+                <Image source={{ uri: contact.imageUri }} style={styles.avatar} contentFit="cover" />
               ) : (
-                <Text style={styles.rowStatus}>Active</Text>
+                <View style={styles.avatar}>
+                  <Ionicons name="person" size={18} color={colors.accentDark} />
+                </View>
               )}
+              <View style={styles.rowInfo}>
+                <Text style={styles.rowHandle} numberOfLines={1}>
+                  {contact?.name ?? s.contactHandle}
+                </Text>
+                {/* The number stays visible under a matched name — it is what
+                    WhatsApp actually delivers to. */}
+                {s.status === 'unreachable' ? (
+                  <Text style={styles.rowStatusUnreachable} numberOfLines={1}>
+                    Unreachable{contact != null ? ` · ${s.contactHandle}` : ''}
+                  </Text>
+                ) : (
+                  <Text style={styles.rowStatus} numberOfLines={1}>
+                    Active{contact != null ? ` · ${s.contactHandle}` : ''}
+                  </Text>
+                )}
+              </View>
+              <TouchableOpacity style={styles.removeButton} onPress={() => confirmRemove(s)}>
+                <Text style={styles.removeButtonText}>Remove</Text>
+              </TouchableOpacity>
             </View>
-            <TouchableOpacity style={styles.removeButton} onPress={() => confirmRemove(s)}>
-              <Text style={styles.removeButtonText}>Remove</Text>
-            </TouchableOpacity>
-          </View>
-        ))
+          );
+        })
       )}
 
       <TouchableOpacity testID="followers-share-invite" style={styles.inviteButton} onPress={shareInvite} activeOpacity={0.85}>
@@ -115,6 +165,17 @@ const styles = StyleSheet.create({
   rowStatus: { color: colors.success, fontSize: 11, marginTop: 1 },
   rowStatusUnreachable: { color: colors.danger, fontSize: 11, marginTop: 1 },
   unreachableSummary: { ...typography.caption, color: colors.danger, lineHeight: 18, marginBottom: spacing.xs },
+  contactsPrompt: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: spacing.sm,
+    backgroundColor: colors.accentSoft,
+    borderRadius: radius.md,
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.md,
+    marginBottom: spacing.xs,
+  },
+  contactsPromptText: { ...typography.caption, flex: 1, color: colors.accentDark, lineHeight: 17 },
   removeButton: {
     backgroundColor: colors.surface,
     borderRadius: radius.sm,
