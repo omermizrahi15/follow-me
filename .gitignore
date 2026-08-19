@@ -49,3 +49,4 @@ src/infrastructure/classifiers/__fixtures__/*.webp
 /playwright-report/
 /blob-report/
 /playwright/.cache/
+dist-staging/

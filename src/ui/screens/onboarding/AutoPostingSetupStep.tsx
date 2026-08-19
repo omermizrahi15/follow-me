@@ -1,9 +1,8 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import {
   View,
   Text,
   TouchableOpacity,
-  Switch,
   StyleSheet,
   SafeAreaView,
   ScrollView,
@@ -11,15 +10,9 @@ import {
 } from 'react-native';
 import { OnboardingHeader } from './OnboardingHeader';
 import { ReviewSuggestionContent } from '../ReviewSuggestionScreen';
-import {
-  loadConfig,
-  saveConfig,
-  scheduleReminder,
-  registerPushToken,
-  deviceTimezone,
-} from '../../../composition/container';
-import { PublisherConfig } from '../../../domain/entities/PublisherConfig';
-import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherConfig';
+import { AutoPostingForm } from '../sections/AutoPostingForm';
+import { useAutoPostingConfig } from '../../hooks/useAutoPostingConfig';
+import { saveConfig, scheduleReminder, registerPushToken } from '../../../composition/container';
 import { colors, radius, spacing, typography } from '../../theme/theme';
 import { confirmPhotoSync } from '../../data/photoSyncConsent';
 import { runCandidateSyncQuietly } from '../../data/candidateSync';
@@ -31,50 +24,12 @@ type Props = {
   onDone: () => void;
 };
 
-const DAY_LABELS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
-const TIME_PRESETS = ['08:00', '12:00', '18:00', '21:00'];
-const FREQ_OPTIONS: { value: Frequency; label: string }[] = [
-  { value: '3days', label: '3 days' },
-  { value: 'weekly', label: '1 week' },
-  { value: 'biweekly', label: '2 weeks' },
-  { value: 'monthly', label: '30 days' },
-];
-
 export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: Props): React.JSX.Element {
-  const [frequency, setFrequency] = useState<Frequency>('weekly');
-  const [photoCount, setPhotoCount] = useState<PhotoCount>(10);
-  const [askBeforePost, setAskBeforePost] = useState(true);
-  const [notifyDayOfWeek, setNotifyDayOfWeek] = useState(0);
-  const [notifyTime, setNotifyTime] = useState('18:00');
-  const [pushToken, setPushToken] = useState('');
-  const [isLoading, setIsLoading] = useState(true);
+  // Same values, same entity, same validation as the settings section — the two
+  // used to keep separate copies and drifted apart (see useAutoPostingConfig).
+  const config = useAutoPostingConfig(publisherId);
   const [saving, setSaving] = useState(false);
   const [isPreviewing, setIsPreviewing] = useState(false);
-
-  useEffect(() => {
-    void loadConfig.execute(publisherId).then(config => {
-      setFrequency(config.frequency);
-      setPhotoCount(config.photosPerPost);
-      setAskBeforePost(config.requireApproval);
-      setNotifyDayOfWeek(config.notifyDayOfWeek);
-      setNotifyTime(config.notifyTime);
-      setPushToken(config.expoPushToken);
-      setIsLoading(false);
-    });
-  }, [publisherId]);
-
-  function buildCurrentConfig(token: string): PublisherConfig {
-    return PublisherConfig.create({
-      publisherId,
-      frequency,
-      photosPerPost: photoCount,
-      requireApproval: askBeforePost,
-      notifyDayOfWeek,
-      notifyTime,
-      timezone: deviceTimezone(),
-      expoPushToken: token,
-    });
-  }
 
   function handleSave(): void {
     void (async (): Promise<void> => {
@@ -83,19 +38,21 @@ export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: 
         // Both modes rely on the server pipeline (approval mode gets its batch
         // pushed by the server too), so always register the push token and keep
         // recent photos synced to the cloud.
-        const token = (await registerPushToken().catch(() => null)) ?? pushToken;
-        setPushToken(token);
-        const config = buildCurrentConfig(token);
-        await saveConfig.execute(config);
+        const token = (await registerPushToken().catch(() => null)) ?? config.pushToken;
+        config.setPushToken(token);
+        const next = config.buildConfig(token);
+        await saveConfig.execute(next);
+        // Onboarding is the one place that asks for photo-upload consent. The
+        // settings section deliberately never does — see persistConfig there.
         if (await confirmPhotoSync()) {
-          await runCandidateSyncQuietly(publisherId, 'onboarding_sync_candidates', config.lookbackDays);
+          await runCandidateSyncQuietly(publisherId, 'onboarding_sync_candidates', next.lookbackDays);
         }
         if (token !== '') {
           // Server owns the reminder — cancel the local one to avoid double-notifying.
           await scheduleReminder.cancel().catch(() => undefined);
         } else {
           // No push token (permissions denied / simulator) — local reminder fallback.
-          await scheduleReminder.execute(config).catch(() => undefined);
+          await scheduleReminder.execute(next).catch(() => undefined);
         }
         onDone();
       } finally {
@@ -106,8 +63,7 @@ export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: 
 
   function handlePreview(): void {
     void (async (): Promise<void> => {
-      const config = buildCurrentConfig(pushToken);
-      await saveConfig.execute(config).catch(() => undefined);
+      await saveConfig.execute(config.buildConfig()).catch(() => undefined);
       setIsPreviewing(true);
     })();
   }
@@ -120,7 +76,7 @@ export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: 
     );
   }
 
-  if (isLoading) {
+  if (config.isLoading) {
     return (
       <SafeAreaView style={styles.container}>
         <ActivityIndicator color={colors.accent} style={styles.loadingIndicator} />
@@ -143,66 +99,19 @@ export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: 
           your schedule. You can tweak everything anytime in settings.
         </Text>
 
-        <Text style={styles.groupLabel}>Post every</Text>
-        <View style={styles.options}>
-          {FREQ_OPTIONS.map(({ value, label }) => (
-            <TouchableOpacity
-              key={value}
-              style={[styles.option, frequency === value && styles.optionActive]}
-              onPress={() => setFrequency(value)}
-            >
-              <Text style={[styles.optionText, frequency === value && styles.optionTextActive]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <Text style={[styles.groupLabel, styles.spacer]}>Reminder day</Text>
-        <View style={styles.options}>
-          {DAY_LABELS.map((label, day) => (
-            <TouchableOpacity
-              key={day}
-              style={[styles.option, notifyDayOfWeek === day && styles.optionActive]}
-              onPress={() => setNotifyDayOfWeek(day)}
-            >
-              <Text style={[styles.optionText, notifyDayOfWeek === day && styles.optionTextActive]}>
-                {label}
-              </Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <Text style={[styles.groupLabel, styles.spacer]}>Reminder time</Text>
-        <View style={styles.options}>
-          {TIME_PRESETS.map(t => (
-            <TouchableOpacity
-              key={t}
-              style={[styles.option, notifyTime === t && styles.optionActive]}
-              onPress={() => setNotifyTime(t)}
-            >
-              <Text style={[styles.optionText, notifyTime === t && styles.optionTextActive]}>{t}</Text>
-            </TouchableOpacity>
-          ))}
-        </View>
-
-        <View style={[styles.toggleRow, styles.spacer]}>
-          <View style={styles.toggleText}>
-            <Text style={styles.groupLabel}>Ask before posting</Text>
-            <Text style={styles.hint}>
-              {askBeforePost
-                ? 'You review and approve each post first'
-                : 'Posts go out automatically on your schedule'}
-            </Text>
-          </View>
-          <Switch
-            value={askBeforePost}
-            onValueChange={setAskBeforePost}
-            trackColor={{ false: colors.border, true: colors.success }}
-            thumbColor={colors.surface}
-            ios_backgroundColor={colors.border}
-          />
-        </View>
+        {/* Categories and photos-per-post stay in settings: onboarding asks the
+            fewest questions that make the schedule real. */}
+        <AutoPostingForm
+          variant="plain"
+          frequency={config.frequency}
+          notifyDayOfWeek={config.notifyDayOfWeek}
+          notifyTime={config.notifyTime}
+          askBeforePost={config.askBeforePost}
+          onFrequency={config.setFrequency}
+          onNotifyDayOfWeek={config.setNotifyDayOfWeek}
+          onNotifyTime={config.setNotifyTime}
+          onAskBeforePost={config.setAskBeforePost}
+        />
 
         <TouchableOpacity
           style={styles.previewButton}
@@ -240,26 +149,8 @@ const styles = StyleSheet.create({
   scroll: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xl },
   title: { ...typography.largeTitle, fontSize: 28, color: colors.text, marginBottom: spacing.sm },
   body: { ...typography.body, fontSize: 15, color: colors.textSecondary, marginBottom: spacing.xl },
-  groupLabel: { ...typography.caption, fontSize: 13, fontWeight: '600', color: colors.text, marginBottom: spacing.sm },
-  spacer: { marginTop: spacing.lg },
-  hint: { ...typography.caption, fontSize: 12, color: colors.textMuted, marginTop: 2 },
-  options: { flexDirection: 'row', gap: spacing.xs },
-  option: {
-    flex: 1,
-    backgroundColor: colors.surface,
-    borderRadius: radius.sm,
-    paddingVertical: spacing.sm,
-    alignItems: 'center',
-    borderWidth: 1,
-    borderColor: colors.border,
-  },
-  optionActive: { backgroundColor: colors.ink, borderColor: colors.ink },
-  optionText: { color: colors.textSecondary, fontSize: 12, fontWeight: '600' },
-  optionTextActive: { color: '#fff' },
-  toggleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
-  toggleText: { flex: 1, marginRight: spacing.md },
   previewButton: {
-    marginTop: spacing.xl,
+    marginTop: spacing.md,
     backgroundColor: colors.surface,
     paddingVertical: spacing.md,
     borderRadius: radius.md,

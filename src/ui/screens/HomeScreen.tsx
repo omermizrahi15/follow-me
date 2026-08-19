@@ -83,6 +83,8 @@ export function HomeScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, 'Home'>>();
   const requestedSection = route.params?.section;
+  // Nonce from a reminder-notification tap — see RootStackParamList.Home.
+  const suggestionRequest = route.params?.suggestionRequest;
   const { shareInvite } = useInviteLink();
   const publisherId = usePublisherId();
   // All three come from the shared cache (issue #114): one request per entity
@@ -130,6 +132,20 @@ export function HomeScreen(): React.JSX.Element {
   useEffect(() => {
     if (requestedSection != null) setSection(requestedSection);
   }, [requestedSection]);
+
+  // Tapping the reminder opens the suggested-post sheet. This is the only way
+  // in from a notification now that the review screen has no modal route of its
+  // own; the nonce is what makes a second tap reopen a sheet already closed.
+  useEffect(() => {
+    if (suggestionRequest == null) return;
+    setSuggestionKey(k => k + 1);
+    setShowingSuggestions(true);
+    snapTo(FULL_H);
+  }, [suggestionRequest]);
+
+  // The focus-refresh that used to sit here is gone: the shared read cache
+  // (#114) revalidates feed, profile and followers itself, so asking again on
+  // every focus was two round trips and two feed states per focus.
 
   function snapTo(h: number): void {
     restOffsetRef.current = offsetFor(h);

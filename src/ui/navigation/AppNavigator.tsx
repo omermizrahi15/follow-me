@@ -10,8 +10,6 @@ import { HomeScreen } from '../screens/HomeScreen';
 import { PhoneSignInScreen } from '../screens/PhoneSignInScreen';
 import { SettingsScreen } from '../screens/SettingsScreen';
 import { UploadScreen } from '../screens/UploadScreen';
-import { ReviewSuggestionScreen } from '../screens/ReviewSuggestionScreen';
-import { HistoryBackfillScreen } from '../screens/HistoryBackfillScreen';
 import { PostingDetailScreen } from '../screens/PostingDetailScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
 import { TrashScreen } from '../screens/TrashScreen';
@@ -29,11 +27,16 @@ const Stack = createNativeStackNavigator<RootStackParamList>();
 export const navigationRef = createNavigationContainerRef<RootStackParamList>();
 
 /**
- * Route a notification carries in its `data.screen`. Kept in sync with the
+ * What a reminder notification puts in its `data.screen`. Kept in sync with the
  * scheduler's REMINDER_TARGET_SCREEN (infra can't import UI, so the literal is
- * shared by contract, not import).
+ * shared by contract, not import) — and with the server, which stamps the same
+ * string onto pushes already sitting in the wild.
+ *
+ * No longer a route name: the review screen has one mount path now, inline in
+ * the Me sheet, so this resolves to Home-with-a-request rather than a modal.
+ * The string stays as it is precisely because old pushes still carry it.
  */
-const REVIEW_ROUTE: keyof RootStackParamList = 'ReviewSuggestion';
+const REVIEW_SCREEN = 'ReviewSuggestion';
 /** Target of the "Posted ✅" push the server sends after a background post. */
 const POSTING_ROUTE: keyof RootStackParamList = 'Posting';
 
@@ -58,8 +61,10 @@ async function routeFromNotification(response: Notifications.NotificationRespons
   // cache-first load picks it up instead of kicking off a device scan.
   await cacheBatchFromNotification(data);
 
-  if (data.screen === REVIEW_ROUTE && navigationRef.isReady()) {
-    navigationRef.navigate('ReviewSuggestion');
+  if (data.screen === REVIEW_SCREEN && navigationRef.isReady()) {
+    // A fresh nonce every tap: the publisher may already be on Home with the
+    // sheet closed, and a plain boolean would still be set from last time.
+    navigationRef.navigate('Home', { suggestionRequest: Date.now() });
   }
 }
 
@@ -105,16 +110,9 @@ function RootNavigator(): React.JSX.Element {
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
             <Stack.Screen name="Trash" component={TrashScreen} />
             <Stack.Screen name="Upload" component={UploadScreen} options={{ presentation: 'modal' }} />
-            <Stack.Screen
-              name="ReviewSuggestion"
-              component={ReviewSuggestionScreen}
-              options={{ presentation: 'modal' }}
-            />
-            <Stack.Screen
-              name="HistoryBackfill"
-              component={HistoryBackfillScreen}
-              options={{ presentation: 'modal' }}
-            />
+            {/* No ReviewSuggestion / HistoryBackfill routes: both screens render
+                inline in the Me sheet, which is the only way the publisher
+                reaches them (issue #118). */}
             <Stack.Screen
               name="Posting"
               component={PostingDetailScreen}
