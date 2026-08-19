@@ -19,6 +19,7 @@
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSPhotoLibraryUsageDescription": "Follow Me scans your recent photos to suggest a batch for your next post.",
+        "NSContactsUsageDescription": "Follow Me matches your followers' phone numbers to your contacts on this device, so the list shows names instead of numbers. Your contacts stay on your phone.",
         "UIBackgroundModes": [
           "remote-notification",
           "processing"
@@ -32,6 +33,12 @@
         "expo-media-library",
         {
           "photosPermission": "Follow Me reads your recent photos to suggest a batch for your next post."
+        }
+      ],
+      [
+        "expo-contacts",
+        {
+          "contactsPermission": "Follow Me matches your followers' phone numbers to your contacts on this device, so the list shows names instead of numbers. Your contacts stay on your phone."
         }
       ]
     ],

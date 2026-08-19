@@ -4,6 +4,7 @@ import { TrashPostingUseCase } from '../application/usecases/TrashPostingUseCase
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
 import { ListSubscribersUseCase } from '../application/usecases/ListSubscribersUseCase';
 import { RemoveSubscriberUseCase } from '../application/usecases/RemoveSubscriberUseCase';
+import { ResolveContactNamesUseCase } from '../application/usecases/ResolveContactNamesUseCase';
 import { SaveConfigUseCase } from '../application/usecases/SaveConfigUseCase';
 import { LoadConfigUseCase } from '../application/usecases/LoadConfigUseCase';
 import { SuggestPhotosUseCase } from '../application/usecases/SuggestPhotosUseCase';
@@ -17,6 +18,7 @@ import { LoadProfileUseCase } from '../application/usecases/LoadProfileUseCase';
 import { GeminiPhotoClassifier } from '../infrastructure/classifiers/GeminiPhotoClassifier';
 import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri, expoResolveAssetLocation } from '../infrastructure/media/ExpoMediaLibrary';
 import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotificationScheduler';
+import { ExpoContactsDirectory } from '../infrastructure/contacts/ExpoContactsDirectory';
 import { registerExpoPushToken } from '../infrastructure/notifiers/ExpoPushToken';
 import type { Coordinate, ISentPhotoTracker, PhotoSyncState } from '../domain/interfaces';
 import { resolvePostingPlace } from '../application/services/resolvePostingPlace';
@@ -142,6 +144,13 @@ export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(m
 export const subscribe = monitored('subscribe', new SubscribeUseCase(subscriberRepo, confirmationSender));
 export const listSubscribers = monitored('list_subscribers', new ListSubscribersUseCase(subscriberRepo));
 export const removeSubscriber = monitored('remove_subscriber', new RemoveSubscriberUseCase(subscriberRepo));
+// Follower names come from the device address book and stay there (issue #144):
+// this use case reads contacts locally, matches them against numbers the app
+// already holds, and returns nothing but names for those numbers.
+export const resolveContactNames = monitored(
+  'resolve_contact_names',
+  new ResolveContactNamesUseCase(new ExpoContactsDirectory()),
+);
 export const authService = new SupabaseAuthService(supabase);
 export const saveConfig = monitored('save_config', new SaveConfigUseCase(configRepo));
 export const loadConfig = monitored('load_config', new LoadConfigUseCase(configRepo));

@@ -4,6 +4,7 @@
  */
 export type { IMediaRepository, IPostGalleryRepository, IStorageService } from './media';
 export type { ISubscriberRepository, IConfirmationSender } from './subscribers';
+export type { IContactsDirectory, ContactsPermission, DeviceContact } from './contacts';
 export type {
   INotifier,
   NotificationEvent,
