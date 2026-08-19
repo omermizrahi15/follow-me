@@ -29,8 +29,26 @@ function release(handle: TimerHandle): TimerHandle {
 export const scheduleTimer: Schedule = (fn, ms) => release(setTimeout(fn, ms));
 export const cancelTimer: Cancel = handle => clearTimeout(handle);
 
-/** Resolves after `ms`. The default backoff wait. */
-export const sleep = (ms: number): Promise<void> =>
+/**
+ * Resolves after `ms`, or as soon as `signal` aborts — the default backoff
+ * wait.
+ *
+ * Interruptible because a backoff outlives the reason for it more often than
+ * you would think: the photo classifier abandons a run on its first failure,
+ * and without this the three siblings still in flight each sit out a wait for a
+ * retry whose answer has already been discarded.
+ */
+export const sleep = (ms: number, signal?: AbortSignal): Promise<void> =>
   new Promise(resolve => {
-    release(setTimeout(resolve, ms));
+    if (signal?.aborted === true) {
+      resolve();
+      return;
+    }
+    const finish = (): void => {
+      clearTimeout(timer);
+      signal?.removeEventListener('abort', finish);
+      resolve();
+    };
+    const timer = release(setTimeout(finish, ms));
+    signal?.addEventListener('abort', finish);
   });

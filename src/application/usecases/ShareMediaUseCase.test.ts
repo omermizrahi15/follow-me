@@ -38,6 +38,125 @@ const multipleItems = [
   { mediaId: 'media-3', localUri: 'file:///local/c.jpg', filename: 'c.jpg' },
 ];
 
+describe('ShareMediaUseCase — a connection that drops mid-share', () => {
+  /** Storage that counts uploads and can refuse named files. */
+  class CountingStorage extends InMemoryStorageService {
+    uploaded: string[] = [];
+    failing = new Set<string>();
+
+    override async upload(localUri: string, filename: string): Promise<string> {
+      if (this.failing.has(filename)) throw new TypeError('Network request failed');
+      this.uploaded.push(filename);
+      return super.upload(localUri, filename);
+    }
+  }
+
+  function sutWith(storage: CountingStorage): ShareMediaUseCase {
+    return new ShareMediaUseCase(
+      new InMemoryMediaRepository(),
+      new InMemorySubscriberRepository(),
+      new InMemoryNotifier(),
+      storage,
+    );
+  }
+
+  it('reports each upload as it lands, so a retry knows what not to repeat', async (): Promise<void> => {
+    const storage = new CountingStorage();
+    const checkpointed: { mediaId: string; url: string }[] = [];
+
+    await sutWith(storage).share({
+      ownerId: 'user-1',
+      items: multipleItems,
+      onUploaded: uploads => {
+        checkpointed.push(...uploads);
+        return Promise.resolve();
+      },
+    });
+
+    expect(checkpointed.map(u => u.mediaId).sort()).toEqual(['media-1', 'media-2', 'media-3']);
+    expect(checkpointed.every(u => u.url.startsWith('https://mock-cdn.test/'))).toBe(true);
+  });
+
+  it('checkpoints the ones that landed even when a later upload fails', async (): Promise<void> => {
+    // The photo-90-of-100 case: what got through has to survive the throw, or
+    // the retry pays for all of it again (issue #145).
+    const storage = new CountingStorage();
+    storage.failing.add('c.jpg');
+    const checkpointed: { mediaId: string; url: string }[] = [];
+
+    await expect(
+      sutWith(storage).share({
+        ownerId: 'user-1',
+        items: multipleItems,
+        onUploaded: uploads => {
+          checkpointed.push(...uploads);
+          return Promise.resolve();
+        },
+      }),
+    ).rejects.toThrow('Network request failed');
+
+    expect(checkpointed.map(u => u.mediaId).sort()).toEqual(['media-1', 'media-2']);
+  });
+
+  it('reuses a url from the failed attempt instead of uploading it again', async (): Promise<void> => {
+    const storage = new CountingStorage();
+
+    await sutWith(storage).share({
+      ownerId: 'user-1',
+      items: multipleItems,
+      uploadedUrls: { 'media-1': 'https://mock-cdn.test/a.jpg', 'media-2': 'https://mock-cdn.test/b.jpg' },
+    });
+
+    expect(storage.uploaded).toEqual(['c.jpg']);
+  });
+
+  it('posts the remembered url, not a placeholder', async (): Promise<void> => {
+    const mediaRepo = new InMemoryMediaRepository();
+    const useCase = new ShareMediaUseCase(
+      mediaRepo,
+      new InMemorySubscriberRepository(),
+      new InMemoryNotifier(),
+      new CountingStorage(),
+    );
+
+    const dtos = await useCase.share({
+      ownerId: 'user-1',
+      items: singleItem,
+      uploadedUrls: { 'media-1': 'https://mock-cdn.test/already-there.jpg' },
+    });
+
+    expect(dtos[0]?.url).toBe('https://mock-cdn.test/already-there.jpg');
+  });
+
+  it('does not re-checkpoint what it never uploaded', async (): Promise<void> => {
+    const checkpointed: { mediaId: string; url: string }[] = [];
+
+    await sutWith(new CountingStorage()).share({
+      ownerId: 'user-1',
+      items: multipleItems,
+      uploadedUrls: { 'media-1': 'https://mock-cdn.test/a.jpg' },
+      onUploaded: uploads => {
+        checkpointed.push(...uploads);
+        return Promise.resolve();
+      },
+    });
+
+    expect(checkpointed.map(u => u.mediaId).sort()).toEqual(['media-2', 'media-3']);
+  });
+
+  it('shares anyway when the checkpoint cannot be written', async (): Promise<void> => {
+    // Remembering progress is an optimisation for the next attempt. Failing
+    // this attempt over it would be strictly worse than not having it.
+    const dtos = await sutWith(new CountingStorage()).share({
+      ownerId: 'user-1',
+      items: singleItem,
+      onUploaded: () => Promise.reject(new Error('disk full')),
+    });
+
+    expect(dtos).toHaveLength(1);
+  });
+});
+
 describe('ShareMediaUseCase — single item', () => {
   it('saves the media and returns a dto', async (): Promise<void> => {
     const { useCase, mediaRepo } = makeSut();

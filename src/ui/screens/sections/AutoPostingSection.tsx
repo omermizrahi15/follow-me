@@ -32,6 +32,10 @@ import type { Frequency, PhotoCount } from '../../../domain/entities/PublisherCo
 import { isWeekdayCadence } from '../../../domain/services/autoPostSchedule';
 import { assetIdsNeedingLookup, resolveChosenGalleryUrls } from '../../../domain/services/notificationGallery';
 import { enablePhotoSync, isPhotoSyncEnabled } from '../../data/photoSyncConsent';
+import { useConnectionStatus } from '../../data/connectivity';
+import { isUsable } from '../../../domain/services/connectivityCopy';
+import { describeFailure } from '../../../domain/services/networkError';
+import type { ConnectionStatus } from '../../../domain/entities/Connectivity';
 import { runCandidateSyncQuietly } from '../../data/candidateSync';
 import { PhotoSyncStatus } from './PhotoSyncStatus';
 import { showDevTools } from '../../data/devTools';
@@ -117,6 +121,16 @@ function snapshotOf(config: PublisherConfig): string {
   ]);
 }
 
+/**
+ * The autosave row's failure line. Offline is stated as a hold rather than a
+ * loss — the change is still on screen and still going to be written — while
+ * anything else borrows the same wording the rest of the app uses.
+ */
+function saveStatusFailure(error: unknown, connection: ConnectionStatus): string {
+  if (!isUsable(connection)) return 'Not saved yet — you’re offline. This saves itself when you’re back.';
+  return describeFailure({ error, connection, title: '' }).hint;
+}
+
 export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const [frequency, setFrequency] = useState<Frequency>('weekly');
@@ -129,6 +143,11 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
   );
   const [pushToken, setPushToken] = useState('');
   const [saveState, setSaveState] = useState<SaveState>('idle');
+  // The failure itself, so the status line can say whether it was the
+  // connection or the server. `null` while the failure is simply "offline",
+  // which the app knows without having tried (issue #145).
+  const [saveError, setSaveError] = useState<unknown>(null);
+  const connection = useConnectionStatus();
   const [previewing, setPreviewing] = useState(false);
   const [testScheduling, setTestScheduling] = useState(false);
   const [testScheduledAt, setTestScheduledAt] = useState<Date | null>(null);
@@ -306,6 +325,19 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
     }
     const config = buildCurrentConfig(token);
     const snapshot = snapshotOf(config);
+    // Offline: don't spend a timeout finding out. These settings are the one
+    // write worth holding rather than refusing — the config is rebuilt from
+    // what is on screen at the moment it is sent, so writing it later writes
+    // what the publisher actually wants, not a stale snapshot. What must not
+    // happen is it looking saved, so the row below says so until it lands.
+    if (!isUsable(connection)) {
+      pendingRef.current = true;
+      if (mountedRef.current) {
+        setSaveError(null);
+        setSaveState('error');
+      }
+      return;
+    }
     pendingRef.current = false;
     if (mountedRef.current) setSaveState('saving');
     try {
@@ -343,10 +375,18 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
         // No push token (permissions denied / simulator) — local reminder fallback.
         await scheduleReminder.execute(config).catch(() => undefined);
       }
-      if (mountedRef.current) setSaveState('saved');
-    } catch {
+      if (mountedRef.current) {
+        setSaveError(null);
+        setSaveState('saved');
+      }
+    } catch (e: unknown) {
       // With no Save button there is no button state to fail into, so say so.
-      if (mountedRef.current) setSaveState('error');
+      if (mountedRef.current) {
+        setSaveError(e);
+        setSaveState('error');
+      }
+      // Left pending so the reconnect effect picks it up.
+      pendingRef.current = true;
     }
   }
 
@@ -354,6 +394,13 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
   // it without being torn down and rebuilt on every render.
   const persistRef = useRef(persistConfig);
   persistRef.current = persistConfig;
+
+  // Back online with something still unsaved — write it now, without the
+  // publisher having to remember which switch never took.
+  useEffect(() => {
+    if (!isUsable(connection) || !pendingRef.current) return;
+    void persistRef.current();
+  }, [connection]);
 
   // Autosave. Anything the publisher touches lands on its own after a beat —
   // the snapshot check means a re-render, a section switch or a reload never
@@ -789,7 +836,7 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
             : saveState === 'saved'
             ? 'Saved'
             : saveState === 'error'
-            ? "Couldn't save — check your connection"
+            ? saveStatusFailure(saveError, connection)
             : 'Changes are saved automatically'}
         </Text>
       </View>

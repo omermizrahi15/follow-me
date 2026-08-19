@@ -3,6 +3,7 @@ import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { listFeed, trashPosting } from '../../composition/container';
 import { toFeedPosting, type FeedPosting } from '../data/feed';
+import { alertFailure, refuseIfOffline } from '../data/writeGuard';
 
 interface TrashState {
   postings: FeedPosting[];
@@ -43,6 +44,7 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
   const restore = useCallback(
     async (postingId: string): Promise<void> => {
       if (publisherId == null) return;
+      if (refuseIfOffline('Restoring a post')) return;
       // Optimistically drop the row from the trash; put it back if the write
       // fails, so the list never claims a restore that didn't happen.
       const previous = state.postings;
@@ -76,10 +78,14 @@ export function moveToTrash(
   onTrashed: () => void,
 ): void {
   if (publisherId == null) return;
+  // Deleting is not queued while offline. A delete that replayed later would
+  // remove a post the publisher had since decided to keep, with no prompt and
+  // no trace of why (issue #145).
+  if (refuseIfOffline('Deleting a post')) return;
   void trashPosting
     .trash({ publisherId, postingId: posting.id })
     .then(onTrashed)
-    .catch(() => Alert.alert('Could not delete this post', 'Please try again.'));
+    .catch((e: unknown) => alertFailure(e, 'Couldn’t delete this post'));
 }
 
 /**
@@ -94,6 +100,7 @@ export function confirmMoveToTrash(
   onTrashed: () => void,
 ): void {
   if (publisherId == null) return;
+  if (refuseIfOffline('Deleting a post')) return;
   Alert.alert(
     'Delete post',
     `${posting.place ?? posting.date} will be removed from your feed and the map. You can restore it from Settings → Deleted posts. Followers who already received it keep their copy.`,
@@ -106,7 +113,7 @@ export function confirmMoveToTrash(
           void trashPosting
             .trash({ publisherId, postingId: posting.id })
             .then(onTrashed)
-            .catch(() => Alert.alert('Could not delete this post', 'Please try again.'));
+            .catch((e: unknown) => alertFailure(e, 'Couldn’t delete this post'));
         },
       },
     ],

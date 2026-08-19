@@ -1,6 +1,5 @@
 import React from 'react';
 import {
-  Alert,
   FlatList,
   SafeAreaView,
   StyleSheet,
@@ -8,10 +7,11 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { ErrorState } from '../components/ErrorState';
+import { Photo } from '../components/Photo';
+import { alertFailure } from '../data/writeGuard';
 import { ListRowSkeleton, SkeletonList } from '../components/Skeleton';
 import { usePublisherId } from '../context/AuthContext';
 import { useTrashedPostings } from '../hooks/useTrash';
@@ -34,9 +34,7 @@ export function TrashScreen(): React.JSX.Element {
   const { postings, loading, error, reload, restore } = useTrashedPostings(publisherId);
 
   function handleRestore(posting: FeedPosting): void {
-    void restore(posting.id).catch(() =>
-      Alert.alert('Could not restore this post', 'Please try again.'),
-    );
+    void restore(posting.id).catch((e: unknown) => alertFailure(e, 'Couldn’t restore this post'));
   }
 
   return (
@@ -88,19 +86,7 @@ function TrashRow({
 
   return (
     <View style={styles.row} testID={`trash-row-${posting.id}`}>
-      {cover != null ? (
-        <Image
-          source={cover}
-          style={styles.thumb}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          recyclingKey={cover}
-        />
-      ) : (
-        <View style={[styles.thumb, styles.thumbPlaceholder]}>
-          <Ionicons name="image-outline" size={20} color={colors.textMuted} />
-        </View>
-      )}
+      <Photo uri={cover} style={styles.thumb} recyclingKey={cover} iconSize={20} />
 
       <View style={styles.rowText}>
         <Text style={styles.rowTitle} numberOfLines={1}>{posting.place ?? posting.date}</Text>

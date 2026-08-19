@@ -135,3 +135,30 @@ function userFacingMessage(error: unknown): string {
 export function shouldAttempt(connection: ConnectionStatus): boolean {
   return isUsable(connection);
 }
+
+/**
+ * What to say when the user asks for a change that cannot be made offline, or
+ * null when it can be attempted.
+ *
+ * The app refuses these rather than queueing them, and says so before anything
+ * appears to happen. Queueing sounds kinder until you follow it through:
+ * "auto-posting off" that replays an hour later has already posted, a removed
+ * follower has already received the next batch, and a restored post reappears
+ * with no explanation. The issue is explicit that the third option — looking
+ * like it worked and then losing it — is the worst of the three, and a refusal
+ * the user can see is the honest one (issue #145).
+ *
+ * `action` is the change in the user's words, capitalised, e.g. "Removing a
+ * follower".
+ */
+export function offlineWriteCopy(
+  connection: ConnectionStatus,
+  action: string,
+): { title: string; body: string } | null {
+  if (isUsable(connection)) return null;
+  return {
+    title: connection === 'unreachable' ? 'This network isn’t working' : 'No connection',
+    // The second sentence is the point: it promises nothing was half-done.
+    body: `${action} needs a connection. Nothing has changed — try again once you’re back online.`,
+  };
+}

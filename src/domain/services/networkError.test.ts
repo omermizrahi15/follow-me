@@ -1,4 +1,4 @@
-import { classifyFailure, describeFailure } from './networkError';
+import { classifyFailure, describeFailure, offlineWriteCopy } from './networkError';
 
 import type { ConnectionStatus } from '../entities/Connectivity';
 import type { FailureCopy } from './networkError';
@@ -88,5 +88,31 @@ describe('describeFailure', () => {
   it('always offers a way to try again', () => {
     expect(describeWith(new Error('boom')).action).toBe('Try again');
     expect(describeWith(new Error('boom'), 'offline').action).toBe('Try again');
+  });
+});
+
+describe('offlineWriteCopy', () => {
+  it('lets a write through when there is a connection', () => {
+    expect(offlineWriteCopy('online', 'Removing a follower')).toBeNull();
+  });
+
+  it('lets a write through while connectivity is still unknown', () => {
+    // Blocking a change because nothing has been measured yet would strand
+    // someone whose connection is fine.
+    expect(offlineWriteCopy('unknown', 'Removing a follower')).toBeNull();
+  });
+
+  it('refuses when offline, naming the change that did not happen', () => {
+    const copy = offlineWriteCopy('offline', 'Removing a follower');
+    expect(copy?.title).toBe('No connection');
+    expect(copy?.body).toContain('Removing a follower');
+  });
+
+  it('promises nothing was half-done — the whole point of refusing up front', () => {
+    expect(offlineWriteCopy('offline', 'Deleting a post')?.body).toContain('Nothing has changed');
+  });
+
+  it('names the captive network rather than blaming the connection', () => {
+    expect(offlineWriteCopy('unreachable', 'Saving your settings')?.title).toBe('This network isn’t working');
   });
 });

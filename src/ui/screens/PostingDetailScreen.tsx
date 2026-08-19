@@ -21,6 +21,8 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { toFeedPosting, type FeedMedia, type FeedPosting } from '../data/feed';
 import { ErrorState } from '../components/ErrorState';
+import { useConnectionStatus } from '../data/connectivity';
+import { isUsable } from '../../domain/services/connectivityCopy';
 import { usePublisherId } from '../context/AuthContext';
 import { confirmMoveToTrash } from '../hooks/useTrash';
 import { listFeed } from '../../composition/container';
@@ -47,6 +49,20 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
   const count = posting.media.length;
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList<FeedMedia>>(null);
+  const connection = useConnectionStatus();
+  // Photos whose download failed. Tracked per media id because the alternative
+  // is worse than a blank: a page whose image never arrives keeps showing
+  // whatever the recycled view last held, so paging to photo 2 with no
+  // connection showed photo 1 again — with the progress bar insisting you had
+  // moved on.
+  const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
+  // Bumped to remount the images and let them try the network again.
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
+  const retryPhotos = useCallback((): void => {
+    setFailedIds(new Set());
+    setLoadAttempt(a => a + 1);
+  }, []);
   // The tap handler needs the current index without re-rendering every page
   // Pressable each time the index changes.
   const indexRef = useRef(0);
@@ -123,8 +139,11 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
             goTo(indexRef.current + (back ? -1 : 1));
           }}
         >
-          {uri != null ? (
+          {uri != null && !failedIds.has(item.id) ? (
             <Image
+              // Remounted by a retry, so a photo that failed while offline can
+              // be asked for again without leaving the story.
+              key={`${item.id}-${loadAttempt}`}
               source={uri}
               style={styles.photo}
               contentFit="contain"
@@ -133,16 +152,41 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
               // watchdog kills the app for (#77).
               cachePolicy="disk"
               recyclingKey={uri}
+              // No cross-fade: dissolving out of the previous page's photo is
+              // exactly the confusion this is fixing.
+              transition={0}
+              onError={() => setFailedIds(prev => new Set(prev).add(item.id))}
             />
           ) : (
             <View style={[styles.photo, styles.placeholder]}>
-              <Ionicons name="image-outline" size={40} color={colors.textMuted} />
+              <Ionicons
+                name={uri == null ? 'image-outline' : 'cloud-offline-outline'}
+                size={40}
+                color={colors.textMuted}
+              />
+              {uri != null && (
+                <>
+                  <Text style={styles.placeholderText}>
+                    {isUsable(connection)
+                      ? 'This photo couldn’t be loaded.'
+                      : 'This photo isn’t downloaded, and you’re offline.'}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.placeholderButton}
+                    onPress={retryPhotos}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.placeholderButtonText}>Try again</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           )}
         </Pressable>
       );
     },
-    [width, height, goTo],
+    [width, height, goTo, failedIds, loadAttempt, connection, retryPhotos],
   );
 
   return (
@@ -315,7 +359,16 @@ export function PostingDetailScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   photo: { width: '100%', height: '100%' },
-  placeholder: { alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
+  placeholder: { alignItems: 'center', justifyContent: 'center', gap: spacing.md, paddingHorizontal: spacing.xl },
+  placeholderText: { color: 'rgba(255,255,255,0.75)', fontSize: 13, textAlign: 'center' },
+  placeholderButton: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  placeholderButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
   missing: { color: '#FFFFFF', fontSize: 15 },
   scrim: { position: 'absolute', top: 0, left: 0, right: 0 },
   top: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: spacing.md },

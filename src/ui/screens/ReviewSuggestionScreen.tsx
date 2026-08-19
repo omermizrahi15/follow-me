@@ -33,6 +33,7 @@ import { relativeTime } from '../../domain/services/photoSyncCopy';
 import type { PlaceSplitSegment } from '../../domain/services/splitSuggestion';
 import { PlaceField } from '../components/PlaceField';
 import { ErrorState } from '../components/ErrorState';
+import { refuseIfOffline } from '../data/writeGuard';
 import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -569,6 +570,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: ContentProp
   }
 
   const handleConfirm = useCallback((): void => {
+    // Same refusal as the manual post: resolving iCloud originals and uploading
+    // them is minutes of work that cannot start without a connection (#145).
+    if (refuseIfOffline('Sending a post')) return;
     void (async (): Promise<void> => {
       // Batched, not Promise.all: a post can carry up to MAX_PHOTOS_PER_POST
       // photos, and resolving a ph:// handle downloads the full-resolution

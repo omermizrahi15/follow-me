@@ -9,7 +9,6 @@ import {
   SafeAreaView,
   useWindowDimensions,
 } from 'react-native';
-import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import * as ImagePicker from 'expo-image-picker';
 import type { RootNavigationProp } from '../navigation/types';
@@ -22,6 +21,8 @@ import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { usePublisherId } from '../context/AuthContext';
 import { InviteLinkCard } from '../components/InviteLinkCard';
 import { ErrorState } from '../components/ErrorState';
+import { Photo } from '../components/Photo';
+import { refuseIfOffline } from '../data/writeGuard';
 import { PlaceField } from '../components/PlaceField';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -45,6 +46,13 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const { subscribers, loading: subscribersLoading } = useSubscribers(publisherId);
   const [pickedAssets, setPickedAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
+  /**
+   * Identifies this selection across attempts. The media ids used to be built
+   * from `Date.now()` inside the share handler, so every retry invented a fresh
+   * set — and the record of what had already been uploaded could never match
+   * (issue #145). Re-stamped only when the publisher picks different photos.
+   */
+  const selectionIdRef = useRef(Date.now().toString(36));
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   // The raw failure, so the copy can tell a dead connection from a broken
@@ -112,12 +120,16 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
         exif: true,
       });
       if (!picked.canceled) {
+        selectionIdRef.current = Date.now().toString(36);
         setPickedAssets(picked.assets);
       }
     })();
   }
 
   function handleShare(): void {
+    // Posting is the longest network operation in the app. Starting it with no
+    // connection means minutes of retries and timeouts before the same answer.
+    if (refuseIfOffline('Sending a post')) return;
     void (async (): Promise<void> => {
       setLoading(true);
       setError(null);
@@ -128,7 +140,9 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
         const items = pickedAssets.map((asset, i) => {
           const coordinate = coordinates[i];
           return {
-            mediaId: `${Date.now()}-${i}`,
+            // Stable for this selection, so a retry lines up with the uploads
+            // the failed attempt already paid for.
+            mediaId: `${selectionIdRef.current}-${i}`,
             localUri: asset.uri,
             filename: asset.fileName ?? asset.uri.split('/').pop() ?? `media-${i}.jpg`,
             ...(coordinate != null ? { coordinate } : {}),
@@ -199,6 +213,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
             style={styles.backButton}
             onPress={() => {
               setDone(false);
+              selectionIdRef.current = Date.now().toString(36);
               setPickedAssets([]);
               setPromptDismissed(false);
               navigation.goBack();
@@ -268,12 +283,10 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
 
             <ScrollView contentContainerStyle={styles.grid} showsVerticalScrollIndicator={false}>
               {pickedAssets.map((asset, i) => (
-                <Image
+                <Photo
                   key={`${asset.assetId ?? asset.uri}-${i}`}
-                  source={asset.uri}
+                  uri={asset.uri}
                   style={[styles.gridThumb, { width: tileSize, height: tileSize }]}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
                   recyclingKey={asset.assetId ?? asset.uri}
                 />
               ))}

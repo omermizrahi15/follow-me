@@ -22,6 +22,7 @@ import {
 } from '../hooks/useHistoryBackfill';
 import { PlaceField } from '../components/PlaceField';
 import { ErrorState } from '../components/ErrorState';
+import { Photo } from '../components/Photo';
 import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
 import type { ReviewablePosting } from '../hooks/useHistoryBackfill';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
@@ -446,12 +447,10 @@ function ScanningStep({ current, total, window, classified, of, batch, done, con
             ) : (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
                 {shown.map(c => (
-                  <Image
+                  <Photo
                     key={c.candidate.id}
-                    source={c.candidate.uri}
+                    uri={c.candidate.uri}
                     style={styles.photo}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
                     recyclingKey={c.candidate.id}
                   />
                 ))}

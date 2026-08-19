@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ErrorState } from '../../components/ErrorState';
+import { alertFailure, refuseIfOffline } from '../../data/writeGuard';
 import { ListRowSkeleton, SkeletonList } from '../../components/Skeleton';
 import { usePublisherId } from '../../context/AuthContext';
 import { useSubscribers } from '../../hooks/useSubscribers';
@@ -22,6 +23,9 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
   const unreachableCount = subscribers.filter(s => s.status === 'unreachable').length;
 
   function confirmRemove(subscriber: SubscriberDto): void {
+    // Asked before the confirmation dialog, not after it: agreeing to something
+    // that cannot happen and only then being told is the sequence #145 is about.
+    if (refuseIfOffline('Removing a follower')) return;
     Alert.alert(
       'Remove follower',
       `${subscriber.contactHandle} will stop receiving your photos. You can re-add them later with your invite link.`,
@@ -31,7 +35,7 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            void remove(subscriber.id).catch(() => Alert.alert('Could not remove follower', 'Please try again.'));
+            void remove(subscriber.id).catch((e: unknown) => alertFailure(e, 'Couldn’t remove this follower'));
           },
         },
       ],

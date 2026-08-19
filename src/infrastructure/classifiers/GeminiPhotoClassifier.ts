@@ -111,6 +111,14 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
   /** Photos the current classify() run started with — reported alongside a quota hit. */
   private runSize = 0;
 
+  /**
+   * Aborted once the run has resolved or rejected. Workers already in flight
+   * are allowed to finish, but nothing they do from here is wanted — in
+   * particular they must not sit out a retry backoff for an answer nobody will
+   * read, which is what left timers running past the end of a failed run.
+   */
+  private runOver = new AbortController();
+
   quotaExhausted(): boolean {
     return this.hitQuota;
   }
@@ -122,6 +130,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
   ): Promise<PhotoClassification[]> {
     this.hitQuota = false;
     this.runSize = candidates.length;
+    this.runOver = new AbortController();
     if (candidates.length === 0) return [];
 
     const total = candidates.length;
@@ -137,6 +146,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       const finish = (): void => {
         if (!settled) {
           settled = true;
+          this.runOver.abort();
           resolve(results);
         }
       };
@@ -147,6 +157,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       const fail = (err: unknown): void => {
         if (!settled) {
           settled = true;
+          this.runOver.abort();
           reject(err);
         }
       };
@@ -232,8 +243,11 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         // Network-level failure (upload dropped mid-flight) — retry once, then
         // give up and let it surface.
         lastNetworkError = err;
+        // Nothing to wait for once the run is over: the first failure ends it,
+        // and the siblings still in flight would otherwise each hold a timer
+        // for a retry whose answer is already discarded.
         if (attempt < GeminiPhotoClassifier.MAX_ATTEMPTS) {
-          await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS);
+          await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS, this.runOver.signal);
         }
         continue;
       }
