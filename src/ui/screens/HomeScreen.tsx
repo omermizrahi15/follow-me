@@ -574,10 +574,12 @@ const styles = StyleSheet.create({
   // fixed points, so it keeps those proportions on a small phone and a tablet
   // alike. `stretch` is what hands the bar that width — without it the bar
   // collapses to the size of its own tabs and drifts off centre.
+  // Near-full width, like the bar this copies: inset by a margin, not squeezed
+  // into the middle 80% of the screen.
   navWrap: {
     position: 'absolute',
-    left: '10%',
-    right: '10%',
+    left: spacing.xl,
+    right: spacing.xl,
     flexDirection: 'row',
     alignItems: 'stretch',
   },
