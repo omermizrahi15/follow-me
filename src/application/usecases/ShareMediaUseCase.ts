@@ -118,7 +118,12 @@ export class ShareMediaUseCase {
       }),
     );
 
-    await Promise.all(mediaItems.map(m => this.mediaRepo.save(m)));
+    // One write for the whole batch. Per-item writes were a round-trip per
+    // photo, and a failure halfway through left a posting whose feed card
+    // showed some of its photos and whose missing rows nothing would ever
+    // clean up. Now the posting lands complete or not at all — and a throw
+    // here stops the share before any subscriber is told about it.
+    await this.mediaRepo.saveMany(mediaItems);
 
     // Silent postings stop here: no subscriber lookup, no notifier, no delivery
     // rows. Suppressing the send later would still leave 'pending' deliveries

@@ -27,8 +27,10 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
     }
     setState(prev => ({ ...prev, loading: true, error: null }));
     try {
-      const dtos = await listFeed.listDeleted(publisherId);
-      setState({ postings: dtos.map(toFeedPosting), loading: false, error: null });
+      // One page: the trash is a recovery list for what was just deleted, not
+      // an archive to scroll, and a page holds far more than anyone keeps in it.
+      const { postings } = await listFeed.listDeleted(publisherId);
+      setState({ postings: postings.map(toFeedPosting), loading: false, error: null });
     } catch (e: unknown) {
       const message = e instanceof Error ? e.message : 'Could not load deleted posts';
       setState({ postings: [], loading: false, error: message });
