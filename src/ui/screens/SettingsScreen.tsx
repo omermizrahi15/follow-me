@@ -6,12 +6,13 @@ import type { RootNavigationProp } from '../navigation/types';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useAuth } from '../context/AuthContext';
 import { confirmCloudPhotoWipe } from '../data/cloudPhotoWipe';
+import { openLegalDocument, PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../legal';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /**
  * App settings, opened from the Me-page gear. Currently: profile editing,
- * account info, the deleted-posts trash, the cloud-photo wipe + sign out.
- * Fuller content (about, terms) in issue #35.
+ * account info, the deleted-posts trash, the cloud-photo wipe, the hosted
+ * privacy policy and terms + sign out.
  */
 export function SettingsScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
@@ -101,6 +102,38 @@ export function SettingsScreen(): React.JSX.Element {
               <Text style={styles.rowValue}>Version 0.1.0</Text>
             </View>
           </View>
+          <View style={styles.divider} />
+          <TouchableOpacity
+            testID="settings-privacy-policy"
+            style={styles.row}
+            onPress={() => void openLegalDocument('Privacy Policy', PRIVACY_POLICY_URL)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.iconWrap}>
+              <Ionicons name="lock-closed-outline" size={20} color={colors.accent} />
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Privacy Policy</Text>
+              <Text style={styles.rowValue}>What we collect, and how to have it deleted</Text>
+            </View>
+            <Ionicons name="open-outline" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity
+            testID="settings-terms"
+            style={styles.row}
+            onPress={() => void openLegalDocument('Terms of Service', TERMS_OF_SERVICE_URL)}
+            activeOpacity={0.7}
+          >
+            <View style={styles.iconWrap}>
+              <Ionicons name="document-text-outline" size={20} color={colors.accent} />
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Terms of Service</Text>
+              <Text style={styles.rowValue}>The rules for sharing through the app</Text>
+            </View>
+            <Ionicons name="open-outline" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
         </View>
 
         <TouchableOpacity testID="settings-sign-out" style={styles.signOutButton} onPress={() => void signOut()}>

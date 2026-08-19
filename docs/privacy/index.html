@@ -1,0 +1,340 @@
+<!doctype html>
+<!--
+  Follow Me — Privacy Policy (issue #7).
+
+  Hosted by GitHub Pages from /docs on main, so the URL is stable and does not
+  move with an app release:  https://omermizrahi15.github.io/follow-me/privacy/
+  That URL is what App Store Connect points at, and what Settings → About →
+  Privacy Policy opens in the app.
+
+  Keep this in step with what the code actually does. Every processor named
+  below corresponds to something in the repo — Cloudinary uploads
+  (CloudinaryStorageService), Gemini classification (functions/classify-photos),
+  BigDataCloud reverse geocoding (BigDataCloudGeocoder), Twilio delivery
+  (functions/send-post), Sentry (infrastructure/monitoring). Adding a processor
+  means editing this file in the same PR.
+-->
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#0E3A53" />
+    <title>Privacy Policy — Follow Me</title>
+    <link rel="stylesheet" href="../legal.css" />
+  </head>
+  <body>
+    <main>
+      <p class="brand">Follow Me</p>
+      <h1>Privacy Policy</h1>
+      <p class="updated">Last updated 19 August 2026</p>
+
+      <p class="lede">
+        Follow Me lets a publisher share photos and videos with people who follow them on WhatsApp.
+        This policy explains what the app collects, who it is sent to, how long it is kept, and how
+        to get it deleted. It covers both publishers (people who post) and followers (people who
+        receive posts on WhatsApp).
+      </p>
+
+      <h2>Who is responsible</h2>
+      <p>
+        Follow Me is an independent app operated by Omer Mizrahi, who is the data controller for the
+        personal data described here. Questions, requests, and complaints:
+        <a href="mailto:omermizrahi2001@gmail.com">omermizrahi2001@gmail.com</a>.
+      </p>
+
+      <h2>What the app collects</h2>
+
+      <h3>If you are a publisher</h3>
+      <ul>
+        <li>
+          <strong>Your phone number.</strong> Used to sign you in — you receive a one-time code by
+          SMS. It is also the identity your posts are attributed to.
+        </li>
+        <li>
+          <strong>Your profile.</strong> Display name, optional bio, and optional profile photo.
+          Because followers can open your posts on the web, your display name, bio, and profile
+          photo are publicly readable to anyone holding a link to your posts.
+        </li>
+        <li>
+          <strong>Photos and videos you post</strong>, along with their capture date, the number of
+          items in the post, and — when the media carries GPS metadata — its coordinates and the
+          place name derived from them.
+        </li>
+        <li>
+          <strong>Candidate photos.</strong> If you turn on automatic posting, the app uploads
+          private copies of recent photos from your library so a post can be prepared while the app
+          is closed. These copies are not shown to anyone; they exist so the app can choose what to
+          suggest. See <em>Photos in more detail</em> below.
+        </li>
+        <li>
+          <strong>Your settings</strong> — posting schedule, how far back to look for photos, how
+          many photos per post, category preferences, and whether posts need your approval.
+        </li>
+        <li>
+          <strong>Your follower list</strong> — the WhatsApp numbers of people who subscribed to
+          you, and whether each subscription is active.
+        </li>
+        <li>
+          <strong>Device push token</strong>, so the app can notify you that a post is ready or was
+          sent.
+        </li>
+      </ul>
+
+      <h3>If you are a follower</h3>
+      <ul>
+        <li>
+          <strong>Your WhatsApp phone number</strong>, which you provide by opening a publisher's
+          invitation link or by messaging the app's WhatsApp number. It is stored against the
+          publisher you chose to follow.
+        </li>
+        <li>
+          <strong>Delivery records</strong> — for each message sent to you, the message identifier,
+          your number, the delivery status reported by WhatsApp (queued, sent, delivered, read,
+          failed), and any error code. These exist so failed deliveries can be retried and so
+          numbers that no longer work stop being messaged.
+        </li>
+        <li>
+          <strong>Messages you send to the app's WhatsApp number</strong> are processed to recognise
+          commands such as <strong>STOP</strong>. Replies intended for a publisher are handled by
+          WhatsApp between you and that publisher; the app does not read your conversation with
+          them.
+        </li>
+      </ul>
+
+      <h3>Diagnostics</h3>
+      <p>
+        The app sends crash and error reports so faults can be found and fixed. A report contains
+        the error, the operation that failed, and technical details about the device and app
+        version. It is not used to build a profile of you and is not used for advertising.
+      </p>
+
+      <h2>Photos in more detail</h2>
+      <p>
+        Photos are the most sensitive thing this app touches, so the handling is set out explicitly.
+      </p>
+      <ul>
+        <li>
+          <strong>Reading your library.</strong> The app reads recent photos from your device
+          library only after you grant photo access, and only within the time window you configure.
+        </li>
+        <li>
+          <strong>Cloud copies.</strong> Photos and videos — both the ones you post and the private
+          candidate copies used to prepare posts — are uploaded to
+          <strong>Cloudinary</strong>, a media hosting provider, and are served from there.
+        </li>
+        <li>
+          <strong>Automatic deletion.</strong> Candidate copies that fall outside your configured
+          window are deleted automatically, with a seven-day grace period so a post awaiting your
+          approval does not break.
+        </li>
+        <li>
+          <strong>Deleting everything, now.</strong>
+          <em>Settings → Privacy → Remove my photos from the cloud</em> deletes every private copy
+          the app holds and switches uploading off, so nothing is re-uploaded. Photos on your phone
+          and posts you have already sent are not affected.
+        </li>
+        <li>
+          <strong>Choosing what to suggest.</strong> To suggest which photos are worth posting, the
+          app sends photos to <strong>Google's Gemini API</strong> for classification. Google states
+          that data sent to the paid Gemini API is not used to improve its models. Only photos in
+          your selected window are sent, and only while automatic posting is on.
+        </li>
+        <li>
+          <strong>Location.</strong> If a photo carries GPS coordinates, the app stores those
+          coordinates alongside the photo and sends them to <strong>BigDataCloud</strong> to turn
+          them into a place name ("Lisbon, Portugal"), which appears in the post and in
+          notifications. Photos without GPS metadata produce no location. The app does not track
+          your device's live location.
+        </li>
+        <li>
+          <strong>Posted media is reachable by link.</strong> A post is delivered to followers as a
+          WhatsApp message containing a link. That link is unguessable, but it is not
+          password-protected — anyone your follower forwards it to can open the post. Treat a post
+          as shared with everyone your followers might show it to.
+        </li>
+      </ul>
+
+      <h2>Contacts</h2>
+      <p>
+        If you allow it, the app reads your device's address book so your followers can appear under
+        the names you know them by instead of bare phone numbers. This matching happens
+        <strong>entirely on your device</strong>. Your contacts are never uploaded, never stored on
+        our servers, and never shared. Declining contact access only means followers are shown as
+        phone numbers.
+      </p>
+
+      <h2>People who appear in photos</h2>
+      <p>
+        Photos often contain people other than the publisher. The publisher decides what to post and
+        is responsible for having the right to share it — see the
+        <a href="../terms/">Terms of Service</a>. We do not run face recognition and do not attempt
+        to identify people in photos.
+      </p>
+      <p>
+        If a photo of you has been shared through Follow Me and you want it removed, email
+        <a href="mailto:omermizrahi2001@gmail.com">omermizrahi2001@gmail.com</a> with the link to
+        the post. We will remove the media from our storage. We cannot retrieve copies already
+        delivered to followers' phones through WhatsApp.
+      </p>
+
+      <h2>Who we share data with</h2>
+      <p>
+        Personal data is <strong>never sold</strong>, rented, or shared for advertising or for
+        anyone else's marketing. It is shared only with the service providers below, each of which
+        processes it on our instructions and for the purpose named.
+      </p>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr>
+              <th>Provider</th>
+              <th>What it receives</th>
+              <th>Why</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>Supabase</td>
+              <td>Account, profile, settings, follower numbers, post records</td>
+              <td>Database, authentication, and server functions</td>
+            </tr>
+            <tr>
+              <td>Cloudinary</td>
+              <td>Photos and videos</td>
+              <td>Media storage and delivery</td>
+            </tr>
+            <tr>
+              <td>Twilio</td>
+              <td>Follower phone numbers and message content</td>
+              <td>Sending posts over WhatsApp</td>
+            </tr>
+            <tr>
+              <td>WhatsApp (Meta)</td>
+              <td>Follower phone numbers and message content</td>
+              <td>The delivery channel itself</td>
+            </tr>
+            <tr>
+              <td>Google (Gemini API)</td>
+              <td>Photos being considered for a post</td>
+              <td>Choosing which photos to suggest</td>
+            </tr>
+            <tr>
+              <td>BigDataCloud</td>
+              <td>Photo GPS coordinates</td>
+              <td>Turning coordinates into a place name</td>
+            </tr>
+            <tr>
+              <td>Apple / Expo</td>
+              <td>Device push token</td>
+              <td>Delivering push notifications</td>
+            </tr>
+            <tr>
+              <td>Sentry</td>
+              <td>Crash and error reports</td>
+              <td>Diagnosing faults</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+      <p>
+        Data may also be disclosed where required by law, or to protect the rights and safety of
+        users, and may transfer to a successor if the app changes hands — in which case this policy
+        continues to apply until you are told otherwise.
+      </p>
+
+      <h2>International transfers</h2>
+      <p>
+        The providers above operate globally, so your data may be processed outside your country,
+        including in the United States. Where data leaves the European Economic Area or the United
+        Kingdom, transfers rely on the European Commission's Standard Contractual Clauses or an
+        equivalent safeguard offered by the provider.
+      </p>
+
+      <h2>How long data is kept</h2>
+      <ul>
+        <li><strong>Candidate photo copies</strong> — until they age out of your window (plus seven days), or until you delete them from Settings.</li>
+        <li><strong>Posts and their media</strong> — until you delete the post. Deleted posts sit in the app's trash so you can restore them, and are removed from storage when the trash is emptied.</li>
+        <li><strong>Follower records</strong> — until the follower unsubscribes or the publisher removes them. An unsubscribe is recorded so we do not message that number again.</li>
+        <li><strong>Delivery logs</strong> — kept while needed to retry failures and diagnose delivery problems.</li>
+        <li><strong>Account data</strong> — until you ask for the account to be deleted.</li>
+        <li><strong>Crash reports</strong> — retained on Sentry's default schedule (90 days).</li>
+      </ul>
+
+      <h2>Your rights</h2>
+      <p>
+        Wherever you live, you can ask us to show you the data we hold about you, correct it, or
+        delete it. Email <a href="mailto:omermizrahi2001@gmail.com">omermizrahi2001@gmail.com</a>
+        and we will respond within 30 days. We do not charge for this and will not treat you
+        differently for asking.
+      </p>
+
+      <h3>If you are in the EU or UK (GDPR)</h3>
+      <p>You have the right to:</p>
+      <ul>
+        <li>access the personal data we hold about you, and receive a copy of it in a portable format;</li>
+        <li>have inaccurate data corrected;</li>
+        <li>have your data erased;</li>
+        <li>restrict or object to processing;</li>
+        <li>withdraw consent at any time — for example by turning off photo upload, revoking photo or contacts access in iOS Settings, or replying STOP on WhatsApp. Withdrawing consent does not affect processing that already happened;</li>
+        <li>complain to your local data protection authority.</li>
+      </ul>
+      <p>
+        We rely on <strong>consent</strong> for reading your photo library, uploading candidate
+        copies, and reading contacts; on <strong>performance of a contract</strong> for running your
+        account and delivering posts to your followers; and on <strong>legitimate interests</strong>
+        for security, fraud prevention, and diagnosing crashes.
+      </p>
+
+      <h3>If you are in California (CCPA/CPRA)</h3>
+      <p>
+        You have the right to know what personal information is collected and who it is disclosed
+        to, to delete it, to correct it, and to opt out of its sale or sharing. In the twelve months
+        before the date above, we have <strong>not sold or shared personal information</strong> as
+        those terms are defined by the CCPA, and we do not use it for cross-context behavioural
+        advertising. The categories we collect are identifiers (phone number), photographic and
+        audiovisual information, geolocation from photo metadata, and device diagnostics — all
+        described above, all collected for the purposes described above. You may exercise these
+        rights at the email address above, and may use an authorised agent to do so.
+      </p>
+
+      <h2>Deleting your account</h2>
+      <p>
+        Email <a href="mailto:omermizrahi2001@gmail.com">omermizrahi2001@gmail.com</a> from the
+        phone number's associated address, or include the phone number you signed up with. We delete
+        your account, profile, posts, uploaded media, settings, and follower list. Deletion is
+        permanent. Messages already delivered to followers over WhatsApp remain on their devices and
+        cannot be recalled.
+      </p>
+
+      <h2>Security</h2>
+      <p>
+        Data is transmitted over encrypted connections (HTTPS/TLS) and stored with providers that
+        encrypt data at rest. Database access is restricted so that a signed-in publisher can reach
+        only their own rows. No system is perfectly secure, and we cannot guarantee absolute
+        security.
+      </p>
+
+      <h2>Children</h2>
+      <p>
+        Follow Me is not directed at children under 13, and we do not knowingly collect personal
+        data from them. If you believe a child has provided us with personal data, email us and we
+        will delete it.
+      </p>
+
+      <h2>Changes to this policy</h2>
+      <p>
+        If this policy changes, the date at the top changes with it, and the current version is
+        always at this URL. Material changes will be announced in the app before they take effect.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        <a href="mailto:omermizrahi2001@gmail.com">omermizrahi2001@gmail.com</a>
+      </p>
+    </main>
+    <footer>
+      <a href="../terms/">Terms of Service</a> ·
+      <a href="https://github.com/omermizrahi15/follow-me">Source code</a>
+    </footer>
+  </body>
+</html>
