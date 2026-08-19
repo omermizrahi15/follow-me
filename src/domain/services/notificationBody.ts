@@ -17,6 +17,30 @@ export interface LocatedItem {
   readonly location?: string | undefined;
 }
 
+/**
+ * The "reply to the publisher" link a follower taps (issue #143).
+ *
+ * WhatsApp has NO deep link that opens a quoted reply to a specific message —
+ * no URL scheme, no Business API parameter. `wa.me` can open a chat and
+ * pre-fill the composer, and that is the whole toolbox. So the next best thing
+ * is pre-filling the subject: the publisher gets "Re: your photos from Rome ✨"
+ * instead of a bare "hey" with no idea which post it answers.
+ *
+ * The follower is the sender here, so the copy addresses the publisher in the
+ * second person. `place` is optional — an autonomous post with no GPS fix, or a
+ * share whose media carried no location, falls back to "your latest photos".
+ *
+ * MIRRORED in `supabase/functions/_shared/postTemplate.ts`, which must stay
+ * import-free to remain jest-importable; `postTemplate.test.ts` asserts the two
+ * produce byte-identical links.
+ */
+export function composeReplyLink(publisherPhone: string, place?: string | null): string {
+  const waPhone = publisherPhone.replace(/^\+/, '');
+  const label = (place ?? '').replace(/\s+/g, ' ').trim();
+  const subject = label !== '' ? `your photos from ${label}` : 'your latest photos';
+  return `https://wa.me/${waPhone}?text=${encodeURIComponent(`Re: ${subject} ✨`)}`;
+}
+
 export function composeNotificationBody(
   publisherName: string,
   media: readonly LocatedItem[],
@@ -26,8 +50,9 @@ export function composeNotificationBody(
   const locationPart = locationClause != null ? ` from ${locationClause}` : '';
   const headline = `Checkout ${publisherName} latest photos${locationPart} 📸`;
   if (publisherPhone == null) return headline;
-  const waPhone = publisherPhone.replace(/^\+/, '');
-  return `${headline}\nChat with ${publisherName}: https://wa.me/${waPhone}`;
+  // The same places the headline names become the pre-filled subject, so the
+  // publisher reads "Re: your photos from Rome ✨" when the reply arrives.
+  return `${headline}\nChat with ${publisherName}: ${composeReplyLink(publisherPhone, locationClause)}`;
 }
 
 export function selectTopLocations(media: readonly LocatedItem[]): string[] {
@@ -75,8 +100,7 @@ export function composeAutoPostBody(
     lines.push(`See all ${gallery.photoCount} photos: ${gallery.url}`);
   }
   if (publisherPhone != null && publisherPhone !== '') {
-    const waPhone = publisherPhone.replace(/^\+/, '');
-    lines.push(`Hit the link to reply to ${publisherName}: https://wa.me/${waPhone}`);
+    lines.push(`Hit the link to reply to ${publisherName}: ${composeReplyLink(publisherPhone, place)}`);
   }
   // Blank line between sections — easier to scan as a WhatsApp message.
   return lines.join('\n\n');

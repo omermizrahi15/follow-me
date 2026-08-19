@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,7 +18,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { SectionNav, SECTION_NAV_HEIGHT, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
@@ -83,14 +83,21 @@ export function HomeScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, 'Home'>>();
   const requestedSection = route.params?.section;
+  // Nonce from a reminder-notification tap — see RootStackParamList.Home.
+  const suggestionRequest = route.params?.suggestionRequest;
   const { shareInvite } = useInviteLink();
   const publisherId = usePublisherId();
-  const { profile, reload: reloadProfile } = useProfile(publisherId);
-  const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
-  const { postings, loading: feedLoading, reload: reloadFeed } = useFeed(publisherId);
+  // All three come from the shared cache (issue #114): one request per entity
+  // however many components ask, served from memory on the way back, and kept
+  // current by the writes that change them rather than by refetching here.
+  const { profile } = useProfile(publisherId);
+  const { subscribers, loading: followersLoading } = useSubscribers(publisherId);
+  const { postings, loading: feedLoading, complete: feedComplete } = useFeed(publisherId);
   // The History tab exists only when some stretch of the trip has no posting —
   // including a hole in the middle, not just a missing beginning (issue #81).
-  const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings);
+  // It waits for the whole feed: until it has arrived, every stretch looks
+  // empty, and offering to reconstruct a trip already posted would duplicate it.
+  const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings, feedComplete);
   const [section, setSection] = useState<HomeSection>('me');
   const [showingSuggestions, setShowingSuggestions] = useState(false);
   // Which feed card has its Delete revealed — at most one, the way an iOS
@@ -126,18 +133,19 @@ export function HomeScreen(): React.JSX.Element {
     if (requestedSection != null) setSection(requestedSection);
   }, [requestedSection]);
 
-  // The Me page never unmounts (sections are local state, Upload is a modal on
-  // top), so refresh the followers count and the profile whenever the screen
-  // regains focus — e.g. a fresh upload or a profile edit in Settings must
-  // show up on return. The feed is NOT refreshed here: useFeed already does it
-  // on focus, and asking twice meant two round trips and two feed states per
-  // focus, each one a fresh postings array for everything below to react to.
-  useFocusEffect(
-    useCallback(() => {
-      void reloadSubscribers();
-      void reloadProfile();
-    }, [reloadSubscribers, reloadProfile]),
-  );
+  // Tapping the reminder opens the suggested-post sheet. This is the only way
+  // in from a notification now that the review screen has no modal route of its
+  // own; the nonce is what makes a second tap reopen a sheet already closed.
+  useEffect(() => {
+    if (suggestionRequest == null) return;
+    setSuggestionKey(k => k + 1);
+    setShowingSuggestions(true);
+    snapTo(FULL_H);
+  }, [suggestionRequest]);
+
+  // The focus-refresh that used to sit here is gone: the shared read cache
+  // (#114) revalidates feed, profile and followers itself, so asking again on
+  // every focus was two round trips and two feed states per focus.
 
   function snapTo(h: number): void {
     restOffsetRef.current = offsetFor(h);
@@ -174,18 +182,14 @@ export function HomeScreen(): React.JSX.Element {
     }),
   ).current;
 
+  // Switching sections no longer refetches anything. The Me page is part of a
+  // screen that never unmounts and never loses focus, so it used to have to ask
+  // — a history stretch sent with "Publish this one" was otherwise invisible
+  // until the app was relaunched. Publishing now invalidates the feed itself,
+  // which reaches this screen wherever the post came from.
   function selectSection(next: HomeSection): void {
     setShowingSuggestions(false);
     setSection(next);
-    // The Me page is a section of a screen that never unmounts and never loses
-    // focus, so nothing else refetches for it. Anything published from another
-    // section — a history stretch sent with "Publish this one", a post shared
-    // from the suggestions sheet — was otherwise invisible until the app was
-    // relaunched.
-    if (next === 'me') {
-      void reloadSubscribers();
-      void reloadFeed();
-    }
     snapTo(MEDIUM_H);
   }
 
@@ -211,9 +215,6 @@ export function HomeScreen(): React.JSX.Element {
   function closeSuggestions(): void {
     setShowingSuggestions(false);
     snapTo(MEDIUM_H);
-    // The sheet lives inside Home (no focus change), so refresh the feed
-    // explicitly — the user may have just posted from it.
-    void reloadFeed();
   }
 
   // The sheet stays docked to the bottom; its lowest band (behind the nav) is left
@@ -290,7 +291,7 @@ export function HomeScreen(): React.JSX.Element {
                   // explicit button for anyone who never discovers the swipe.
                   onDelete={() => {
                     setSwipedPostId(null);
-                    moveToTrash(publisherId, item, () => void reloadFeed());
+                    moveToTrash(publisherId, item);
                   }}
                   isSwipedOpen={swipedPostId === item.id}
                   onSwipeStateChange={open => setSwipedPostId(open ? item.id : null)}
@@ -368,7 +369,7 @@ export function HomeScreen(): React.JSX.Element {
           {!showingSuggestions && section === 'followers' && <FollowersSection bottomInset={bottomInset} />}
           {!showingSuggestions && section === 'history' && (
             <HistoryBackfillContent
-              onDone={() => { selectSection('me'); void reloadFeed(); }}
+              onDone={() => selectSection('me')}
               initialStartDate={tripStartDate}
               gaps={gaps}
               bottomInset={bottomInset}

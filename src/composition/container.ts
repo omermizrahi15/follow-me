@@ -22,6 +22,7 @@ import { ExpoContactsDirectory } from '../infrastructure/contacts/ExpoContactsDi
 import { registerExpoPushToken } from '../infrastructure/notifiers/ExpoPushToken';
 import type { Coordinate, ISentPhotoTracker, PhotoSyncState } from '../domain/interfaces';
 import { resolvePostingPlace } from '../application/services/resolvePostingPlace';
+import { createQueryCache } from '../application/services/queryCache';
 import { ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
 import { WhatsAppEdgeNotifier } from '../infrastructure/notifiers/WhatsAppEdgeNotifier';
 import { RetryingNotifier } from '../infrastructure/notifiers/RetryingNotifier';
@@ -109,20 +110,17 @@ const photoClassifier = new GeminiPhotoClassifier(
 );
 const notificationScheduler = new ExpoNotificationScheduler();
 // Already-sent = anything recorded in `media` for this publisher (id == asset id).
+// Ids only: this runs on every suggestion scan and every "+" top-up, and used
+// to read every column of every photo the publisher had ever posted (#116).
 const sentPhotoTracker: ISentPhotoTracker = {
-  sentCandidateIds: async publisherId =>
-    new Set((await mediaRepo.findByOwner(publisherId)).map(m => m.id)),
+  sentCandidateIds: publisherId => mediaRepo.postedAssetIds(publisherId),
   // The newest photo they have already posted. Deleted postings still count:
   // the publisher saw those photos and chose them once, so re-offering them as
   // "new since your last post" would be a worse surprise than missing them.
-  newestPostedPhotoAt: async publisherId => {
-    const posted = await mediaRepo.findByOwner(publisherId);
-    let newest: Date | null = null;
-    for (const m of posted) {
-      if (newest == null || m.createdAt > newest) newest = m.createdAt;
-    }
-    return newest;
-  },
+  //
+  // One row answers it: the store returns an owner's media newest first.
+  newestPostedPhotoAt: async publisherId =>
+    (await mediaRepo.findByOwner(publisherId, { limit: 1 }))[0]?.createdAt ?? null,
 };
 // Names the posting's place ("Lisbon, Portugal") from the batch's EXIF GPS.
 const geocoder = new BigDataCloudGeocoder();
@@ -333,6 +331,14 @@ async function deleteCandidates(body: { olderThanDays?: number }): Promise<{ del
 
 /** Crash and event reporting. Callers pass the operation name that failed. */
 export { reportError, reportMessage };
+
+/**
+ * The app's one read cache (issue #114). Every screen that wants the feed, the
+ * profile or the followers goes through it, so the same row is fetched once and
+ * shared rather than once per hook instance. Bound here because "which cache"
+ * is a composition decision; the hooks only know the interface.
+ */
+export const queryCache = createQueryCache();
 
 /** Local URI for a media-library asset, and that asset's recorded GPS fix. */
 export { expoResolveLocalUri, mediaLibraryAssetLocation };
