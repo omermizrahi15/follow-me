@@ -160,6 +160,13 @@ const suggestPhotosUseCase = new SuggestPhotosUseCase(
   sentPhotoTracker,
   new PhotoSelectionService(),
   ClassificationCache,
+  undefined,
+  // The face "photos of me" matches against (issue #137). It is the profile
+  // photo and nothing else — no enrolment, no second signature to keep, and
+  // nothing to wipe beyond the avatar the publisher can already remove. The
+  // use case decides whether to ask for it at all; this only knows where it
+  // lives.
+  async publisherId => (await profileRepo.findByPublisher(publisherId))?.avatarUrl ?? null,
 );
 export const suggestPhotos = monitored('suggest_photos', suggestPhotosUseCase);
 // Reconstructs pre-app travel history one cadence-window at a time (issue #81).

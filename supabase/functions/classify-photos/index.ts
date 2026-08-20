@@ -1,7 +1,17 @@
 /**
  * Supabase Edge Function: POST /classify-photos
- * Body: { "photos": [{ "id": string, "url"?: string, "base64"?: string, "mimeType"?: string }] }
- * Returns: { "classifications": [{ id, category, confidence, quality, caption, scene }] }
+ * Body: { "photos": [{ "id": string, "url"?: string, "base64"?: string, "mimeType"?: string }],
+ *         "reference"?: { "url"?: string, "base64"?: string, "mimeType"?: string } }
+ * Returns: { "classifications": [{ id, category, confidence, quality, caption, scene,
+ *                                  contains_reference_person, reference_confidence }] }
+ *
+ * `reference` is the publisher's profile photo (issue #137). When it is present
+ * each photo is additionally judged for whether that same person appears in it,
+ * which is what the "photos of me" preference ranks and filters on. It is
+ * optional and sent only by a publisher who turned that preference on: with no
+ * reference the model is never shown a face to match and the two extra fields
+ * come back false/0. Nothing about the reference is stored here — it is fetched
+ * per request, used in one prompt, and forgotten.
  *
  * The single place provider specifics live. It holds GEMINI_API_KEY (never shipped
  * in the app) and asks Gemini Flash to classify each photo into one of the rule
@@ -88,6 +98,27 @@ async function authenticatedUserId(req: Request): Promise<string | null> {
   }
 }
 
+/**
+ * Added when the request carries a reference image, which arrives as the FIRST
+ * image in the prompt. Spelled out that way because the model is otherwise free
+ * to read two images in either order, and getting it backwards would classify
+ * the publisher's profile photo and answer about the wrong picture entirely.
+ *
+ * The wording asks about one specific person — the one in the reference — and
+ * never about who else is in the frame. Naming or recognising travel companions
+ * is explicitly out of scope for issue #137.
+ */
+const REFERENCE_PROMPT = `The FIRST image is a reference portrait of one specific person.
+The SECOND image is the photo to classify. Every field below describes the SECOND image only;
+the reference is used for one extra question and is not itself being classified.
+
+- contains_reference_person: true if the person from the reference portrait appears anywhere
+  in the second image, false otherwise. Judge only that one person — ignore everyone else in
+  the frame, and do not describe or identify anybody. Say false when you are unsure.
+- reference_confidence: 0..1, how certain you are of that answer.
+
+`;
+
 const PROMPT = `You classify a single photo for a social "share my travels" app.
 
 Choose exactly one category:
@@ -112,17 +143,35 @@ Also rate:
 
 Respond with JSON only.`;
 
-const RESPONSE_SCHEMA = {
-  type: 'OBJECT',
-  properties: {
-    category: { type: 'STRING', enum: [...CATEGORIES] },
-    confidence: { type: 'NUMBER' },
-    quality: { type: 'NUMBER' },
-    caption: { type: 'STRING' },
-    scene: { type: 'STRING' },
-  },
-  required: ['category', 'confidence', 'quality', 'caption', 'scene'],
+const BASE_PROPERTIES = {
+  category: { type: 'STRING', enum: [...CATEGORIES] },
+  confidence: { type: 'NUMBER' },
+  quality: { type: 'NUMBER' },
+  caption: { type: 'STRING' },
+  scene: { type: 'STRING' },
 };
+const BASE_REQUIRED = ['category', 'confidence', 'quality', 'caption', 'scene'];
+
+/**
+ * The face fields are added to the schema only when a reference was sent.
+ * Requiring them unconditionally would make the model answer a question it was
+ * shown nothing for, and a hallucinated `true` here is a stranger's photo in
+ * somebody's post.
+ */
+function responseSchema(hasReference: boolean): Record<string, unknown> {
+  if (!hasReference) {
+    return { type: 'OBJECT', properties: BASE_PROPERTIES, required: BASE_REQUIRED };
+  }
+  return {
+    type: 'OBJECT',
+    properties: {
+      ...BASE_PROPERTIES,
+      contains_reference_person: { type: 'BOOLEAN' },
+      reference_confidence: { type: 'NUMBER' },
+    },
+    required: [...BASE_REQUIRED, 'contains_reference_person', 'reference_confidence'],
+  };
+}
 
 const cors: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -137,14 +186,23 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-interface PhotoInput {
-  id: string;
+interface ImageInput {
   url?: string;
   base64?: string;
   mimeType?: string;
 }
 
-async function resolveImage(photo: PhotoInput): Promise<{ data: string; mimeType: string }> {
+interface PhotoInput extends ImageInput {
+  id: string;
+}
+
+/** An image already in the shape Gemini wants it. */
+interface ResolvedImage {
+  data: string;
+  mimeType: string;
+}
+
+async function resolveImage(photo: ImageInput): Promise<ResolvedImage> {
   if (photo.base64) {
     return { data: photo.base64, mimeType: photo.mimeType ?? 'image/jpeg' };
   }
@@ -156,6 +214,24 @@ async function resolveImage(photo: PhotoInput): Promise<{ data: string; mimeType
     return { data: bytesToBase64(bytes), mimeType };
   }
   throw new Error('photo has neither url nor base64');
+}
+
+/**
+ * Fetches the reference portrait once per request, or gives up on it.
+ *
+ * Deliberately soft: a profile photo behind a dead URL must not fail the whole
+ * request. Every photo in it is still worth grading on category and quality —
+ * the batch just loses the face preference for this run, which the ranking
+ * already treats as "not known to contain them".
+ */
+async function resolveReference(reference: ImageInput | null): Promise<ResolvedImage | null> {
+  if (reference == null) return null;
+  try {
+    return await resolveImage(reference);
+  } catch (err) {
+    console.warn('classify: reference image unreadable, continuing without it:', String(err));
+    return null;
+  }
 }
 
 /**
@@ -250,15 +326,25 @@ class ClassifyError extends Error {
   }
 }
 
-async function classifyOne(photo: PhotoInput): Promise<Classification> {
+async function classifyOne(photo: PhotoInput, reference: ResolvedImage | null): Promise<Classification> {
   const { data, mimeType } = await resolveImage(photo);
+
+  // Reference first, photo second — the order REFERENCE_PROMPT tells the model
+  // to expect. Keep the two in step if either ever changes.
+  const parts = reference == null
+    ? [{ text: PROMPT }, { inlineData: { mimeType, data } }]
+    : [
+        { text: REFERENCE_PROMPT + PROMPT },
+        { inlineData: { mimeType: reference.mimeType, data: reference.data } },
+        { inlineData: { mimeType, data } },
+      ];
 
   const result = await callGemini(
     JSON.stringify({
-      contents: [{ parts: [{ text: PROMPT }, { inlineData: { mimeType, data } }] }],
+      contents: [{ parts }],
       generationConfig: {
         responseMimeType: 'application/json',
-        responseSchema: RESPONSE_SCHEMA,
+        responseSchema: responseSchema(reference != null),
         temperature: 0,
       },
     }),
@@ -278,7 +364,7 @@ async function classifyOne(photo: PhotoInput): Promise<Classification> {
     console.error('Gemini returned no content; payload shape:', JSON.stringify(payload)?.slice(0, 500));
     throw new ClassifyError(photo.id, 'Gemini returned no content');
   }
-  return parseClassification(photo.id, JSON.parse(text));
+  return parseClassification(photo.id, JSON.parse(text), reference != null);
 }
 
 Deno.serve(async (req: Request) => {
@@ -290,7 +376,7 @@ Deno.serve(async (req: Request) => {
   const userId = await authenticatedUserId(req);
   if (userId == null) return json({ error: 'Authentication required' }, 401);
 
-  let body: { photos?: PhotoInput[] };
+  let body: { photos?: PhotoInput[]; reference?: ImageInput | null };
   try {
     body = await req.json();
   } catch {
@@ -314,6 +400,14 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'Daily classification quota exceeded', reason }, 429);
   }
 
+  // The publisher's profile photo, when they asked for the face preference.
+  // Fetched once for the whole request rather than per photo: it is the same
+  // portrait for every photo in the body, and it is the only image here that
+  // would otherwise be paid for more than once.
+  const reference = await resolveReference(
+    typeof body.reference === 'object' && body.reference !== null ? body.reference : null,
+  );
+
   // Classify sequentially (called one photo at a time by the app) so a single
   // large batch never hits worker memory limits.
   //
@@ -328,7 +422,7 @@ Deno.serve(async (req: Request) => {
   const classifications: Classification[] = [];
   try {
     for (const photo of photos) {
-      classifications.push(await classifyOne(photo));
+      classifications.push(await classifyOne(photo, reference));
     }
   } catch (err) {
     const failure = err instanceof ClassifyError ? err : null;

@@ -27,6 +27,8 @@ function shot(id: string, at: Date, quality = 0.8): PhotoClassification {
     caption: '',
     // Distinct scenes, so the selector's scene-dedup doesn't thin the batches.
     scene: `scene-${seq++}`,
+    containsPublisher: false,
+    publisherConfidence: 0,
   };
 }
 beforeEach(() => { seq = 0; });

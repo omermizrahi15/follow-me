@@ -1,0 +1,26 @@
+-- "Photos of me" auto-posting preference (issue #137).
+--
+-- Photo selection knew *what* a photo was (category, quality, scene) but never
+-- *who* was in it: `selfie_with_view` and `selfie_with_people` fire on anyone in
+-- frame, so a suggested post could be full of waiters and strangers while the
+-- publisher's own photos went unused. This column says how much their own
+-- presence counts for.
+--
+--   off    — it plays no part. No reference image is sent to classify-photos at
+--            all, so the question is never even asked. This is the default, and
+--            it is exactly how every existing row already behaves.
+--   prefer — photos of the publisher outrank equivalent ones without them.
+--   only   — a photo must contain them to be suggested.
+--
+-- The face matched against is the publisher's own profile photo
+-- (publisher_profile.avatar_url) and nothing else. There is no enrolment step,
+-- no face vector, and no biometric data stored anywhere: the profile photo URL
+-- is handed to classify-photos per request, used in one prompt, and forgotten.
+-- The only thing kept per photo is a boolean, and it is kept on the device's
+-- grade cache, not here. Deleting the profile photo therefore removes the
+-- reference outright — nothing further needs wiping.
+--
+-- Free text rather than an enum: the app narrows it (anything unrecognised
+-- reads as 'off'), and both runtimes ship independently of migrations, so a
+-- value one of them hasn't heard of must degrade rather than error.
+alter table publisher_config add column if not exists photos_of_me text not null default 'off';

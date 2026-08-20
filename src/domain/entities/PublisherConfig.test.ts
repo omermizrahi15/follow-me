@@ -111,5 +111,21 @@ describe('PublisherConfig', () => {
       expect(() => PublisherConfig.create({ ...validProps, minQuality: q }))
         .toThrow('minQuality');
     });
+
+    it('rejects an unknown photosOfMe mode', () => {
+      expect(() =>
+        PublisherConfig.create({ ...validProps, photosOfMe: 'sometimes' as never }),
+      ).toThrow('photosOfMe');
+    });
+  });
+
+  describe('photosOfMe (issue #137)', () => {
+    it("defaults to 'off', so a row written before the feature behaves as it did", () => {
+      expect(PublisherConfig.create(validProps).photosOfMe).toBe('off');
+    });
+
+    it.each(['off', 'prefer', 'only'] as const)('accepts %p', mode => {
+      expect(PublisherConfig.create({ ...validProps, photosOfMe: mode }).photosOfMe).toBe(mode);
+    });
   });
 });

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { loadConfig, deviceTimezone } from '../../composition/container';
 import { PublisherConfig } from '../../domain/entities/PublisherConfig';
-import type { Frequency, PhotoCount } from '../../domain/entities/PublisherConfig';
+import type { Frequency, PhotoCount, PhotosOfMe } from '../../domain/entities/PublisherConfig';
 import { SELECTABLE_CATEGORIES } from '../../domain/entities/PhotoClassification';
 import { buildOrderedList, enabledCategoriesOf } from '../../domain/services/categoryOrdering';
 import type { OrderedCategory } from '../../domain/services/categoryOrdering';
@@ -30,6 +30,8 @@ export interface AutoPostingValues {
   /** Categories in preference order, enabled first — see categoryOrdering. */
   orderedCats: OrderedCategory[];
   pushToken: string;
+  /** How much the publisher's own presence in a photo counts for (issue #137). */
+  photosOfMe: PhotosOfMe;
 }
 
 export interface AutoPostingConfigState extends AutoPostingValues {
@@ -42,6 +44,7 @@ export interface AutoPostingConfigState extends AutoPostingValues {
   setNotifyTime: (t: string) => void;
   setOrderedCats: (cats: OrderedCategory[]) => void;
   setPushToken: (t: string) => void;
+  setPhotosOfMe: (v: PhotosOfMe) => void;
   /** The settings as they stand, as a validated entity. */
   buildConfig: (token?: string) => PublisherConfig;
   /** The lookback window the loaded config was stored with. */
@@ -58,6 +61,7 @@ export function useAutoPostingConfig(publisherId: string): AutoPostingConfigStat
     SELECTABLE_CATEGORIES.map(cat => ({ cat, enabled: true })),
   );
   const [pushToken, setPushToken] = useState('');
+  const [photosOfMe, setPhotosOfMe] = useState<PhotosOfMe>('off');
   const [isLoading, setIsLoading] = useState(true);
   const loadedLookbackRef = useRef<number | null>(null);
 
@@ -71,6 +75,7 @@ export function useAutoPostingConfig(publisherId: string): AutoPostingConfigStat
       setNotifyTime(config.notifyTime);
       setOrderedCats(buildOrderedList(config.enabledCategories));
       setPushToken(config.expoPushToken);
+      setPhotosOfMe(config.photosOfMe);
       loadedLookbackRef.current = config.lookbackDays;
       setIsLoading(false);
     })();
@@ -92,16 +97,18 @@ export function useAutoPostingConfig(publisherId: string): AutoPostingConfigStat
           enabledCategories.length > 0 ? enabledCategories : [...SELECTABLE_CATEGORIES],
         timezone: deviceTimezone(),
         expoPushToken: token ?? pushToken,
+        photosOfMe,
       });
     },
-    [publisherId, frequency, photoCount, askBeforePost, notifyDayOfWeek, notifyTime, orderedCats, pushToken],
+    [publisherId, frequency, photoCount, askBeforePost, notifyDayOfWeek, notifyTime, orderedCats, pushToken, photosOfMe],
   );
 
   return {
     frequency, photoCount, askBeforePost, notifyDayOfWeek, notifyTime, orderedCats, pushToken,
+    photosOfMe,
     isLoading,
     setFrequency, setPhotoCount, setAskBeforePost, setNotifyDayOfWeek, setNotifyTime,
-    setOrderedCats, setPushToken,
+    setOrderedCats, setPushToken, setPhotosOfMe,
     buildConfig,
     loadedLookbackDays: loadedLookbackRef.current,
   };
@@ -122,5 +129,6 @@ export function snapshotOf(config: PublisherConfig): string {
     config.enabledCategories,
     config.timezone,
     config.expoPushToken,
+    config.photosOfMe,
   ]);
 }

@@ -36,6 +36,8 @@ function classification(id: string, over: Partial<PhotoClassification> = {}): Ph
     quality: 0.8,
     caption: 'a photo',
     scene: '',
+    containsPublisher: false,
+    publisherConfidence: 0,
     ...over,
   };
 }
@@ -576,6 +578,83 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
         quotaExhausted: false,
         rateLimited: false,
       });
+    });
+  });
+
+  describe('photos of me (issue #137)', () => {
+    const AVATAR = 'https://cdn.test/avatar.jpg';
+
+    function faceConfig(mode: 'off' | 'prefer' | 'only'): PublisherConfig {
+      return PublisherConfig.create({
+        publisherId: 'pub-1',
+        frequency: 'weekly',
+        photosPerPost: 5,
+        requireApproval: true,
+        photosOfMe: mode,
+      });
+    }
+
+    function sut(
+      classifier: FakePhotoClassifier,
+      library: FakeMediaLibrary,
+      avatar: string | null,
+    ): SuggestPhotosUseCase {
+      return new SuggestPhotosUseCase(
+        library,
+        classifier,
+        new FakeSentPhotoTracker(),
+        undefined,
+        undefined,
+        undefined,
+        () => Promise.resolve(avatar),
+      );
+    }
+
+    it("sends no reference while the preference is off, so the profile photo stays out of it", async () => {
+      const c = candidate('a');
+      const classifier = new FakePhotoClassifier(new Map([['a', classification('a')]]));
+
+      await sut(classifier, new FakeMediaLibrary([c]), AVATAR).execute(faceConfig('off'));
+
+      expect(classifier.receivedReferences).toEqual([null]);
+    });
+
+    it('sends the profile photo once the preference is on', async () => {
+      const c = candidate('a');
+      const classifier = new FakePhotoClassifier(new Map([['a', classification('a')]]));
+
+      await sut(classifier, new FakeMediaLibrary([c]), AVATAR).execute(faceConfig('prefer'));
+
+      expect(classifier.receivedReferences).toEqual([{ url: AVATAR }]);
+    });
+
+    it("falls back to plain ranking when there is no profile photo to compare against", async () => {
+      // Otherwise `only` filters the whole window away and the publisher gets an
+      // empty post with nothing anywhere saying why — and on the autonomous path
+      // a spent posting slot. A missing avatar is also just a failed profile
+      // fetch, which is far more common than a deliberately removed photo.
+      const c = candidate('a');
+      const classifier = new FakePhotoClassifier(new Map([['a', classification('a')]]));
+
+      const { batch } = await sut(classifier, new FakeMediaLibrary([c]), null).execute(
+        faceConfig('only'),
+      );
+
+      expect(classifier.receivedReferences).toEqual([null]);
+      expect(batch.map(b => b.candidate.id)).toEqual(['a']);
+    });
+
+    it("keeps `only` honest when a reference did resolve: no publisher, no post", async () => {
+      const c = candidate('a');
+      const classifier = new FakePhotoClassifier(
+        new Map([['a', classification('a', { containsPublisher: false })]]),
+      );
+
+      const { batch } = await sut(classifier, new FakeMediaLibrary([c]), AVATAR).execute(
+        faceConfig('only'),
+      );
+
+      expect(batch).toEqual([]);
     });
   });
 });

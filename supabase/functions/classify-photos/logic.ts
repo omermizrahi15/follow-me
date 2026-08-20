@@ -110,6 +110,14 @@ export interface Classification {
   quality: number;
   caption: string;
   scene: string;
+  /**
+   * Whether the person in the request's reference image appears in this photo
+   * (issue #137). Always false when the request carried no reference — the
+   * question is not put to the model at all in that case.
+   */
+  contains_reference_person: boolean;
+  /** Model confidence in the above, 0..1. Zero when unasked. */
+  reference_confidence: number;
 }
 
 /** btoa over arbitrary bytes, chunked to avoid the argument-count limit on large images. */
@@ -144,8 +152,17 @@ export function asCategory(c: unknown): Category | null {
  * malformed response let a broken model contract reach the device disguised as
  * a confident grade. Since `other` is excluded from the swap pool and grades
  * are remembered for months, that quietly retired the photo for good.
+ *
+ * `askedForReference` says whether a reference image went out with the request.
+ * When it didn't, the face fields are forced to false/0 no matter what the model
+ * volunteered — the honest answer to a question nobody asked, and the one the
+ * selection rules are written to read (see PhotoFacts.containsPublisher).
  */
-export function parseClassification(id: string, parsed: Record<string, unknown>): Classification {
+export function parseClassification(
+  id: string,
+  parsed: Record<string, unknown>,
+  askedForReference = false,
+): Classification {
   const category = asCategory(parsed.category);
   if (category == null) {
     throw new Error(
@@ -159,5 +176,7 @@ export function parseClassification(id: string, parsed: Record<string, unknown>)
     quality: clamp01(parsed.quality),
     caption: typeof parsed.caption === 'string' ? parsed.caption : '',
     scene: typeof parsed.scene === 'string' ? parsed.scene.toLowerCase().trim() : '',
+    contains_reference_person: askedForReference && parsed.contains_reference_person === true,
+    reference_confidence: askedForReference ? clamp01(parsed.reference_confidence) : 0,
   };
 }

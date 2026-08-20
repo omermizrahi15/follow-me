@@ -94,12 +94,19 @@ Deno.test('parseClassification — normalizes a well-formed model response', () 
     quality: 0.7,
     caption: 'A forest trail',
     scene: 'mountain-trail', // lowercased + trimmed
+    // No reference image went out with the request, so the face question was
+    // never asked and must not read as "the publisher isn't in this photo".
+    contains_reference_person: false,
+    reference_confidence: 0,
   });
 });
 
 Deno.test('parseClassification — defaults junk scores and text, keeping the stated category', () => {
   const c = parseClassification('id2', { category: 'other', confidence: 5, quality: 'x', caption: 123 });
-  assertEquals(c, { id: 'id2', category: 'other', confidence: 1, quality: 0, caption: '', scene: '' });
+  assertEquals(c, {
+    id: 'id2', category: 'other', confidence: 1, quality: 0, caption: '', scene: '',
+    contains_reference_person: false, reference_confidence: 0,
+  });
 });
 
 Deno.test('parseClassification — throws on an unknown category rather than inventing other', () => {

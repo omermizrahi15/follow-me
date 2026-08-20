@@ -19,6 +19,7 @@ export type {
 export type { ReminderSchedule, INotificationScheduler } from './reminders';
 export type { Coordinate, IGeocoder, PlaceSuggestion, IPlaceSearch } from './location';
 export type {
+  FaceReference,
   IPhotoClassifier,
   IMediaLibrary,
   ISentPhotoTracker,
