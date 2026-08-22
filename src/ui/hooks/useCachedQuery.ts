@@ -30,7 +30,13 @@ export interface CachedQuery<T> {
   data: T | undefined;
   /** True only before there is anything to show — never during a background refresh. */
   loading: boolean;
-  error: string | null;
+  /**
+   * The caught failure itself, not a message. The screen turns it into copy via
+   * `describeFailure`, which needs the error's shape to tell a dead connection
+   * from a broken server — flattening it to `.message` here threw that away
+   * (issue #145).
+   */
+  error: unknown;
   /** Refetch now, regardless of staleness. Shares one request with any other caller. */
   reload: () => Promise<void>;
   /**
@@ -120,7 +126,7 @@ export function useCachedQuery<T>(
     data: entry?.data,
     // A value on hand, or an attempt that already failed, both mean "done".
     loading: key != null && entry?.data === undefined && entry?.error === undefined,
-    error: entry?.error?.message ?? null,
+    error: entry?.error ?? null,
     reload,
     read,
     update,

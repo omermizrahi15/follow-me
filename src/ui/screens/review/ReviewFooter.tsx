@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { PlaceField } from '../../components/PlaceField';
+import { ErrorState } from '../../components/ErrorState';
 import type { Coordinate } from '../../../domain/interfaces';
 import type { PlaceResolution } from '../../hooks/usePlaceResolution';
 import { colors, radius, spacing, typography } from '../../theme/theme';
@@ -17,7 +18,8 @@ interface Props {
   place: PlaceResolution;
   keptCount: number;
   sharing: boolean;
-  shareError: string | null;
+  /** The caught failure itself, so the copy can name the cause (issue #145). */
+  shareError: unknown;
   shareProgress: { stage: string; done: number; total: number } | null;
   /** Padding that keeps the input above the keyboard — see useKeyboardBottomPadding. */
   keyboardPadding: number;
@@ -35,7 +37,15 @@ export function ReviewFooter({
 }: Props): React.JSX.Element {
   return (
     <View style={[styles.footer, keyboardPadding > 0 && { paddingBottom: keyboardPadding }]}>
-      {shareError != null && <Text style={styles.errorNote}>{shareError}</Text>}
+      {shareError != null && (
+        <ErrorState
+          error={shareError}
+          title="Couldn’t send this post"
+          onRetry={onConfirm}
+          retrying={sharing}
+          compact
+        />
+      )}
       <PlaceField
         value={place.place}
         loading={place.loading}

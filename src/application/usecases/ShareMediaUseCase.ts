@@ -51,6 +51,19 @@ export interface ShareMediaInput {
   notify?: boolean;
   /** Marks the posting as reconstructed history rather than a live send. */
   backfilled?: boolean;
+  /**
+   * Urls a previous attempt already got into the cloud, by mediaId. Those items
+   * are not uploaded again (issue #145): a share of ten photos that died on the
+   * ninth used to re-send all ten on the retry, over the same connection that
+   * had just failed to carry them.
+   */
+  uploadedUrls?: Readonly<Record<string, string>>;
+  /**
+   * Called as uploads land, so the caller can remember them for a retry. Only
+   * ever reports items this attempt actually uploaded. Best-effort: a failure
+   * here is swallowed, because losing the note is better than losing the post.
+   */
+  onUploaded?: (uploads: { mediaId: string; url: string }[]) => Promise<void>;
 }
 
 export interface ShareProgress {
@@ -88,14 +101,32 @@ export class ShareMediaUseCase {
       // Uploads within a batch finish in whatever order the network returns, so
       // `done` counts completions, not positions — it rises monotonically to
       // `total` but says nothing about which item just landed.
-      mapInBatches(input.items, PHOTO_UPLOAD_BATCH_SIZE, async (item) => {
-        // Photos from the server-push cache are already hosted remotely — skip re-uploading.
-        const isRemote = item.localUri.startsWith('http://') || item.localUri.startsWith('https://');
-        const url = isRemote ? item.localUri : await this.storage.upload(item.localUri, item.filename);
-        uploaded++;
-        onProgress?.({ stage: 'uploading', done: uploaded, total: input.items.length });
-        return { item, url };
-      }),
+      mapInBatches(
+        input.items,
+        PHOTO_UPLOAD_BATCH_SIZE,
+        async (item) => {
+          // Photos from the server-push cache are already hosted remotely, and
+          // so are any a previous attempt got through — neither needs sending
+          // twice.
+          const isRemote = item.localUri.startsWith('http://') || item.localUri.startsWith('https://');
+          const remembered = input.uploadedUrls?.[item.mediaId];
+          const url = remembered ?? (isRemote ? item.localUri : await this.storage.upload(item.localUri, item.filename));
+          uploaded++;
+          onProgress?.({ stage: 'uploading', done: uploaded, total: input.items.length });
+          // `fresh` is what this attempt paid for: only those are worth
+          // remembering, and re-reporting the rest would rewrite the same note.
+          return { item, url, fresh: remembered == null && !isRemote };
+        },
+        {
+          // Committed as each slot frees up rather than at the end, so a
+          // failure part-way still leaves a usable note behind.
+          onCommit: async (results): Promise<void> => {
+            const fresh = results.filter(r => r.fresh).map(({ item, url }) => ({ mediaId: item.mediaId, url }));
+            if (fresh.length === 0 || input.onUploaded == null) return;
+            await this.safeLog(() => input.onUploaded?.(fresh));
+          },
+        },
+      ),
     ]);
 
     const createdAt = input.createdAt ?? new Date();

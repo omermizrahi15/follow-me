@@ -22,6 +22,8 @@ import { mapInBatches, PHOTO_METADATA_BATCH_SIZE } from '../../application/servi
 import { relativeTime } from '../../domain/services/photoSyncCopy';
 import { scanShortfallNote, scanSummary } from '../../domain/services/reviewCopy';
 import type { PlaceSplitSegment } from '../../domain/services/splitSuggestion';
+import { ErrorState } from '../components/ErrorState';
+import { refuseIfOffline } from '../data/writeGuard';
 import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
 import { StepBar } from './review/StepBar';
 import { SplitOfferCard, SplitProgress } from './review/SplitOffer';
@@ -82,6 +84,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
   }, [showSegment, place]);
 
   const handleConfirm = useCallback((): void => {
+    // Same refusal as the manual post: resolving iCloud originals and uploading
+    // them is minutes of work that cannot start without a connection (#145).
+    if (refuseIfOffline('Sending a post')) return;
     void (async (): Promise<void> => {
       // Batched, not Promise.all: a post can carry up to MAX_PHOTOS_PER_POST
       // photos, and resolving a ph:// handle downloads the full-resolution
@@ -220,12 +225,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
       </View>
 
       {phase === 'error' ? (
-        <View style={styles.centered}>
-          <Text style={styles.errorNote}>{error}</Text>
-          <TouchableOpacity style={styles.secondaryButton} onPress={reload}>
-            <Text style={styles.secondaryText}>Try again</Text>
-          </TouchableOpacity>
-        </View>
+        <ErrorState error={error} title="Couldn’t build a suggestion" onRetry={reload} />
       ) : kept.length === 0 && phase === 'done' ? (
         <View style={styles.centered}>
           <Text style={styles.hint}>No new photos to suggest right now.</Text>

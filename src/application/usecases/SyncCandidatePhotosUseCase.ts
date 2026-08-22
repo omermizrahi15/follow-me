@@ -85,33 +85,58 @@ export class SyncCandidatePhotosUseCase {
     onProgress?.(0, fresh.length);
     if (fresh.length === 0) return [];
 
+    // One photo failing must not cost the run. A weak connection drops
+    // individual uploads all the time, and letting the first one abort
+    // `mapInBatches` meant a sync that died on photo 90 of 100 reported failure
+    // and left the other 99 unsynced — even though 89 had already landed
+    // (issue #145). Failures are collected instead, and the photo simply isn't
+    // in `existingAssetIds` next time, so the next run retries exactly it.
+    let lastFailure: unknown = null;
+    let failed = 0;
+
     // Each upload is saved before its slot takes another photo, so an
     // interrupted sync (app backgrounded or killed) resumes where it left off
     // instead of retrying — and re-decoding — every photo on the next launch.
-    return mapInBatches(
+    const results = await mapInBatches(
       fresh,
       PHOTO_UPLOAD_BATCH_SIZE,
-      async (c): Promise<CandidatePhoto> => {
-        const localUri = await this.resolveLocalUri(c);
-        const url = await this.storage.upload(localUri, deriveFilename(c.uri, c.id));
-        const location = c.location ?? (await this.resolveLocation(c));
-        const row: CandidatePhoto = { publisherId, assetId: c.id, url, createdAt: c.createdAt };
-        // Only set when present — exactOptionalPropertyTypes forbids `location: undefined`.
-        if (location != null) row.location = location;
-        return row;
+      async (c): Promise<CandidatePhoto | null> => {
+        try {
+          const localUri = await this.resolveLocalUri(c);
+          const url = await this.storage.upload(localUri, deriveFilename(c.uri, c.id));
+          const location = c.location ?? (await this.resolveLocation(c));
+          const row: CandidatePhoto = { publisherId, assetId: c.id, url, createdAt: c.createdAt };
+          // Only set when present — exactOptionalPropertyTypes forbids `location: undefined`.
+          if (location != null) row.location = location;
+          return row;
+        } catch (e: unknown) {
+          lastFailure = e;
+          failed++;
+          return null;
+        }
       },
       {
         onCommit: async (rows, done): Promise<void> => {
-          await this.candidateRepo.saveMany(rows);
+          const saved = rows.filter((r): r is CandidatePhoto => r != null);
+          if (saved.length > 0) await this.candidateRepo.saveMany(saved);
           // After the save, not before: progress means "in the cloud", which is
           // what the next sync's dedupe and the server's posting job both see.
-          // `done` counts saved rows rather than positions — uploads finish in
-          // whatever order the network returns them, so a position would make
-          // the count jump around.
-          onProgress?.(done, fresh.length);
+          // `done` counts committed results rather than positions — uploads
+          // finish in whatever order the network returns them — and the ones
+          // that failed are subtracted, so the number never claims a photo that
+          // isn't there.
+          onProgress?.(done - failed, fresh.length);
         },
         ...(shouldStop != null ? { shouldStop } : {}),
       },
     );
+
+    const uploaded = results.filter((r): r is CandidatePhoto => r != null);
+    // Nothing at all got through: that is not a partial failure, it is a failed
+    // sync, and it has to be reported as one. Swallowing it would tell the
+    // server this device is syncing fine and leave the posting job waiting for
+    // photos that are never coming (issue #97).
+    if (uploaded.length === 0 && failed > 0) throw lastFailure;
+    return uploaded;
   }
 }

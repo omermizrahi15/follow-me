@@ -79,7 +79,13 @@ interface State {
   cachedAt: number | null;
   /** What the scan actually managed — null for a cached batch, which ran none. */
   stats: SuggestStats | null;
-  error: string | null;
+  /**
+   * The caught failure, kept whole so the screen can tell an offline phone
+   * from a broken classifier (issue #145). The one case worth rewording — the
+   * classifier being unreachable — is wrapped in an Error whose message is
+   * already the sentence to show.
+   */
+  error: unknown;
 }
 
 const INITIAL: State = {
@@ -158,7 +164,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
     // Safety net: the navigator guards this screen behind auth, but if it ever
     // mounts without a publisher (e.g. mid-logout) fail visibly, don't scan.
     if (!publisherId) {
-      setState(s => ({ ...s, phase: 'error', error: 'Not signed in' }));
+      setState(s => ({ ...s, phase: 'error', error: new Error('Not signed in') }));
       return;
     }
 
@@ -248,13 +254,13 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         // invented grades. Matched by name rather than by class so the hook
         // doesn't have to reach into the infrastructure layer.
         const failedToClassify = e instanceof Error && e.name === 'ClassificationFailedError';
-        const message = failedToClassify
-          ? 'Could not reach the photo AI, so nothing was analysed. Your photos are untouched — try again in a moment.'
-          : e instanceof Error
-          ? e.message
-          : 'Could not build suggestions';
         if (failedToClassify) console.warn('suggest scan aborted:', e);
-        setState(s => ({ ...s, phase: 'error', error: message }));
+        const error = failedToClassify
+          ? new Error(
+              'Could not reach the photo AI, so nothing was analysed. Your photos are untouched — try again in a moment.',
+            )
+          : e;
+        setState(s => ({ ...s, phase: 'error', error }));
       }
     })();
   }, [publisherId]);

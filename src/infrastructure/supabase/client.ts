@@ -1,6 +1,7 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createClient } from '@supabase/supabase-js';
 import { env } from '../env';
+import { appFetch } from '../http/appFetch';
 
 // Read through ../env rather than checked here: this module loads before
 // anything else, so a throw at this line is the whole app failing on one
@@ -30,4 +31,9 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     persistSession: true,
     detectSessionInUrl: false,
   },
+  // Every request the SDK makes — tables, auth, storage, the ones no repository
+  // can reach — inherits a deadline and, for reads, a retry (issue #145).
+  // Without it a query on a dead connection never settles, and the screen that
+  // awaited it shows a spinner for as long as the app is open.
+  global: { fetch: appFetch },
 });
