@@ -11,7 +11,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { usePublisherId } from '../../context/AuthContext';
 import { saveConfig, scheduleReminder, registerPushToken } from '../../../composition/container';
 import type { PhotoCount } from '../../../domain/entities/PublisherConfig';
-import { isPhotoSyncEnabled, enablePhotoSync } from '../../data/photoSyncConsent';
+import { isPhotoSyncEnabled } from '../../data/photoSyncConsent';
 import { runCandidateSyncQuietly } from '../../data/candidateSync';
 import { useAutoPostingConfig, snapshotOf } from '../../hooks/useAutoPostingConfig';
 import { AutoPostingForm, styles as formStyles } from './AutoPostingForm';
@@ -166,14 +166,6 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
     })();
   }
 
-  /** Turn photo sync back on (prompting for consent if needed) and start a run. */
-  const handleEnableSync = useCallback((): void => {
-    void (async (): Promise<void> => {
-      if (!(await enablePhotoSync())) return;
-      await runCandidateSyncQuietly(publisherId, 'settings_enable_sync');
-    })();
-  }, [publisherId]);
-
   /** Retry after a failed sync. Same call as every other trigger — nothing special. */
   const handleRetrySync = useCallback((): void => {
     void runCandidateSyncQuietly(publisherId, 'settings_retry_sync');
@@ -234,10 +226,10 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
         </View>
       </AutoPostingForm>
 
-      {/* What photo sync is doing right now. Always shown: "nothing is
+      {/* What photo sync is doing right now — reported, not offered. "Nothing is
           happening and nothing will" is exactly the state that used to be
-          invisible, and it is the one the user has to act on. */}
-      <PhotoSyncStatus onEnable={handleEnableSync} onRetry={handleRetrySync} />
+          invisible; the switch that produces it lives in Settings → Privacy. */}
+      <PhotoSyncStatus onRetry={handleRetrySync} />
 
       {/* No Save button — every control above writes itself. This line is the
           only feedback that there was ever a write to wait for, so it has to
