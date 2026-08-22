@@ -39,6 +39,8 @@ import { CloudinaryStorageService } from '../infrastructure/storage/CloudinarySt
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
 import { monitored, reportError, reportMessage } from '../infrastructure/monitoring/sentry';
+import { ConnectivityMonitor } from '../infrastructure/connectivity/ConnectivityMonitor';
+import { netInfoSource } from '../infrastructure/connectivity/netInfoSource';
 import { mediaLibraryAssetLocation } from '../infrastructure/media/assetLocation';
 import {
   SuggestionCache,
@@ -48,6 +50,7 @@ import {
   type CachedSuggestion,
 } from '../infrastructure/cache/SuggestionCache';
 import { supabase, supabaseUrl, supabaseAnonKey } from '../infrastructure/supabase/client';
+import { slowFetch } from '../infrastructure/http/appFetch';
 import { env } from '../infrastructure/env';
 import Constants from 'expo-constants';
 
@@ -278,7 +281,7 @@ export const publishApprovalBatch = monitored(
   async (batchId: string): Promise<{ postingId: string | null }> => {
     const token = (await authService.getSession())?.access_token;
     if (token == null) throw new Error('Not signed in');
-    const res = await fetch(`${supabaseUrl}/functions/v1/post-batch`, {
+    const res = await slowFetch(`${supabaseUrl}/functions/v1/post-batch`, {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey, 'Content-Type': 'application/json' },
       body: JSON.stringify({ batchId }),
@@ -313,7 +316,7 @@ export const pruneUploadedPhotos = monitored(
 async function deleteCandidates(body: { olderThanDays?: number }): Promise<{ deletedRows: number }> {
   const token = (await authService.getSession())?.access_token;
   if (token == null) throw new Error('Not signed in');
-  const res = await fetch(`${supabaseUrl}/functions/v1/delete-candidates`, {
+  const res = await slowFetch(`${supabaseUrl}/functions/v1/delete-candidates`, {
     method: 'POST',
     headers: {
       Authorization: `Bearer ${token}`,
@@ -346,6 +349,17 @@ export { reportError, reportMessage };
  * is a composition decision; the hooks only know the interface.
  */
 export const queryCache = createQueryCache();
+
+/**
+ * The app's single answer to "are we online?" (issue #145) — started by the
+ * root, read through `ui/data/connectivity`.
+ *
+ * One instance for the process, so every consumer sees the same settled status
+ * and the platform is subscribed to once. The NetInfo binding is named here for
+ * the usual reason: swapping it (or handing a fake to a screen under test)
+ * stays a one-line change in the composition root.
+ */
+export const connectivity = new ConnectivityMonitor(netInfoSource);
 
 /** Local URI for a media-library asset, and that asset's recorded GPS fix. */
 export { expoResolveLocalUri, mediaLibraryAssetLocation };

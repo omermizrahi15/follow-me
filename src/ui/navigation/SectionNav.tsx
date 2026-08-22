@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { View, Text, Pressable, StyleSheet, Animated } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { BlurView } from 'expo-blur';
@@ -20,23 +20,24 @@ const ITEMS: { key: HomeSection; label: string; active: IconName; inactive: Icon
 ];
 
 /**
- * Fallback tab width, used only for the very first frame before the bar has
- * been measured. It used to be the real width: every tab was pinned to it, so
- * the bar was `SLOT_W × tabs + padding` wide no matter the screen — about 180pt
- * of a 402pt phone on three tabs, which read as a bar squeezed into the middle
- * rather than a deliberate capsule. The tabs share the real width now.
+ * A tab's column. Fixed rather than a share of the screen, because the bar is
+ * anchored to the left edge and sized by its tabs (issue #159): the capsule
+ * ends where the last tab does instead of stretching across the width and
+ * leaving the space the search button used to hold sitting empty.
  */
-const SLOT_W = 56;
-/** Narrowest the selected halo may get, however tight its slot is. */
-const PILL_W = 40;
+const SLOT_W = 72;
 /** The icon's row within a tab. */
 const ICON_H = 28;
 /** Glass inset around the row of tabs. */
-const PAD = 6;
-/** Breathing room between the selected halo and the edges of its slot. */
-const PILL_INSET = 8;
+const PAD = 8;
+/**
+ * Breathing room between the selected halo and the edges of its slot. Small,
+ * because on the bar this copies the halo all but fills its column — a wide
+ * lozenge under the whole tab, not a badge tucked behind the icon.
+ */
+const PILL_INSET = 3;
 /** Caption line box under each icon. */
-const LABEL_H = 12;
+const LABEL_H = 14;
 /** Gap between an icon and its caption. */
 const LABEL_GAP = 2;
 /**
@@ -69,58 +70,53 @@ interface Props {
  * only switches which content the bottom sheet shows (Me / Auto-posting /
  * Followers) while the feed stays put behind it.
  *
- * Shaped like the bottom bars in Instagram and WhatsApp: a big icon over a
- * small caption, and the selected one marked by a grey halo — around the icon
- * and its caption together — that slides between tabs as the selection moves.
- * It spans the width it is given and the tabs divide that
- * between them, the way those bars do — a row of evenly spaced destinations,
- * not a clump of them sized by their own labels.
+ * Shaped like the Polarsteps bar: a capsule with a soft shadow, a big icon over
+ * a small caption, and every tab in the same deep navy — the selected one is
+ * marked only by a pale lozenge that fills its column and slides between tabs
+ * as the selection moves. Deliberately *not* a two-colour bar: dimming the
+ * unselected tabs was what made this read as a generic widget rather than that
+ * bar.
+ *
+ * Where it parts company with that bar is the glass (issue #159). That one is
+ * opaque white; this one is genuinely frosted — the wash over the blur is light
+ * enough that the sheet's content passing underneath shows through as colour
+ * and shape, which is the whole point of putting a blur here at all.
+ *
+ * The bar is sized by its tabs and anchored to the left of whatever it is
+ * placed in, rather than spanning the screen: the right-hand end of the
+ * reference bar is a search button, and with no search to offer, a full-width
+ * capsule would just be a row of icons with a third of itself left blank.
  */
 export function SectionNav({ active, onChange, showHistory = false }: Props): React.JSX.Element {
   const items = ITEMS.filter(item => item.key !== 'history' || showHistory);
   const index = Math.max(0, items.findIndex(item => item.key === active));
 
-  // A tab's share of the bar. Measured rather than assumed, because the bar now
-  // stretches to whatever the screen gives it — the pill is placed by index, so
-  // it has to know the real slot width or it drifts away from the icon it is
-  // meant to sit behind.
-  const [barW, setBarW] = useState(0);
-  const slotW = barW > 0 ? (barW - PAD * 2) / items.length : SLOT_W;
-  // Fills its slot bar a small inset, so the highlight scales with the bar
-  // instead of staying a 40pt lozenge adrift in a 96pt column.
-  const pillW = Math.max(PILL_W, slotW - PILL_INSET * 2);
+  // Fills its slot bar a small inset, so the halo reads as a lozenge under the
+  // whole tab rather than a badge tucked behind the icon.
+  const pillW = SLOT_W - PILL_INSET * 2;
 
   // Slides the pill to the selected tab. A transform, so it runs on the UI
   // thread and stays smooth while the sheet behind it is still settling.
-  const slide = useRef(new Animated.Value(index * slotW)).current;
+  const slide = useRef(new Animated.Value(index * SLOT_W)).current;
   useEffect(() => {
     Animated.spring(slide, {
-      toValue: index * slotW,
+      toValue: index * SLOT_W,
       useNativeDriver: true,
       damping: 18,
       stiffness: 220,
       mass: 0.7,
     }).start();
-    // `slotW` is a dependency because the first real measurement lands after
-    // mount: without it the pill would keep the placeholder geometry forever.
-  }, [index, slotW, slide]);
+  }, [index, slide]);
 
   return (
     <View style={styles.shadow}>
-      <BlurView
-        intensity={55}
-        tint="light"
-        style={styles.bar}
-        onLayout={e => setBarW(e.nativeEvent.layout.width)}
-      >
+      <BlurView intensity={64} tint="light" style={styles.bar}>
         <View style={styles.tint} pointerEvents="none" />
-        {/* The light glass catches along its top edge. */}
-        <View style={styles.gloss} pointerEvents="none" />
         <Animated.View
           pointerEvents="none"
           style={[
             styles.pill,
-            { width: pillW, left: PAD + (slotW - pillW) / 2, transform: [{ translateX: slide }] },
+            { width: pillW, left: PAD + PILL_INSET, transform: [{ translateX: slide }] },
           ]}
         />
         {items.map(item => {
@@ -138,11 +134,11 @@ export function SectionNav({ active, onChange, showHistory = false }: Props): Re
               <View style={styles.icon}>
                 <Ionicons
                   name={isActive ? item.active : item.inactive}
-                  size={22}
-                  color={isActive ? colors.accent : colors.navIdle}
+                  size={24}
+                  color={colors.ink}
                 />
               </View>
-              <Text style={[styles.label, isActive && styles.labelActive]} numberOfLines={1}>
+              <Text style={styles.label} numberOfLines={1}>
                 {item.label}
               </Text>
             </Pressable>
@@ -154,41 +150,35 @@ export function SectionNav({ active, onChange, showHistory = false }: Props): Re
 }
 
 const styles = StyleSheet.create({
-  // Fills whatever the parent gives it, so the tabs below can divide that width
-  // between them instead of sitting in a clump sized by their own labels. The
-  // shadow lives out here because the bar itself clips to its radius.
+  // Sized by the tabs inside it — no `flex`, so the capsule ends where the last
+  // tab does and the row can be anchored left. The shadow lives out here
+  // because the bar itself clips to its radius.
   shadow: {
-    flex: 1,
     borderRadius: radius.pill,
     shadowColor: '#0B1F2C',
     shadowOpacity: 0.16,
-    shadowRadius: 24,
-    shadowOffset: { width: 0, height: 12 },
-    elevation: 10,
+    shadowRadius: 20,
+    shadowOffset: { width: 0, height: 8 },
+    elevation: 8,
   },
+  // The hairline is back, and earns its place now the fill is translucent:
+  // frosted glass needs an edge or it dissolves into whatever it floats over.
   bar: {
     flexDirection: 'row',
     alignItems: 'center',
     borderRadius: radius.pill,
     overflow: 'hidden',
-    borderWidth: StyleSheet.hairlineWidth,
-    borderColor: 'rgba(255,255,255,0.8)',
     padding: PAD,
+    borderWidth: StyleSheet.hairlineWidth,
+    borderColor: 'rgba(255,255,255,0.6)',
   },
-  // Frosted wash — over the white sheet this is what keeps the bar reading as
-  // glass rather than as a flat white pill.
-  tint: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(255,255,255,0.6)' },
-  gloss: {
-    position: 'absolute',
-    top: 0,
-    left: 18,
-    right: 18,
-    height: 1,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-  },
+  // Light enough to see through. The blur does the work of keeping the icons
+  // legible; this only warms it and lifts the contrast a little, so scrolling
+  // content still reads as blurred shapes rather than being washed to white.
+  tint: { ...StyleSheet.absoluteFillObject, backgroundColor: colors.navGlass },
   // Sits behind the selected tab — icon and caption both — centred in its slot,
-  // and slides between them. `left` and `width` are supplied at render time
-  // from the measured slot.
+  // and slides between them. `left` and `width` are supplied at render time so
+  // the geometry stays derived from the slot rather than duplicated here.
   pill: {
     position: 'absolute',
     top: PAD,
@@ -196,16 +186,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill,
     backgroundColor: colors.navPill,
   },
-  // Equal shares of the bar, however many tabs there are. `minWidth: 0` lets a
-  // long label ellipsize rather than push its neighbours out of the row.
-  tab: { flex: 1, minWidth: 0, alignItems: 'center', gap: LABEL_GAP },
+  // A fixed column each: the bar takes its width from the tabs, so they can't
+  // in turn take theirs from the bar. Long labels ellipsize inside the column
+  // rather than widening it and pushing the row out of square.
+  tab: { width: SLOT_W, alignItems: 'center', gap: LABEL_GAP },
   icon: { height: ICON_H, alignItems: 'center', justifyContent: 'center' },
+  // Same weight and colour selected or not — the lozenge behind the tab is what
+  // marks the selection, exactly as on the bar this copies.
   label: {
-    fontSize: 10,
+    fontSize: 11,
     lineHeight: LABEL_H,
     fontWeight: '600',
     letterSpacing: -0.1,
-    color: colors.navIdle,
+    color: colors.ink,
   },
-  labelActive: { fontWeight: '700', color: colors.accent },
 });

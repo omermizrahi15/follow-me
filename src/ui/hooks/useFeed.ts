@@ -8,7 +8,8 @@ import { useCachedQuery } from './useCachedQuery';
 interface UseFeed {
   postings: FeedPosting[];
   loading: boolean;
-  error: string | null;
+  /** The caught failure itself — see `useCachedQuery`. */
+  error: unknown;
   /**
    * Whether `postings` is the publisher's whole history. Anything that reasons
    * about what is *missing* from the feed — the history-gap detector — has to

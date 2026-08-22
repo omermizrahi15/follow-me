@@ -7,7 +7,8 @@ import { useCachedQuery } from './useCachedQuery';
 interface UseSubscribers {
   subscribers: SubscriberDto[];
   loading: boolean;
-  error: string | null;
+  /** The caught failure itself — see `useCachedQuery`. */
+  error: unknown;
   reload: () => Promise<void>;
   remove: (subscriberId: string) => Promise<void>;
 }

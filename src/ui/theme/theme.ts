@@ -36,17 +36,23 @@ export const colors = {
   /** Text/icon colour to use on top of the accent. */
   onAccent: '#FFFFFF',
 
-  /** Same deep blue, used for the floating nav icons & labels. */
+  /** Same deep blue, used for the floating nav icons & labels — every tab,
+   *  selected or not. Only the halo below marks the selection. */
   ink: '#0E3A53',
-  /** Unselected icon on the floating glass nav — the ink, dialled back so the
-   *  selected tab is the only thing with full contrast. */
-  navIdle: '#6B7F8C',
-  /** Halo behind the selected nav tab (its icon and caption together). Neutral
-   *  grey rather than a tint of the accent: the blue tint competed with the
-   *  accent-coloured icon sitting on top of it. Deep enough to hold its shape
-   *  against the bar's frosted white. */
-  navPill: '#DCDFE3',
-  /** Frosted floating-bar surface (slightly translucent cool white). */
+  /** Halo behind the selected nav tab (its icon and caption together). A wash
+   *  rather than a solid chip: the bar it sits in is frosted glass, and an
+   *  opaque grey lozenge on top of that read as a sticker laid over the glass
+   *  instead of part of it. Kept faint so it never competes with the navy icon
+   *  standing on it. */
+  navPill: 'rgba(14,58,83,0.13)',
+  /** Wash laid over the nav bar's blur — a tint, not a fill. Light enough that
+   *  whatever passes beneath the bar still shows through as blurred colour;
+   *  above roughly 0.7 the glass reads as plain white. Distinct from `frosted`
+   *  because that one has no blur under it and has to carry legibility alone. */
+  navGlass: 'rgba(248,250,252,0.55)',
+  /** Translucent chip surface for labels sitting straight on a photo. No blur
+   *  behind it, so it stays nearly opaque — this is what keeps the text on it
+   *  readable over a bright sky or a dark shoreline alike. */
   frosted: 'rgba(244,247,250,0.92)',
 
   /** WhatsApp brand green (share action). */

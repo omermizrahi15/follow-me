@@ -1,7 +1,10 @@
 import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, ScrollView, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, TouchableOpacity, StyleSheet, ScrollView, Alert } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Image } from 'expo-image';
+import { ErrorState } from '../../components/ErrorState';
+import { ListRowSkeleton, SkeletonList } from '../../components/Skeleton';
+import { alertFailure, refuseIfOffline } from '../../data/writeGuard';
 import { useAuth, usePublisherId } from '../../context/AuthContext';
 import { useSubscribers } from '../../hooks/useSubscribers';
 import { useContactNames } from '../../hooks/useContactNames';
@@ -19,7 +22,7 @@ interface Props {
 export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const { publisherPhone } = useAuth();
-  const { subscribers, loading, error, remove } = useSubscribers(publisherId);
+  const { subscribers, loading, error, reload, remove } = useSubscribers(publisherId);
   const { shareInvite } = useInviteLink();
   const unreachableCount = subscribers.filter(s => s.status === 'unreachable').length;
 
@@ -34,6 +37,9 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
   );
 
   function confirmRemove(subscriber: SubscriberDto): void {
+    // Asked before the confirmation dialog, not after it: agreeing to something
+    // that cannot happen and only then being told is the sequence #145 is about.
+    if (refuseIfOffline('Removing a follower')) return;
     // Name the follower where we can: "Remove +972501234567" is exactly the
     // prompt where the publisher cannot tell who they are about to cut off.
     const contact = names.get(subscriber.contactHandle);
@@ -49,7 +55,7 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
           text: 'Remove',
           style: 'destructive',
           onPress: () => {
-            void remove(subscriber.id).catch(() => Alert.alert('Could not remove follower', 'Please try again.'));
+            void remove(subscriber.id).catch((e: unknown) => alertFailure(e, 'Couldn’t remove this follower'));
           },
         },
       ],
@@ -88,9 +94,17 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
       )}
 
       {loading ? (
-        <View style={styles.center}><ActivityIndicator color={colors.accent} /></View>
+        <SkeletonList count={3} render={() => <ListRowSkeleton />} />
       ) : error != null ? (
-        <Text style={styles.errorText}>{error}</Text>
+        // A bare red line with no way to act on it was the old failure state:
+        // the list simply looked empty, and "share your invite link" was the
+        // advice given to someone whose followers had failed to load (#145).
+        <ErrorState
+          error={error}
+          title="Couldn’t load your followers"
+          onRetry={() => void reload()}
+          compact
+        />
       ) : subscribers.length === 0 ? (
         <Text style={styles.empty}>No followers yet — share your invite link to get started.</Text>
       ) : (
@@ -140,8 +154,6 @@ export function FollowersSection({ bottomInset }: Props): React.JSX.Element {
 const styles = StyleSheet.create({
   content: { paddingHorizontal: spacing.xl, gap: spacing.sm },
   title: { ...typography.heading, fontSize: 16, color: colors.text, marginBottom: spacing.xs },
-  center: { paddingVertical: spacing.xl, alignItems: 'center' },
-  errorText: { color: colors.danger, fontSize: 13, textAlign: 'center', paddingVertical: spacing.md },
   empty: { ...typography.caption, color: colors.textSecondary, lineHeight: 18, paddingVertical: spacing.sm },
   row: {
     flexDirection: 'row',

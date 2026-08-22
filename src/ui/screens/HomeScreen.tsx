@@ -23,6 +23,8 @@ import type { RootNavigationProp, RootStackParamList } from '../navigation/types
 import { SectionNav, SECTION_NAV_HEIGHT, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
 import { PostCard, POST_CARD_HEIGHT } from '../components/PostCard';
+import { ErrorState } from '../components/ErrorState';
+import { PostCardSkeleton, SkeletonList } from '../components/Skeleton';
 import { RouteGlobe } from '../map/RouteGlobe';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { ReviewSuggestionContent } from './ReviewSuggestionScreen';
@@ -92,7 +94,11 @@ export function HomeScreen(): React.JSX.Element {
   // current by the writes that change them rather than by refetching here.
   const { profile } = useProfile(publisherId);
   const { subscribers, loading: followersLoading } = useSubscribers(publisherId);
-  const { postings, loading: feedLoading, complete: feedComplete } = useFeed(publisherId);
+  // `error` and `reload` are the failure state's own: the cache keeps the feed
+  // fresh by itself, but a load that failed needs something the user can press
+  // (issue #145).
+  const { postings, loading: feedLoading, error: feedError, complete: feedComplete, reload: reloadFeed } =
+    useFeed(publisherId);
   // The History tab exists only when some stretch of the trip has no posting —
   // including a hole in the middle, not just a missing beginning (issue #81).
   // It waits for the whole feed: until it has arrived, every stretch looks
@@ -190,7 +196,13 @@ export function HomeScreen(): React.JSX.Element {
   function selectSection(next: HomeSection): void {
     setShowingSuggestions(false);
     setSection(next);
-    snapTo(MEDIUM_H);
+    // Moving to another section opens the sheet fully (issue #159): each one is
+    // a page in its own right — a followers list, a settings form — and landing
+    // on it at the Me page's half height meant every switch was followed by a
+    // drag. Re-tapping the section already showing is left alone, so the
+    // publisher can still park the sheet where they like without a tap on the
+    // lit tab yanking it back open.
+    if (next !== section) snapTo(FULL_H);
   }
 
   function handlePreview(): void {
@@ -308,7 +320,18 @@ export function HomeScreen(): React.JSX.Element {
               windowSize={5}
               removeClippedSubviews
               ListEmptyComponent={
-                feedLoading ? null : (
+                // The three states this list can be in, told apart. Until
+                // #145 a failed load rendered the empty state, so a publisher
+                // whose feed had not arrived was told they had never posted.
+                feedLoading ? (
+                  <SkeletonList count={3} render={() => <PostCardSkeleton />} />
+                ) : feedError != null ? (
+                  <ErrorState
+                    error={feedError}
+                    title="Couldn’t load your posts"
+                    onRetry={() => void reloadFeed()}
+                  />
+                ) : (
                   <View style={styles.emptyFeed}>
                     <Ionicons name="images-outline" size={32} color={colors.textMuted} />
                     <Text style={styles.emptyTitle}>No posts yet</Text>
@@ -570,16 +593,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 11 },
-  // A centred capsule 80% of the screen wide: percentage insets rather than
-  // fixed points, so it keeps those proportions on a small phone and a tablet
-  // alike. `stretch` is what hands the bar that width — without it the bar
-  // collapses to the size of its own tabs and drifts off centre.
+  // Anchored to the left edge and sized by the bar itself (issue #159), not
+  // stretched across the screen: the reference bar fills its right-hand end
+  // with a search button, and we have no search to put there. `flex-start` on
+  // both axes is what leaves the capsule at its own size — stretching it was
+  // what spread the icons across the full width.
   navWrap: {
     position: 'absolute',
-    left: '10%',
-    right: '10%',
+    left: spacing.xl,
+    right: spacing.xl,
     flexDirection: 'row',
-    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
   },
   // "New post" chooser
   chooserBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,12,18,0.45)' },

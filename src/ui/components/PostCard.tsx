@@ -8,9 +8,9 @@ import {
   Animated,
   PanResponder,
 } from 'react-native';
-import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
+import { Photo } from './Photo';
 import { displaySizedUri } from '../../domain/services/mediaDisplayUri';
 import type { FeedPosting } from '../data/feed';
 import { colors, radius, spacing } from '../theme/theme';
@@ -175,22 +175,15 @@ export function PostCard({
               }
             : {})}
         >
-          {cover != null ? (
-            <Image
-              source={cover}
-              style={styles.image}
-              contentFit="cover"
-              cachePolicy="memory-disk"
-              // The feed recycles cards as it scrolls; without this a reused
-              // card shows the previous post's photo until the new one loads.
-              recyclingKey={cover}
-              transition={120}
-            />
-          ) : (
-            <View style={[styles.image, styles.placeholder]}>
-              <Ionicons name="image-outline" size={28} color={colors.textMuted} />
-            </View>
-          )}
+          <Photo
+            uri={cover}
+            style={styles.image}
+            // The feed recycles cards as it scrolls; without this a reused
+            // card shows the previous post's photo until the new one loads.
+            recyclingKey={cover}
+            transition={120}
+            iconSize={28}
+          />
 
           <LinearGradient
             colors={['transparent', 'rgba(0,0,0,0.7)']}

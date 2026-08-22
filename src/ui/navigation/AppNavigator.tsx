@@ -17,6 +17,8 @@ import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { SetupRequiredScreen } from '../screens/SetupRequiredScreen';
 import { envSetupMessage } from '../../composition/env';
 import { AuthProvider, useAuth } from '../context/AuthContext';
+import { OfflineBanner } from '../components/OfflineBanner';
+import { startConnectivityWatch } from '../data/connectivity';
 import { useAutoSync } from '../hooks/useAutoSync';
 import { useOnboarding } from '../hooks/useOnboarding';
 import type { RootStackParamList } from './types';
@@ -84,6 +86,11 @@ function RootNavigator(): React.JSX.Element {
   const { publisherId, loading } = useAuth();
   useNotificationRouting(publisherId != null);
   useAutoSync(publisherId);
+  // Watch the network for as long as the app is mounted (issue #145). Started
+  // here rather than at module scope so it stops with the tree, and so an
+  // unconfigured clone — which renders the setup screen instead of this — never
+  // reaches for the native module at all.
+  useEffect(() => startConnectivityWatch(), []);
   const { completed: onboardingDone, loading: onboardingLoading, complete } = useOnboarding();
 
   if (loading || onboardingLoading) {
@@ -152,6 +159,10 @@ export function AppNavigator(): React.JSX.Element {
     <SafeAreaProvider>
       <AuthProvider>
         <RootNavigator />
+        {/* Above the navigator, so the one banner covers every screen —
+            including the sign-in and onboarding screens that render outside
+            it, which is exactly where a dead connection strands someone. */}
+        <OfflineBanner />
       </AuthProvider>
     </SafeAreaProvider>
   );

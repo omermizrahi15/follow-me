@@ -1,6 +1,8 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { FaceReference, IPhotoClassifier } from '../../domain/interfaces';
+import { slowFetch } from '../http/appFetch';
+import { sleep } from '../timers';
 
 /** Wire shape sent to the classify-photos Edge Function for one photo. */
 export interface PhotoPayload {
@@ -128,6 +130,13 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
   /** Longest single wait honoured, whatever the server asks for. */
   private static readonly MAX_RATE_LIMIT_WAIT_MS = 60_000;
 
+  /**
+   * Wait before retrying a photo the network dropped. Going straight back out
+   * on a connection that has just failed is two failures in the time of one
+   * (issue #145).
+   */
+  private static readonly RETRY_DELAY_MS = 800;
+
   constructor(
     private readonly functionUrl: string,
     private readonly authKey: string,
@@ -170,6 +179,14 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
    */
   private rateLimitedUntil = 0;
 
+  /**
+   * Aborted once the run has resolved or rejected. Workers already in flight
+   * are allowed to finish, but nothing they do from here is wanted — and a
+   * rate-limit window can be a full minute, so without this a failed run left
+   * four workers asleep long after the caller had its answer (issue #145).
+   */
+  private runOver = new AbortController();
+
   quotaExhausted(): boolean {
     return this.hitQuota;
   }
@@ -196,7 +213,8 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
   /** Resolves once the current rate-limit window (if any) has passed. */
   private async awaitRateLimitWindow(): Promise<void> {
     const remaining = this.rateLimitedUntil - Date.now();
-    if (remaining > 0) await new Promise(resolve => setTimeout(resolve, remaining));
+    // Cut short if the run is already over — see `runOver`.
+    if (remaining > 0) await sleep(remaining, this.runOver.signal);
   }
 
   async classify(
@@ -209,6 +227,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     this.hitRateLimit = false;
     this.rateLimitedUntil = 0;
     this.runSize = candidates.length;
+    this.runOver = new AbortController();
     if (candidates.length === 0) return [];
 
     const total = candidates.length;
@@ -224,6 +243,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       const finish = (): void => {
         if (!settled) {
           settled = true;
+          this.runOver.abort();
           resolve(results);
         }
       };
@@ -234,6 +254,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       const fail = (err: unknown): void => {
         if (!settled) {
           settled = true;
+          this.runOver.abort();
           reject(err);
         }
       };
@@ -324,7 +345,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       networkAttempts++;
       let res: Response;
       try {
-        res = await fetch(this.functionUrl, {
+        res = await slowFetch(this.functionUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -337,6 +358,9 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         // Network-level failure (upload dropped mid-flight) — retry once, then
         // give up and let it surface.
         lastNetworkError = err;
+        if (networkAttempts < GeminiPhotoClassifier.MAX_ATTEMPTS) {
+          await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS, this.runOver.signal);
+        }
         continue;
       }
 
