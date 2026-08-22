@@ -1,6 +1,7 @@
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import type { IStorageService } from '../../domain/interfaces';
 import { imageWidth } from '../media/imageSize';
+import { uploadFetch } from '../http/appFetch';
 
 /**
  * Photos are downscaled + re-encoded to JPEG before upload:
@@ -40,7 +41,9 @@ export class CloudinaryStorageService implements IStorageService {
     formData.append('upload_preset', this.uploadPreset);
     if (this.folder) formData.append('folder', this.folder);
 
-    const response = await fetch(
+    // uploadFetch, not fetch: a bare upload had no deadline at all, so a photo
+    // sent as the connection died left the whole share waiting forever (#145).
+    const response = await uploadFetch(
       `https://api.cloudinary.com/v1_1/${this.cloudName}/image/upload`,
       { method: 'POST', body: formData },
     );

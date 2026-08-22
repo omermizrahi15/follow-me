@@ -105,6 +105,18 @@
       user-select: none; -webkit-user-drag: none;
       pointer-events: none;
     }
+    .story-fallback {
+      position: absolute; z-index: 11;
+      display: flex; flex-direction: column; align-items: center; gap: 14px;
+      padding: 0 32px; text-align: center; color: rgba(255,255,255,0.75);
+      font-size: 14px;
+    }
+    .story-fallback-icon { font-size: 34px; line-height: 1; opacity: 0.7; }
+    .story-fallback button {
+      background: none; color: #fff; font: inherit; font-weight: 600;
+      border: 1px solid rgba(255,255,255,0.35); border-radius: 999px;
+      padding: 8px 18px; cursor: pointer;
+    }
     .story-scrim {
       position: fixed; z-index: 11; top: 0; left: 0; right: 0;
       height: 120px;
@@ -176,6 +188,14 @@
 
   <div class="story" id="story" hidden>
     <img id="storyImage" alt="photo">
+    <!-- Stands in while a photo is arriving, and stays if it never does. The
+         <img> is reused across pages, so without this a failed load leaves the
+         PREVIOUS photo on screen while the counter says you have moved on. -->
+    <div class="story-fallback" id="storyFallback" hidden>
+      <div class="story-fallback-icon" id="storyFallbackIcon">◌</div>
+      <p id="storyFallbackText"></p>
+      <button type="button" id="storyRetry" hidden>Try again</button>
+    </div>
     <div class="story-scrim"></div>
     <div class="story-top">
       <div class="story-segments" id="storySegments"></div>
@@ -294,6 +314,10 @@
     const story = document.getElementById('story');
     const storyImage = document.getElementById('storyImage');
     const storySegments = document.getElementById('storySegments');
+    const storyFallback = document.getElementById('storyFallback');
+    const storyFallbackIcon = document.getElementById('storyFallbackIcon');
+    const storyFallbackText = document.getElementById('storyFallbackText');
+    const storyRetry = document.getElementById('storyRetry');
     const storyMeta = document.getElementById('storyMeta');
 
     /** Fraction of the viewport width that counts as the "go back" tap zone. */
@@ -304,9 +328,38 @@
       photoUrls.forEach(() => storySegments.appendChild(document.createElement('span')));
     }
 
+    function showFallback(state) {
+      const offline = navigator.onLine === false;
+      storyFallbackIcon.textContent = state === 'loading' ? '◌' : offline ? '⊘' : '!';
+      storyFallbackText.textContent =
+        state === 'loading'
+          ? 'Loading…'
+          : offline
+          ? 'This photo isn’t downloaded, and you’re offline.'
+          : 'This photo couldn’t be loaded.';
+      storyRetry.hidden = state === 'loading';
+      storyFallback.hidden = false;
+    }
+
     function showPhoto(index) {
       storyIndex = index;
-      storyImage.src = fullUrl(photoUrls[storyIndex]);
+      const url = fullUrl(photoUrls[storyIndex]);
+      // Blanked before the new src is set, not after it arrives: the browser
+      // keeps painting the old photo until the new one decodes, so on a dead
+      // connection the viewer would sit there showing the previous photo with
+      // the counter and progress bar both claiming otherwise.
+      storyImage.removeAttribute('src');
+      storyImage.style.visibility = 'hidden';
+      showFallback('loading');
+      storyImage.onload = () => {
+        storyImage.style.visibility = '';
+        storyFallback.hidden = true;
+      };
+      storyImage.onerror = () => {
+        storyImage.style.visibility = 'hidden';
+        showFallback('error');
+      };
+      storyImage.src = url;
       [...storySegments.children].forEach((s, i) => s.classList.toggle('done', i <= storyIndex));
       storyMeta.textContent = storyDate + ' · ' + (storyIndex + 1) + '/' + photoUrls.length;
       // Warm the neighbours so next/prev feels instant.
@@ -324,9 +377,18 @@
 
     function closeStoryOverlay() {
       story.hidden = true;
-      storyImage.src = '';
+      storyImage.removeAttribute('src');
+      storyFallback.hidden = true;
       document.body.style.overflow = '';
     }
+
+    // Its own listener, and it stops the click: the overlay's tap zones page
+    // forward/back, so a retry that bubbled would also skip the photo it just
+    // asked to reload.
+    storyRetry.addEventListener('click', e => {
+      e.stopPropagation();
+      showPhoto(storyIndex);
+    });
 
     document.getElementById('storyExit').addEventListener('click', e => {
       e.stopPropagation();

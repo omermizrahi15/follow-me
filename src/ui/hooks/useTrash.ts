@@ -3,12 +3,14 @@ import { Alert } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import { listFeed, trashPosting } from '../../composition/container';
 import { toFeedPosting, type FeedPosting } from '../data/feed';
+import { alertFailure, refuseIfOffline } from '../data/writeGuard';
 import { invalidateFeed } from '../data/queries';
 
 interface TrashState {
   postings: FeedPosting[];
   loading: boolean;
-  error: string | null;
+  /** The caught failure itself — see `useCachedQuery`. */
+  error: unknown;
 }
 
 interface UseTrashedPostings extends TrashState {
@@ -32,8 +34,7 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
       const { postings } = await listFeed.listDeleted(publisherId);
       setState({ postings: postings.map(toFeedPosting), loading: false, error: null });
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Could not load deleted posts';
-      setState({ postings: [], loading: false, error: message });
+      setState({ postings: [], loading: false, error: e });
     }
   }, [publisherId]);
 
@@ -46,6 +47,7 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
   const restore = useCallback(
     async (postingId: string): Promise<void> => {
       if (publisherId == null) return;
+      if (refuseIfOffline('Restoring a post')) return;
       // Optimistically drop the row from the trash; put it back if the write
       // fails, so the list never claims a restore that didn't happen.
       const previous = state.postings;
@@ -59,8 +61,7 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
         // Back in the feed — the Me page and the globe pick it up from here.
         invalidateFeed(publisherId);
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Could not restore this post';
-        setState(prev => ({ ...prev, postings: previous, error: message }));
+        setState(prev => ({ ...prev, postings: previous, error: e }));
         throw e;
       }
     },
@@ -85,13 +86,17 @@ export function moveToTrash(
   onTrashed?: () => void,
 ): void {
   if (publisherId == null) return;
+  // Deleting is not queued while offline. A delete that replayed later would
+  // remove a post the publisher had since decided to keep, with no prompt and
+  // no trace of why (issue #145).
+  if (refuseIfOffline('Deleting a post')) return;
   void trashPosting
     .trash({ publisherId, postingId: posting.id })
     .then(() => {
       invalidateFeed(publisherId);
       onTrashed?.();
     })
-    .catch(() => Alert.alert('Could not delete this post', 'Please try again.'));
+    .catch((e: unknown) => alertFailure(e, 'Couldn’t delete this post'));
 }
 
 /**
@@ -106,6 +111,7 @@ export function confirmMoveToTrash(
   onTrashed: () => void,
 ): void {
   if (publisherId == null) return;
+  if (refuseIfOffline('Deleting a post')) return;
   Alert.alert(
     'Delete post',
     `${posting.place ?? posting.date} will be removed from your feed and the map. You can restore it from Settings → Deleted posts. Followers who already received it keep their copy.`,
@@ -121,7 +127,7 @@ export function confirmMoveToTrash(
               invalidateFeed(publisherId);
               onTrashed();
             })
-            .catch(() => Alert.alert('Could not delete this post', 'Please try again.'));
+            .catch((e: unknown) => alertFailure(e, 'Couldn’t delete this post'));
         },
       },
     ],

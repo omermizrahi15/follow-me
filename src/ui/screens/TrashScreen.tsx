@@ -1,7 +1,5 @@
 import React from 'react';
 import {
-  ActivityIndicator,
-  Alert,
   FlatList,
   SafeAreaView,
   StyleSheet,
@@ -9,9 +7,12 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { ScreenHeader } from '../components/ScreenHeader';
+import { ErrorState } from '../components/ErrorState';
+import { Photo } from '../components/Photo';
+import { alertFailure } from '../data/writeGuard';
+import { ListRowSkeleton, SkeletonList } from '../components/Skeleton';
 import { usePublisherId } from '../context/AuthContext';
 import { useTrashedPostings } from '../hooks/useTrash';
 import { formatPostingDate, type FeedPosting } from '../data/feed';
@@ -30,12 +31,10 @@ const THUMB_WIDTH = 160;
  */
 export function TrashScreen(): React.JSX.Element {
   const publisherId = usePublisherId();
-  const { postings, loading, error, restore } = useTrashedPostings(publisherId);
+  const { postings, loading, error, reload, restore } = useTrashedPostings(publisherId);
 
   function handleRestore(posting: FeedPosting): void {
-    void restore(posting.id).catch(() =>
-      Alert.alert('Could not restore this post', 'Please try again.'),
-    );
+    void restore(posting.id).catch((e: unknown) => alertFailure(e, 'Couldn’t restore this post'));
   }
 
   return (
@@ -47,14 +46,18 @@ export function TrashScreen(): React.JSX.Element {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         renderItem={({ item }) => <TrashRow posting={item} onRestore={() => handleRestore(item)} />}
-        ListHeaderComponent={
-          error != null ? <Text style={styles.errorText}>{error}</Text> : null
-        }
         ListEmptyComponent={
+          // "Nothing deleted" used to show for a failed load too, which reads
+          // as "your deleted posts are gone" — the opposite of what this page
+          // exists to promise (issue #145).
           loading ? (
-            <View style={styles.center}>
-              <ActivityIndicator color={colors.accent} />
-            </View>
+            <SkeletonList count={3} render={() => <ListRowSkeleton thumb="square" />} />
+          ) : error != null ? (
+            <ErrorState
+              error={error}
+              title="Couldn’t load your deleted posts"
+              onRetry={() => void reload()}
+            />
           ) : (
             <View style={styles.empty}>
               <Ionicons name="trash-outline" size={32} color={colors.textMuted} />
@@ -83,19 +86,7 @@ function TrashRow({
 
   return (
     <View style={styles.row} testID={`trash-row-${posting.id}`}>
-      {cover != null ? (
-        <Image
-          source={cover}
-          style={styles.thumb}
-          contentFit="cover"
-          cachePolicy="memory-disk"
-          recyclingKey={cover}
-        />
-      ) : (
-        <View style={[styles.thumb, styles.thumbPlaceholder]}>
-          <Ionicons name="image-outline" size={20} color={colors.textMuted} />
-        </View>
-      )}
+      <Photo uri={cover} style={styles.thumb} recyclingKey={cover} iconSize={20} />
 
       <View style={styles.rowText}>
         <Text style={styles.rowTitle} numberOfLines={1}>{posting.place ?? posting.date}</Text>
@@ -126,7 +117,6 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: colors.background },
   content: { paddingHorizontal: spacing.xl, paddingBottom: spacing.xxl, gap: spacing.sm },
   center: { paddingVertical: spacing.xxl, alignItems: 'center' },
-  errorText: { ...typography.caption, color: colors.danger, marginBottom: spacing.sm },
   empty: {
     alignItems: 'center',
     justifyContent: 'center',

@@ -70,6 +70,13 @@ beforeAll(() => {
   };
 });
 
+afterAll(async () => {
+  // The client keeps a background token-refresh timer running for the life of
+  // the process. Harmless in the app; in jest it outlives the suite and the
+  // worker gets force-exited at teardown.
+  await supabase.auth.stopAutoRefresh();
+});
+
 /** The Authorization header the most recent PostgREST (table) request used. */
 function lastTableAuth(): string | null {
   const rest = sent.filter(r => r.url.includes('/rest/v1/'));

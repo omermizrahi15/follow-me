@@ -114,7 +114,8 @@ interface State {
    * categories the AI selected with.
    */
   config: PublisherConfig | null;
-  error: string | null;
+  /** The caught failure, kept whole so the screen can name the cause (#145). */
+  error: unknown;
 }
 
 const INITIAL: State = {
@@ -225,6 +226,13 @@ export function useHistoryBackfill(publisherId: string): State & {
   publishOne: (id: string) => Promise<void>;
   togglePause: () => void;
   reset: () => void;
+  /**
+   * Run the last scan again. A backfill fails most often because the
+   * connection went while it was reaching for the classifier, and "start over"
+   * — re-picking a start date and a cadence — is a lot to ask of someone whose
+   * only problem was a tunnel (issue #145).
+   */
+  retry: () => void;
 } {
   const [state, setState] = useState<State>(INITIAL);
   // Places the publisher typed themselves — never overwritten by resolution.
@@ -233,6 +241,8 @@ export function useHistoryBackfill(publisherId: string): State & {
   // first top-up for that stretch and walked down after that: the library
   // query is the slow part and a past window never moves.
   const pending = useRef<Map<string, PhotoCandidate[]>>(new Map());
+  // What the last `run` was asked for, so a failure can be retried as-is.
+  const lastRun = useRef<{ startDate: Date; intervalDays: number; windows?: HistoryWindow[] } | null>(null);
   // The top-up currently running, whichever stretch asked for it. Rounds are
   // serialised behind it: one already fans out several full-resolution uploads,
   // and the scan underneath is doing the same — running a handful at once is
@@ -254,13 +264,14 @@ export function useHistoryBackfill(publisherId: string): State & {
   }, []);
 
   const run = useCallback((startDate: Date, intervalDays: number, windows?: HistoryWindow[]): void => {
+    lastRun.current = { startDate, intervalDays, ...(windows != null ? { windows } : {}) };
     setState({ ...INITIAL, phase: 'scanning' });
     editedPlaces.current = new Set();
     pending.current = new Map();
     pause.current = { paused: false, waiting: [] };
 
     if (!publisherId) {
-      setState(s => ({ ...s, phase: 'error', error: 'Not signed in' }));
+      setState(s => ({ ...s, phase: 'error', error: new Error('Not signed in') }));
       return;
     }
 
@@ -340,8 +351,7 @@ export function useHistoryBackfill(publisherId: string): State & {
         }));
 
       } catch (e: unknown) {
-        const message = e instanceof Error ? e.message : 'Could not rebuild your history';
-        setState(s => ({ ...s, phase: 'error', error: message }));
+        setState(s => ({ ...s, phase: 'error', error: e }));
       }
     })();
   }, [publisherId]);
@@ -615,7 +625,7 @@ export function useHistoryBackfill(publisherId: string): State & {
       // Lead with the actual reason: "no posts went through" alone leaves the
       // publisher with nothing to act on.
       const message = `Could not publish your history — ${failures[0]?.reason ?? 'no posts went through'}.`;
-      setState(s => ({ ...s, phase: 'error', error: message, failedCount: failed }));
+      setState(s => ({ ...s, phase: 'error', error: new Error(message), failedCount: failed }));
       throw new Error(message);
     }
 
@@ -628,9 +638,16 @@ export function useHistoryBackfill(publisherId: string): State & {
     setState(INITIAL);
   }, []);
 
+  // Nothing to repeat before the first run — fall back to the setup screen.
+  const retry = useCallback((): void => {
+    const last = lastRun.current;
+    if (last == null) reset();
+    else run(last.startDate, last.intervalDays, last.windows);
+  }, [run, reset]);
+
   return {
     ...state,
-    run, toggleDropped, setPlace, swapPhoto, addPhoto, publish, publishOne, togglePause, reset,
+    run, toggleDropped, setPlace, swapPhoto, addPhoto, publish, publishOne, togglePause, reset, retry,
   };
 }
 

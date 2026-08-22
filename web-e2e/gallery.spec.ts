@@ -108,6 +108,43 @@ test.describe('post gallery', () => {
     await expect(page.locator('#storySegments span')).toHaveCount(2);
   });
 
+  test('a photo that will not load says so instead of showing the previous one', async ({ page }) => {
+    // The <img> is reused across pages, so a failed load used to leave the
+    // PREVIOUS photo on screen while the counter and progress bar both said you
+    // had moved on — the follower's version of issue #145.
+    await mockSupabase(page);
+    await page.route('https://img.test/b2.jpg', route => route.abort());
+    await page.goto('/gallery.html?id=post-linked');
+    await expect(story(page)).toBeVisible();
+
+    await story(page).click({ position: { x: 600, y: 400 } });
+
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 2/2');
+    await expect(page.locator('#storyFallback')).toBeVisible();
+    await expect(page.locator('#storyFallbackText')).toContainText('couldn’t be loaded');
+    // The first photo must not still be on screen pretending to be the second.
+    await expect(page.locator('#storyImage')).toBeHidden();
+  });
+
+  test('retrying a failed photo shows it once the network is back', async ({ page }) => {
+    await mockSupabase(page);
+    let offline = true;
+    await page.route('https://img.test/b2.jpg', route =>
+      offline ? route.abort() : route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL }),
+    );
+    await page.goto('/gallery.html?id=post-linked');
+    await story(page).click({ position: { x: 600, y: 400 } });
+    await expect(page.locator('#storyFallback')).toBeVisible();
+
+    offline = false;
+    await page.locator('#storyRetry').click();
+
+    await expect(page.locator('#storyFallback')).toBeHidden();
+    await expect(page.locator('#storyImage')).toBeVisible();
+    // The retry reloads the photo it is standing on, it does not page forward.
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 2/2');
+  });
+
   test('tapping advances through the photos, then leaves for the feed', async ({ page }) => {
     await mockSupabase(page);
     await page.goto('/gallery.html?id=post-linked');
