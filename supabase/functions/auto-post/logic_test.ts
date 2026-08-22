@@ -3,6 +3,9 @@ import {
   approvalPushContent,
   chunk,
   CLIENT_STALE_MS,
+  GRADE_BUDGET_PER_TICK,
+  GRADE_GRACE_MS,
+  gradingDecision,
   parseNotifyTime,
   reminderPushContent,
   SYNC_GRACE_MS,
@@ -203,4 +206,78 @@ Deno.test('chunk — no group exceeds the requested size for a full lookback win
   const groups = chunk(window, 3);
   assertEquals(groups.every(g => g.length <= 3), true);
   assertEquals(groups.flat(), window);
+});
+
+// --- gradingDecision --------------------------------------------------------
+
+Deno.test('gradingDecision — a fully graded window builds its batch immediately', () => {
+  assertEquals(
+    gradingDecision({ gradedCount: 40, ungradedCount: 0, pendingSince: null, now: NOW }),
+    { kind: 'select' },
+  );
+});
+
+Deno.test('gradingDecision — first sight of ungraded photos holds the slot, never gives up', () => {
+  // pendingSince == null means elapsed is 0, so the window has not begun to run.
+  // This is the tick that used to throw a 429 straight out of the run.
+  assertEquals(
+    gradingDecision({ gradedCount: 0, ungradedCount: 175, pendingSince: null, now: NOW }),
+    { kind: 'wait' },
+  );
+});
+
+Deno.test('gradingDecision — keeps waiting while the backlog drains inside the window', () => {
+  assertEquals(
+    gradingDecision({
+      gradedCount: 120,
+      ungradedCount: 55,
+      pendingSince: ago(GRADE_GRACE_MS - 60_000),
+      now: NOW,
+    }),
+    { kind: 'wait' },
+  );
+});
+
+Deno.test('gradingDecision — posts from a partial window rather than lose the slot', () => {
+  // Grace expired with work outstanding. 40 graded photos still make a real
+  // post; a reminder here would be strictly worse for the publisher.
+  assertEquals(
+    gradingDecision({
+      gradedCount: 40,
+      ungradedCount: 135,
+      pendingSince: ago(GRADE_GRACE_MS),
+      now: NOW,
+    }),
+    { kind: 'select' },
+  );
+});
+
+Deno.test('gradingDecision — gives up only when the window expired with nothing graded', () => {
+  assertEquals(
+    gradingDecision({
+      gradedCount: 0,
+      ungradedCount: 175,
+      pendingSince: ago(GRADE_GRACE_MS),
+      now: NOW,
+    }),
+    { kind: 'give-up', reason: 'grading-failed' },
+  );
+});
+
+Deno.test('gradingDecision — the grading window is far longer than the sync one', () => {
+  // Waiting on our own backlog is not the same as waiting on a phone that may
+  // never check in: no user action would help, so giving up early only wastes
+  // the slot. Guards against the two constants being casually equalised.
+  assertEquals(GRADE_GRACE_MS > SYNC_GRACE_MS, true);
+});
+
+Deno.test('reminderPushContent — grading-failed blames the server, not the library', () => {
+  const { title, body } = reminderPushContent('grading-failed');
+  assertEquals(title, "Couldn't prepare your post");
+  // Must not read like 'no new photos' — the photos were there all along.
+  assertEquals(body.includes('could not sort them'), true);
+});
+
+Deno.test('GRADE_BUDGET_PER_TICK — bounded, so one publisher cannot own a tick', () => {
+  assertEquals(GRADE_BUDGET_PER_TICK > 0 && GRADE_BUDGET_PER_TICK <= 12, true);
 });
