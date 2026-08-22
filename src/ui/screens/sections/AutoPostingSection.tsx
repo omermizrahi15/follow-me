@@ -124,12 +124,13 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
       await saveConfig.execute(next);
       savedSnapshotRef.current = snapshot;
 
-      // Deliberately no photo-upload consent prompt here. It used to hang off
-      // Save, which at least was a press; a silent, debounced write is no place
-      // to raise a privacy dialog, and after a cloud wipe — which withdraws
-      // consent — re-asking because someone nudged a setting is exactly the
-      // coupling that made the wipe feel undoable. Onboarding asks once, and
-      // PhotoSyncStatus below carries the "upload is off / turn it on" state.
+      // Deliberately nothing about photo-upload consent here. It used to hang
+      // off Save, which at least was a press; a silent, debounced write is no
+      // place to change a privacy setting, and after a cloud wipe — which
+      // switches upload off — flipping it back because someone nudged a
+      // setting is exactly the coupling that made the wipe feel undoable.
+      // Upload is on by default and its switch is in Settings → Privacy;
+      // PhotoSyncStatus below only reports when it is off.
 
       // Only a changed lookback window needs photos re-synced, and that is the
       // one thing autosave must not do on every keystroke-sized edit: reordering
