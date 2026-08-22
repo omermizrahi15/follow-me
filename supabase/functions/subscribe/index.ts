@@ -7,21 +7,32 @@
  * SERVICE-ROLE key — so it bypasses RLS and the number is never exposed to the
  * anon role.
  *
- * After a successful subscribe it sends a WhatsApp confirmation via Twilio.
- * This is BEST-EFFORT: WhatsApp only delivers free-form messages inside the
- * 24-hour window after the user last messaged our number (in the Twilio sandbox,
- * after they've sent the "join <code>" opt-in). If that window is closed the
- * send fails — we log it but still report the subscribe as successful, since the
- * DB row is what actually matters.
+ * After a successful subscribe it sends a WhatsApp welcome via Twilio. Followers
+ * arrive here by typing their number on the join page, so they have never
+ * messaged our number and WhatsApp's 24-hour free-form window is closed: on a
+ * production sender the welcome only goes through as an approved template
+ * (`TWILIO_TEMPLATE_WELCOME_SID`, issue #164) — without it Twilio rejects the
+ * send with 63016. Free-form remains the fallback for the sandbox, where the
+ * "join <code>" opt-in does open a window.
+ *
+ * Either way the send is BEST-EFFORT: a failure is logged but the subscribe is
+ * still reported as successful, since the DB row is what actually matters.
  *
  * Env (injected automatically by Supabase): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
- * Env (Twilio): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM
+ * Env (Twilio): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM,
+ *   TWILIO_TEMPLATE_WELCOME_SID
  */
 
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { credsFromEnv, sendWhatsApp } from '../../../src/infrastructure/notifiers/twilioClient.ts';
+import { composeWelcomeMessage } from '../../../src/domain/services/optOutMessages.ts';
+import {
+  credsFromEnv,
+  sendWhatsApp,
+  sendWhatsAppTemplate,
+} from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { logAcceptedSend } from '../_shared/messageLog.ts';
 import { publisherDisplayName } from '../_shared/publisher.ts';
+import { buildWelcomeTemplate } from '../_shared/welcomeTemplate.ts';
 import { normalizeWhatsApp } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
@@ -44,6 +55,8 @@ async function lookupPublisherName(publisherId: string): Promise<string> {
 }
 
 // Best-effort WhatsApp send; never throws (the caller must not fail on it).
+// Prefers the approved template — the only thing that reaches a follower who
+// has never messaged us — and falls back to free-form when no SID is set.
 // Uses the shared sender, so transient Twilio errors are retried with backoff
 // and the accepted message lands in message_logs for delivery tracking.
 async function sendWelcome(publisherId: string, contactHandle: string, publisherName: string): Promise<void> {
@@ -51,12 +64,11 @@ async function sendWelcome(publisherId: string, contactHandle: string, publisher
     console.warn('Twilio not configured — skipping subscribe confirmation');
     return;
   }
+  const template = buildWelcomeTemplate({ welcomeSid: TWILIO.templateWelcomeSid }, { publisherName });
   try {
-    const { sid } = await sendWhatsApp(
-      TWILIO,
-      contactHandle,
-      `You're now following ${publisherName}. You'll receive their photos here on WhatsApp. Reply STOP at any time to unsubscribe.`,
-    );
+    const { sid } = template != null
+      ? await sendWhatsAppTemplate(TWILIO, contactHandle, template.contentSid, template.variables)
+      : await sendWhatsApp(TWILIO, contactHandle, composeWelcomeMessage(publisherName));
     if (sid != null) await logAcceptedSend(supabase, { sid, publisherId, contactHandle });
   } catch (err) {
     console.error('Subscribe confirmation send failed:', err);

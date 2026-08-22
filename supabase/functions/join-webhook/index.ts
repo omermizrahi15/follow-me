@@ -24,6 +24,7 @@ import { parseInboundCommand } from '../../../src/domain/services/inboundCommand
 import {
   composeResubscribeConfirmation,
   composeUnsubscribeConfirmation,
+  composeWelcomeMessage,
 } from '../../../src/domain/services/optOutMessages.ts';
 import { verifyTwilioSignature } from '../../../src/infrastructure/notifiers/twilioSignature.ts';
 import { publisherDisplayName } from '../_shared/publisher.ts';
@@ -186,11 +187,10 @@ async function handleJoin(
     return twiml('Something went wrong. Please try again later.');
   }
 
+  // Free-form is fine here (unlike the `subscribe` path): the follower just
+  // messaged us the JOIN, so WhatsApp's 24h session window is open.
   try {
-    await sendWhatsApp(
-      from,
-      `You're now following ${publisher.name}. You'll receive their photos here on WhatsApp. Reply STOP at any time to unsubscribe.`,
-    );
+    await sendWhatsApp(from, composeWelcomeMessage(publisher.name));
     return new Response('', { status: 204 });
   } catch (err) {
     console.error('WhatsApp confirmation failed, falling back to TwiML:', err);

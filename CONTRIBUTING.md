@@ -125,8 +125,13 @@ Function** — no Twilio, no WhatsApp round-trip:
    subscriber using the **service-role key** (bypasses RLS — no public write
    policy needed, and numbers are never exposed to the anon role). Returns JSON.
 
-Twilio is only needed later, to *deliver* photos to subscribers (see #24/#31) —
-not to subscribe.
+Twilio is only needed to *deliver* messages, not to record the subscription —
+the row is written whether or not the send works. It does deliver one message
+right at subscribe time: the welcome. Because the follower typed their number
+and never messaged our sender, that one has no 24h session window to ride on
+and needs the approved `follow_me_welcome` template on a production sender
+(`TWILIO_TEMPLATE_WELCOME_SID`, issue #164); without the SID it falls back to
+free-form, which is what the sandbox wants.
 
 > The `join` and `join-webhook` functions are an **alternative** WhatsApp-native
 > flow (tap → send a prefilled WhatsApp message → webhook subscribes you). It

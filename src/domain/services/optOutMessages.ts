@@ -1,9 +1,24 @@
-// Confirmation copy sent back to a subscriber after they opt out (STOP) or opt
-// back in (START). Kept as pure functions, alongside composeNotificationBody,
-// so the exact wording is unit-tested and shared by every sender.
+// Confirmation copy sent to a subscriber at each step of their lifecycle:
+// subscribing, opting out (STOP) and opting back in (START). Kept as pure
+// functions, alongside composeNotificationBody, so the exact wording is
+// unit-tested and shared by every sender.
 //
-// DUAL RUNTIME — the `join-webhook` Edge Function replies with these too, and
-// imports this exact file. Keep it import-free; see CONTRIBUTING.md.
+// DUAL RUNTIME — the `subscribe` and `join-webhook` Edge Functions reply with
+// these too, and import this exact file. Keep it import-free; see
+// CONTRIBUTING.md.
+
+/**
+ * The welcome a follower gets the moment they subscribe.
+ *
+ * MIRRORED by the approved `follow_me_welcome` WhatsApp template (issue #164):
+ * on the production sender the follower has never messaged us — they typed
+ * their number on the join page — so there is no 24h session window and this
+ * text can only be delivered as a template. `welcomeTemplate.test.ts` asserts
+ * the template body and this function stay byte-identical; re-cut both together.
+ */
+export function composeWelcomeMessage(publisherName: string): string {
+  return `You're now following ${publisherName}. You'll receive their photos here on WhatsApp. Reply STOP at any time to unsubscribe.`;
+}
 
 export function composeUnsubscribeConfirmation(publisherName: string): string {
   return `You've been unsubscribed from ${publisherName}. Reply START to re-subscribe.`;
