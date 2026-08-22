@@ -131,11 +131,22 @@ describe('SyncCandidatePhotosUseCase', () => {
       return originalUpload(localUri, filename);
     };
 
-    const useCase = new SyncCandidatePhotosUseCase(library, storage, repo);
-    await expect(useCase.execute('pub-1', 7)).rejects.toThrow('network blip');
+    // Commits as they land, rather than one save at the end — which is what
+    // makes the run survive the app being killed, not just an upload failing.
+    const commits: number[] = [];
+    const originalSave = repo.saveMany.bind(repo);
+    repo.saveMany = async (rows): Promise<void> => {
+      commits.push(rows.length);
+      await originalSave(rows);
+    };
 
-    // Batch size 3 → the first batch (3 photos) was committed before the failure.
-    expect((await repo.existingAssetIds('pub-1')).size).toBe(3);
+    const useCase = new SyncCandidatePhotosUseCase(library, storage, repo);
+    const rows = await useCase.execute('pub-1', 7);
+
+    expect(commits.length).toBeGreaterThan(1);
+    // The one failed photo is left behind; the other five are in the cloud.
+    expect(rows).toHaveLength(5);
+    expect((await repo.existingAssetIds('pub-1')).size).toBe(5);
   });
 
   // The crash breadcrumbs for issue #77 show the user wiping their cloud photos
@@ -170,6 +181,77 @@ describe('SyncCandidatePhotosUseCase', () => {
     const rows = await useCase.execute('pub-1', 7, () => Promise.resolve(false));
 
     expect(rows).toHaveLength(9);
+  });
+
+  describe('a connection that drops mid-run', () => {
+    /** Storage that refuses the named photos and uploads the rest. */
+    function flakyStorage(failing: Set<string>): FakeStorageService {
+      const storage = new FakeStorageService();
+      const inner = storage.upload.bind(storage);
+      storage.upload = (localUri: string, filename: string): Promise<string> => {
+        const id = filename.replace(/\.jpg$/, '');
+        if (failing.has(id)) return Promise.reject(new TypeError('Network request failed'));
+        return inner(localUri, filename);
+      };
+      return storage;
+    }
+
+    function sutWith(photos: PhotoCandidate[], storage: FakeStorageService): {
+      useCase: SyncCandidatePhotosUseCase;
+      repo: InMemoryCandidatePhotoRepository;
+    } {
+      const repo = new InMemoryCandidatePhotoRepository();
+      return {
+        useCase: new SyncCandidatePhotosUseCase(new FakeMediaLibrary(photos), storage, repo),
+        repo,
+      };
+    }
+
+    it('keeps the photos that made it when one upload fails', async () => {
+      // The whole point: photo 90 of 100 failing used to abort the run and
+      // throw away the 89 that were already in the cloud (issue #145).
+      const photos = ['a', 'b', 'c', 'd'].map(candidate);
+      const { useCase, repo } = sutWith(photos, flakyStorage(new Set(['c'])));
+
+      const rows = await useCase.execute('pub-1', 7);
+
+      expect(rows.map(r => r.assetId).sort()).toEqual(['a', 'b', 'd']);
+      expect((await repo.existingAssetIds('pub-1')).size).toBe(3);
+    });
+
+    it('leaves the failed photo for the next run to pick up', async () => {
+      const photos = ['a', 'b'].map(candidate);
+      const failing = new Set(['b']);
+      const storage = flakyStorage(failing);
+      const { useCase, repo } = sutWith(photos, storage);
+
+      await useCase.execute('pub-1', 7);
+      // Connection is back.
+      failing.clear();
+      await useCase.execute('pub-1', 7);
+
+      expect((await repo.existingAssetIds('pub-1'))).toEqual(new Set(['a', 'b']));
+    });
+
+    it('still fails the run when nothing at all got through', async () => {
+      // Reporting "synced" after uploading nothing would tell the server this
+      // phone is healthy and leave it waiting for photos that never come.
+      const photos = ['a', 'b'].map(candidate);
+      const { useCase } = sutWith(photos, flakyStorage(new Set(['a', 'b'])));
+
+      await expect(useCase.execute('pub-1', 7)).rejects.toThrow('Network request failed');
+    });
+
+    it('reports progress against what actually landed', async () => {
+      const photos = ['a', 'b', 'c'].map(candidate);
+      const { useCase } = sutWith(photos, flakyStorage(new Set(['b'])));
+      const progress: [number, number][] = [];
+
+      await useCase.execute('pub-1', 7, undefined, (uploaded, total) => progress.push([uploaded, total]));
+
+      expect(progress[0]).toEqual([0, 3]);
+      expect(progress[progress.length - 1]?.[0]).toBe(2);
+    });
   });
 
   it('resolves the upload uri (e.g. ph:// → file://) before uploading', async () => {
