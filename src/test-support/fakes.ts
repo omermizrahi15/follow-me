@@ -10,6 +10,7 @@ import type {
   Coordinate,
   IGeocoder,
   IMediaRepository,
+  MediaWindow,
   IPostGalleryRepository,
   ISubscriberRepository,
   INotifier,
@@ -36,13 +37,39 @@ import type {
 export class InMemoryMediaRepository implements IMediaRepository {
   private store: Map<string, Media> = new Map();
 
+  /**
+   * Seeds a single item. Not part of IMediaRepository — production writes go
+   * through `saveMany` so a posting is always stored as one unit — but tests
+   * that only need a row in place shouldn't have to wrap it in an array.
+   */
   async save(media: Media): Promise<void> {
     this.store.set(media.id, media);
     return Promise.resolve();
   }
 
-  async findByOwner(ownerId: string): Promise<Media[]> {
-    return Promise.resolve([...this.store.values()].filter(m => m.ownerId === ownerId));
+  async saveMany(media: Media[]): Promise<void> {
+    for (const item of media) this.store.set(item.id, item);
+    return Promise.resolve();
+  }
+
+  /** Newest first, id breaking ties — the order the real table is read in. */
+  private ownedNewestFirst(ownerId: string): Media[] {
+    return [...this.store.values()]
+      .filter(m => m.ownerId === ownerId)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime() || a.id.localeCompare(b.id));
+  }
+
+  async findByOwner(ownerId: string, window: MediaWindow): Promise<Media[]> {
+    const offset = window.offset ?? 0;
+    return Promise.resolve(this.ownedNewestFirst(ownerId).slice(offset, offset + window.limit));
+  }
+
+  async findByPosting(ownerId: string, postingId: string): Promise<Media[]> {
+    return Promise.resolve(this.ownedNewestFirst(ownerId).filter(m => m.postingId === postingId));
+  }
+
+  async postedAssetIds(ownerId: string): Promise<Set<string>> {
+    return Promise.resolve(new Set(this.ownedNewestFirst(ownerId).map(m => m.id)));
   }
 
   async findById(id: string): Promise<Media | null> {
@@ -58,6 +85,21 @@ export class InMemoryMediaRepository implements IMediaRepository {
   }
 
   all(): Media[] { return [...this.store.values()]; }
+}
+
+/**
+ * A media store whose bulk write always fails — what the real one does when
+ * Postgres rejects the insert. The write is one statement, so nothing lands:
+ * the point of the fake is that the store stays empty afterwards.
+ */
+export class FailingMediaRepository extends InMemoryMediaRepository {
+  constructor(private readonly message: string = 'media insert rejected') {
+    super();
+  }
+
+  override saveMany(): Promise<void> {
+    return Promise.reject(new Error(this.message));
+  }
 }
 
 /**
@@ -440,6 +482,12 @@ export class FakePhotoClassifier implements IPhotoClassifier {
    * first call succeeds and every call after it comes back empty.
    */
   quotaExhaustedFromCallIndex: number | null = null;
+  /**
+   * Same idea for the provider's per-minute ceiling (issue #141) — the wall
+   * that clears in seconds. Kept separate from the quota so tests can prove the
+   * two are never conflated.
+   */
+  rateLimitedFromCallIndex: number | null = null;
 
   constructor(private readonly byId: Map<string, PhotoClassification> = new Map()) {}
 
@@ -447,6 +495,12 @@ export class FakePhotoClassifier implements IPhotoClassifier {
     return (
       this.quotaExhaustedFromCallIndex != null &&
       this.callCount >= this.quotaExhaustedFromCallIndex
+    );
+  }
+
+  rateLimited(): boolean {
+    return (
+      this.rateLimitedFromCallIndex != null && this.callCount >= this.rateLimitedFromCallIndex
     );
   }
 
@@ -459,8 +513,10 @@ export class FakePhotoClassifier implements IPhotoClassifier {
     this.receivedCandidateIds = [];
     const results: PhotoClassification[] = [];
     const total = candidates.length;
-    // Out of budget: the real function 429s every photo, yielding nothing.
-    if (this.quotaExhausted()) return Promise.resolve(results);
+    // Out of budget, or throttled after exhausting its patience: the real
+    // classifier yields nothing in both cases — what differs is the reason it
+    // reports, which is the point of keeping the two flags apart.
+    if (this.quotaExhausted() || this.rateLimited()) return Promise.resolve(results);
     for (const c of candidates) {
       this.receivedCandidateIds.push(c.id);
       const r = this.byId.get(c.id);

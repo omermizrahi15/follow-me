@@ -129,7 +129,12 @@ Setup:
    back to the free-form caption (fine in the sandbox / before approval). Do
    NOT set these secrets until the templates show `approved`, or sends fail
    with 63016. Template bodies mirror `composeAutoPostBody`; the variable order
-   is asserted by `postTemplate.test.ts` — re-cut both together. The invite
+   is asserted by `postTemplate.test.ts` — re-cut both together.
+   The reply link is a whole *variable* value (`{{5}}` / `{{6}}`), not part of
+   the approved body text, so issue #143's switch to a pre-filled
+   `wa.me/<phone>?text=Re%3A…` needs **no** re-approval — the templates are
+   untouched. Keep it that way: put URL changes in the variable, never in the
+   body. The invite
    share text (`buildInviteMessage`) is sent from the publisher's own phone via
    the OS share sheet, NOT through Twilio, so it needs no template.
 
@@ -201,11 +206,39 @@ place:
 - **Retention**: every `auto-post` cron tick garbage-collects
   `candidate_photos` older than 35 days (longest lookback window + slack).
 
+The upload, retention and deletion behaviour above is described in the published
+privacy policy (next section).
+
 TODO(production):
-- reflect the upload/retention behavior in the published privacy policy and
-  onboarding;
 - allow clearing the stored Expo push token (`publisher_config.expo_push_token`)
   when the user disables reminders.
+
+## Legal documents (issue #7)
+
+| Document | URL | Source |
+|---|---|---|
+| Privacy Policy | https://omermizrahi15.github.io/follow-me/privacy/ | [`docs/privacy/index.html`](privacy/index.html) |
+| Terms of Service | https://omermizrahi15.github.io/follow-me/terms/ | [`docs/terms/index.html`](terms/index.html) |
+
+Served by GitHub Pages from `/docs` on `main`, so the URLs never move with an
+app release and a correction ships by merging a PR — App Store review rejects a
+privacy-policy URL that 404s, and a policy bundled inside the app could only be
+fixed by shipping a build. Both are reachable in-app from **Settings → About**
+(`src/ui/legal.ts` holds the URLs).
+
+**Keep them true.** Every processor named in the policy is something the code
+actually talks to — Cloudinary, Gemini (`functions/classify-photos`),
+BigDataCloud, Twilio, Expo push, Sentry. Adding a processor, collecting a new
+field, or changing a retention window means editing the policy in the same PR
+and bumping its "Last updated" date.
+
+Manual steps outside the repo (do once, before submitting to review):
+
+1. **App Store Connect → App Privacy** — paste the privacy policy URL, and
+   declare the data types the policy lists (contact info: phone number; user
+   content: photos/videos; location: from photo metadata; diagnostics).
+2. **App Store Connect → App Information → License Agreement** — either keep
+   Apple's standard EULA or link the terms URL above.
 
 ## iOS extension setup (contributors)
 

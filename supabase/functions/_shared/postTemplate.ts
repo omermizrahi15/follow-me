@@ -40,6 +40,26 @@ function clean(value: string): string {
 }
 
 /**
+ * The follower's reply link, pre-filled with which post it answers (issue #143).
+ *
+ * MIRROR of `composeReplyLink` in `src/domain/services/notificationBody.ts` —
+ * see the rationale there. It is duplicated rather than imported because this
+ * file must stay import-free (header), and `postTemplate.test.ts` asserts the
+ * two stay byte-identical.
+ *
+ * The whole URL is a template *variable* value, not part of the approved body
+ * text, so widening it needs no re-approval in Twilio. Spaces arrive
+ * percent-encoded, which also satisfies WhatsApp's "no runs of whitespace in a
+ * variable" rule for free.
+ */
+function replyLinkFor(phone: string, place?: string | null): string {
+  const waPhone = phone.replace(/^\+/, '');
+  const label = clean(place ?? '');
+  const subject = label !== '' ? `your photos from ${label}` : 'your latest photos';
+  return `https://wa.me/${waPhone}?text=${encodeURIComponent(`Re: ${subject} ✨`)}`;
+}
+
+/**
  * Returns the template send for a post, or null when a template can't be used
  * (SIDs not configured, or the post lacks the gallery link / publisher phone /
  * header image the template requires) — the caller then falls back to free-form.
@@ -51,7 +71,10 @@ export function buildPostTemplate(env: PostTemplateEnv, input: PostTemplateInput
   if (!gallery || !media || !phone) return null;
 
   const name = clean(input.publisherName);
-  const replyLink = `https://wa.me/${phone.replace(/^\+/, '')}`;
+  // Fed the raw place even on the no-location branch: that branch only drops
+  // the "from {place}" clause from the *body*, and naming the place in the
+  // reply subject is still accurate — and more useful there, not less.
+  const replyLink = replyLinkFor(phone, input.place);
   const count = String(input.photoCount);
   const hasPlace = input.place != null && input.place.trim() !== '';
 

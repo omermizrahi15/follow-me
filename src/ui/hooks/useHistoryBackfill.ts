@@ -16,6 +16,7 @@ import { MAX_PHOTOS_PER_POST } from '../../domain/entities/PublisherConfig';
 import { isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
 import type { Coordinate } from '../../domain/interfaces';
 import { coordinateFor, coordinatesFor } from '../data/photoCoordinates';
+import { invalidateFeed } from '../data/queries';
 
 export type BackfillPhase = 'setup' | 'scanning' | 'review' | 'publishing' | 'done' | 'error';
 
@@ -409,7 +410,7 @@ export function useHistoryBackfill(publisherId: string): State & {
           return [];
         }
 
-        const { classified, suggestions, consumed, quotaExhausted } =
+        const { classified, suggestions, consumed, quotaExhausted, rateLimited } =
           await suggestPhotos.classifyMore(queue, config, 1);
         const left = queue.slice(consumed);
         pending.current.set(posting.id, left);
@@ -422,17 +423,19 @@ export function useHistoryBackfill(publisherId: string): State & {
           postings: s.postings.map(p => {
             if (p.id !== posting.id) return p;
             const exhausted = quotaExhausted || left.length === 0;
+            // Throttling is not exhaustion: the queue still has photos and the
+            // wall lifts in seconds, so "+" stays available and the note says
+            // to try again shortly rather than tomorrow.
+            const note = quotaExhausted
+              ? 'Today’s photo analysis is used up — try again tomorrow'
+              : rateLimited
+                ? 'The photo AI is busy — tap again in a moment'
+                : 'Nothing else in these days';
             return {
               ...p,
               draft: { ...p.draft, pool: [...p.draft.pool, ...classified] },
               canAddMore: !exhausted,
-              ...(exhausted
-                ? {
-                    note: quotaExhausted
-                      ? 'Today’s photo analysis is used up — try again tomorrow'
-                      : 'Nothing else in these days',
-                  }
-                : {}),
+              ...(exhausted || rateLimited ? { note } : {}),
             };
           }),
         }));
@@ -734,4 +737,9 @@ async function publishPosting(publisherId: string, posting: ReviewablePosting): 
     backfilled: true,
     location: posting.place.trim() === '' ? null : posting.place.trim(),
   });
+
+  // Reconstructed stretches land in the same feed as anything else. Invalidated
+  // per posting, so a timeline published one stretch at a time keeps the Me
+  // page and the globe in step as it goes.
+  invalidateFeed(publisherId);
 }

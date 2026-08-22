@@ -297,8 +297,9 @@ function usePostingParam(
         if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
         if (isStale()) return;
         try {
-          const dtos = await listFeed.list(publisherId);
-          const match = dtos.find(d => d.id === postingId);
+          // Straight to the posting rather than through the feed: the id is
+          // already known, and the rest of the feed is never looked at here.
+          const match = await listFeed.posting(publisherId, postingId);
           if (isStale()) return;
           if (match != null) {
             setResolved(toFeedPosting(match));

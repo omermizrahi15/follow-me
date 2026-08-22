@@ -25,8 +25,13 @@ export type SuggestPhase = 'loading' | 'scanning' | 'classifying' | 'done' | 'er
  * left" is what greyed out the "+" on a library that had ninety photos to
  * spare. `failed` is the classifier itself erroring, which must never be
  * reported as a fact about the publisher's photos.
+ *
+ * `busy` is the AI provider throttling us. It looks like `quota` from here —
+ * the round stops early either way — but it clears in seconds rather than at
+ * midnight, so it keeps the "+" alive and asks the publisher to try again
+ * shortly (issue #141).
  */
-export type TopUpReason = 'exhausted' | 'quota' | 'capped' | 'failed';
+export type TopUpReason = 'exhausted' | 'quota' | 'busy' | 'capped' | 'failed';
 
 /** Outcome of one "give me another photo" request. */
 export interface TopUpResult {
@@ -284,7 +289,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         // Built once per scan, then walked down: the library query is the slow
         // part and the window doesn't move while the screen is open.
         pendingRef.current ??= await suggestPhotos.pendingCandidates(config, knownRef.current);
-        const { classified, suggestions, consumed, quotaExhausted } =
+        const { classified, suggestions, consumed, quotaExhausted, rateLimited } =
           await suggestPhotos.classifyMore(pendingRef.current, config);
         pendingRef.current = pendingRef.current.slice(consumed);
 
@@ -297,12 +302,23 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         // limit leaves the queue standing, and saying "no more photos" there is
         // a claim about the library that the round never established.
         const exhausted = pendingRef.current.length === 0;
+        // Throttling deliberately does NOT close the door: the queue still has
+        // photos and the wall lifts in seconds, so greying out the "+" would
+        // strand the publisher for the rest of the session over a pause.
         if (quotaExhausted || exhausted) setCanTopUp(false);
 
         return {
           suggestions,
           reason:
-            suggestions.length > 0 ? null : quotaExhausted ? 'quota' : exhausted ? 'exhausted' : 'capped',
+            suggestions.length > 0
+              ? null
+              : quotaExhausted
+                ? 'quota'
+                : rateLimited
+                  ? 'busy'
+                  : exhausted
+                    ? 'exhausted'
+                    : 'capped',
           attempted: consumed,
         };
       } catch {

@@ -5,7 +5,47 @@ import {
   clamp01,
   classifyCaller,
   parseClassification,
+  parseRetryDelaySeconds,
 } from './logic.ts';
+
+// The exact body staging logged when the AI photo suggestion reported "daily
+// limit reached" on the first attempt of the day (issue #141). It is a
+// per-MINUTE ceiling of 5 requests that clears in under half a minute, which
+// is why reading the delay off it matters more than the status code.
+const GEMINI_RATE_LIMIT_BODY = JSON.stringify({
+  error: {
+    code: 429,
+    message:
+      'You exceeded your current quota. * Quota exceeded for metric: ' +
+      'generativelanguage.googleapis.com/generate_content_free_tier_requests, limit: 5, ' +
+      'model: gemini-3.5-flash\nPlease retry in 28.530505825s.',
+    status: 'RESOURCE_EXHAUSTED',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+        violations: [{ quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier' }],
+      },
+      { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '28s' },
+    ],
+  },
+});
+
+Deno.test('parseRetryDelaySeconds — reads the delay from a real Gemini 429', () => {
+  assertEquals(parseRetryDelaySeconds(GEMINI_RATE_LIMIT_BODY), 28);
+});
+
+Deno.test('parseRetryDelaySeconds — falls back to the prose when RetryInfo is absent', () => {
+  const body = JSON.stringify({ error: { message: 'Please retry in 12.4s.' } });
+  // Rounded up: waking a moment early just spends another request on a wall
+  // that has not lifted yet.
+  assertEquals(parseRetryDelaySeconds(body), 13);
+});
+
+Deno.test('parseRetryDelaySeconds — null when nothing says how long to wait', () => {
+  assertEquals(parseRetryDelaySeconds(JSON.stringify({ error: { message: 'slow down' } })), null);
+  assertEquals(parseRetryDelaySeconds('not json at all'), null);
+  assertEquals(parseRetryDelaySeconds(''), null);
+});
 
 Deno.test('clamp01 — clamps to [0,1] and defaults non-finite input to 0', () => {
   assertEquals(clamp01(0.5), 0.5);

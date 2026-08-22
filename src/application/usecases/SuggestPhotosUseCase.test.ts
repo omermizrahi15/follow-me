@@ -539,6 +539,28 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       expect(stats.quotaExhausted).toBe(true);
     });
 
+    it('reports a throttled scan as rate limited, not as a spent daily budget', async () => {
+      // Issue #141: these must never collapse into one signal. The copy they
+      // drive is opposite advice — "try again tomorrow" versus "in a moment" —
+      // and the throttle is the one publishers actually hit, on their first
+      // scan of the day.
+      const classifier = new FakePhotoClassifier();
+      classifier.rateLimitedFromCallIndex = 1;
+
+      const { stats } = await new SuggestPhotosUseCase(
+        new FakeMediaLibrary([candidate('p1'), candidate('p2')]),
+        classifier,
+        new FakeSentPhotoTracker(),
+      ).execute(config());
+
+      expect(stats.rateLimited).toBe(true);
+      expect(stats.quotaExhausted).toBe(false);
+      // Photos that were never attempted are not "unreadable" — that count is
+      // the app's explanation for iCloud originals, and inflating it here would
+      // send publishers chasing a download that was never the problem.
+      expect(stats.unreadable).toBe(0);
+    });
+
     it('reports zeroes rather than nothing for an empty window', async () => {
       const { stats } = await new SuggestPhotosUseCase(
         new FakeMediaLibrary([]),
@@ -546,7 +568,14 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
         new FakeSentPhotoTracker(),
       ).execute(config());
 
-      expect(stats).toEqual({ scanned: 0, unique: 0, graded: 0, unreadable: 0, quotaExhausted: false });
+      expect(stats).toEqual({
+        scanned: 0,
+        unique: 0,
+        graded: 0,
+        unreadable: 0,
+        quotaExhausted: false,
+        rateLimited: false,
+      });
     });
   });
 });

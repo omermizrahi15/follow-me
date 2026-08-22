@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -18,9 +18,9 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation, useRoute, useFocusEffect, type RouteProp } from '@react-navigation/native';
+import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
-import { SectionNav, type HomeSection } from '../navigation/SectionNav';
+import { SectionNav, SECTION_NAV_HEIGHT, type HomeSection } from '../navigation/SectionNav';
 import { logoSource } from '../assets';
 import { PostCard, POST_CARD_HEIGHT } from '../components/PostCard';
 import { ErrorState } from '../components/ErrorState';
@@ -46,7 +46,7 @@ const MEDIUM_H = Math.round(SCREEN_H * 0.42);
 const FULL_H = Math.round(SCREEN_H * 0.84);
 const SNAPS = [SMALL_H, MEDIUM_H, FULL_H];
 /** Height of the floating nav bar — the sheet's lowest band stays glassy so the nav reads as glass. */
-const NAV_BAR_H = 56;
+const NAV_BAR_H = SECTION_NAV_HEIGHT;
 
 /**
  * The sheet is always FULL_H tall and slides down to shrink, instead of being
@@ -85,14 +85,25 @@ export function HomeScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, 'Home'>>();
   const requestedSection = route.params?.section;
+  // Nonce from a reminder-notification tap — see RootStackParamList.Home.
+  const suggestionRequest = route.params?.suggestionRequest;
   const { shareInvite } = useInviteLink();
   const publisherId = usePublisherId();
-  const { profile, reload: reloadProfile } = useProfile(publisherId);
-  const { subscribers, loading: followersLoading, reload: reloadSubscribers } = useSubscribers(publisherId);
-  const { postings, loading: feedLoading, error: feedError, reload: reloadFeed } = useFeed(publisherId);
+  // All three come from the shared cache (issue #114): one request per entity
+  // however many components ask, served from memory on the way back, and kept
+  // current by the writes that change them rather than by refetching here.
+  const { profile } = useProfile(publisherId);
+  const { subscribers, loading: followersLoading } = useSubscribers(publisherId);
+  // `error` and `reload` are the failure state's own: the cache keeps the feed
+  // fresh by itself, but a load that failed needs something the user can press
+  // (issue #145).
+  const { postings, loading: feedLoading, error: feedError, complete: feedComplete, reload: reloadFeed } =
+    useFeed(publisherId);
   // The History tab exists only when some stretch of the trip has no posting —
   // including a hole in the middle, not just a missing beginning (issue #81).
-  const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings);
+  // It waits for the whole feed: until it has arrived, every stretch looks
+  // empty, and offering to reconstruct a trip already posted would duplicate it.
+  const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings, feedComplete);
   const [section, setSection] = useState<HomeSection>('me');
   const [showingSuggestions, setShowingSuggestions] = useState(false);
   // Which feed card has its Delete revealed — at most one, the way an iOS
@@ -128,18 +139,19 @@ export function HomeScreen(): React.JSX.Element {
     if (requestedSection != null) setSection(requestedSection);
   }, [requestedSection]);
 
-  // The Me page never unmounts (sections are local state, Upload is a modal on
-  // top), so refresh the followers count and the profile whenever the screen
-  // regains focus — e.g. a fresh upload or a profile edit in Settings must
-  // show up on return. The feed is NOT refreshed here: useFeed already does it
-  // on focus, and asking twice meant two round trips and two feed states per
-  // focus, each one a fresh postings array for everything below to react to.
-  useFocusEffect(
-    useCallback(() => {
-      void reloadSubscribers();
-      void reloadProfile();
-    }, [reloadSubscribers, reloadProfile]),
-  );
+  // Tapping the reminder opens the suggested-post sheet. This is the only way
+  // in from a notification now that the review screen has no modal route of its
+  // own; the nonce is what makes a second tap reopen a sheet already closed.
+  useEffect(() => {
+    if (suggestionRequest == null) return;
+    setSuggestionKey(k => k + 1);
+    setShowingSuggestions(true);
+    snapTo(FULL_H);
+  }, [suggestionRequest]);
+
+  // The focus-refresh that used to sit here is gone: the shared read cache
+  // (#114) revalidates feed, profile and followers itself, so asking again on
+  // every focus was two round trips and two feed states per focus.
 
   function snapTo(h: number): void {
     restOffsetRef.current = offsetFor(h);
@@ -176,18 +188,14 @@ export function HomeScreen(): React.JSX.Element {
     }),
   ).current;
 
+  // Switching sections no longer refetches anything. The Me page is part of a
+  // screen that never unmounts and never loses focus, so it used to have to ask
+  // — a history stretch sent with "Publish this one" was otherwise invisible
+  // until the app was relaunched. Publishing now invalidates the feed itself,
+  // which reaches this screen wherever the post came from.
   function selectSection(next: HomeSection): void {
     setShowingSuggestions(false);
     setSection(next);
-    // The Me page is a section of a screen that never unmounts and never loses
-    // focus, so nothing else refetches for it. Anything published from another
-    // section — a history stretch sent with "Publish this one", a post shared
-    // from the suggestions sheet — was otherwise invisible until the app was
-    // relaunched.
-    if (next === 'me') {
-      void reloadSubscribers();
-      void reloadFeed();
-    }
     snapTo(MEDIUM_H);
   }
 
@@ -213,9 +221,6 @@ export function HomeScreen(): React.JSX.Element {
   function closeSuggestions(): void {
     setShowingSuggestions(false);
     snapTo(MEDIUM_H);
-    // The sheet lives inside Home (no focus change), so refresh the feed
-    // explicitly — the user may have just posted from it.
-    void reloadFeed();
   }
 
   // The sheet stays docked to the bottom; its lowest band (behind the nav) is left
@@ -292,7 +297,7 @@ export function HomeScreen(): React.JSX.Element {
                   // explicit button for anyone who never discovers the swipe.
                   onDelete={() => {
                     setSwipedPostId(null);
-                    moveToTrash(publisherId, item, () => void reloadFeed());
+                    moveToTrash(publisherId, item);
                   }}
                   isSwipedOpen={swipedPostId === item.id}
                   onSwipeStateChange={open => setSwipedPostId(open ? item.id : null)}
@@ -381,7 +386,7 @@ export function HomeScreen(): React.JSX.Element {
           {!showingSuggestions && section === 'followers' && <FollowersSection bottomInset={bottomInset} />}
           {!showingSuggestions && section === 'history' && (
             <HistoryBackfillContent
-              onDone={() => { selectSection('me'); void reloadFeed(); }}
+              onDone={() => selectSection('me')}
               initialStartDate={tripStartDate}
               gaps={gaps}
               bottomInset={bottomInset}
@@ -582,15 +587,16 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 11 },
-  // The bar spans the screen rather than hugging the left edge: it is the app's
-  // primary navigation, and the tabs inside it share the full width evenly.
-  // The bar spans the width between these insets; `stretch` is what hands it
-  // that width. Centring it instead let it collapse to the size of its own
-  // tabs, which is what made it look squeezed into the middle of the screen.
+  // A centred capsule 80% of the screen wide: percentage insets rather than
+  // fixed points, so it keeps those proportions on a small phone and a tablet
+  // alike. `stretch` is what hands the bar that width — without it the bar
+  // collapses to the size of its own tabs and drifts off centre.
+  // Near-full width, like the bar this copies: inset by a margin, not squeezed
+  // into the middle 80% of the screen.
   navWrap: {
     position: 'absolute',
-    left: spacing.md,
-    right: spacing.md,
+    left: spacing.xl,
+    right: spacing.xl,
     flexDirection: 'row',
     alignItems: 'stretch',
   },

@@ -1,4 +1,9 @@
-import { composeNotificationBody, selectTopLocations, formatLocationClause } from './notificationBody';
+import {
+  composeNotificationBody,
+  composeReplyLink,
+  selectTopLocations,
+  formatLocationClause,
+} from './notificationBody';
 import { Media } from '../entities/Media';
 
 function makeMedia(overrides: Partial<{ location: string }> = {}): Media {
@@ -168,5 +173,41 @@ describe('composeNotificationBody — publisher phone / chat link', () => {
     const body = composeNotificationBody('Omer', [makeMedia()]);
     expect(body).not.toContain('wa.me');
     expect(body.split('\n')).toHaveLength(1);
+  });
+
+  it('pre-fills the reply with the places the headline named (issue #143)', () => {
+    const body = composeNotificationBody(
+      'Omer',
+      [makeMedia({ location: 'Rome' }), makeMedia({ location: 'Rome' })],
+      '+972501234567',
+    );
+    expect(decodeURIComponent(body)).toContain('Re: your photos from Rome ✨');
+  });
+});
+
+// Issue #143: WhatsApp exposes no way to open a *quoted* reply to a specific
+// message, so the link pre-fills the subject and the publisher at least learns
+// which post the reply is about.
+describe('composeReplyLink', () => {
+  it('names the place when the post has one', () => {
+    expect(composeReplyLink('+972501234567', 'Rome')).toBe(
+      'https://wa.me/972501234567?text=Re%3A%20your%20photos%20from%20Rome%20%E2%9C%A8',
+    );
+  });
+
+  it.each([[null], [undefined], [''], ['   ']])('falls back to "your latest photos" for place %p', place => {
+    expect(decodeURIComponent(composeReplyLink('+972501234567', place))).toContain('Re: your latest photos ✨');
+  });
+
+  it('strips the leading + from the number', () => {
+    expect(composeReplyLink('+12125550100')).toMatch(/^https:\/\/wa\.me\/12125550100\?/);
+  });
+
+  it('collapses whitespace in the place, then percent-encodes the whole subject', () => {
+    const link = composeReplyLink('+972501234567', 'Tel  Aviv\n\tIsrael');
+    expect(decodeURIComponent(link)).toContain('Re: your photos from Tel Aviv Israel ✨');
+    // WhatsApp rejects template variables carrying newlines/tabs/space runs —
+    // encoding the subject means the value can never contain any.
+    expect(link).not.toMatch(/\s/);
   });
 });

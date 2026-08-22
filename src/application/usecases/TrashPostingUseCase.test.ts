@@ -39,8 +39,8 @@ describe('TrashPostingUseCase', (): void => {
 
     await trash.trash({ publisherId: 'user-1', postingId: 'post-a' }, new Date('2026-07-28T09:00:00Z'));
 
-    expect(await feed.list('user-1')).toHaveLength(0);
-    const deleted = await feed.listDeleted('user-1');
+    expect((await feed.list('user-1')).postings).toHaveLength(0);
+    const { postings: deleted } = await feed.listDeleted('user-1');
     expect(deleted).toHaveLength(1);
     expect(deleted[0]?.media.map(m => m.id).sort()).toEqual(['m1', 'm2']);
     expect(deleted[0]?.deletedAt).toBe('2026-07-28T09:00:00.000Z');
@@ -53,7 +53,7 @@ describe('TrashPostingUseCase', (): void => {
 
     await trash.trash({ publisherId: 'user-1', postingId: 'post-a' });
 
-    expect((await feed.list('user-1')).map(p => p.id)).toEqual(['post-b']);
+    expect((await feed.list('user-1')).postings.map(p => p.id)).toEqual(['post-b']);
   });
 
   it('never touches another publisher’s posting of the same id', async (): Promise<void> => {
@@ -63,8 +63,8 @@ describe('TrashPostingUseCase', (): void => {
 
     await trash.trash({ publisherId: 'user-1', postingId: 'post-a' });
 
-    expect(await feed.list('user-2')).toHaveLength(1);
-    expect(await feed.listDeleted('user-2')).toHaveLength(0);
+    expect((await feed.list('user-2')).postings).toHaveLength(1);
+    expect((await feed.listDeleted('user-2')).postings).toHaveLength(0);
   });
 
   it('restores a trashed posting back into the feed at its original date', async (): Promise<void> => {
@@ -74,10 +74,10 @@ describe('TrashPostingUseCase', (): void => {
 
     await trash.restore({ publisherId: 'user-1', postingId: 'post-a' });
 
-    const live = await feed.list('user-1');
+    const { postings: live } = await feed.list('user-1');
     expect(live).toHaveLength(1);
     expect(live[0]?.createdAt).toBe('2026-06-18T10:00:00.000Z');
-    expect(await feed.listDeleted('user-1')).toHaveLength(0);
+    expect((await feed.listDeleted('user-1')).postings).toHaveLength(0);
   });
 
   it('takes the posting out of the followers’ gallery too, not just the feed', async (): Promise<void> => {
@@ -112,7 +112,7 @@ describe('TrashPostingUseCase', (): void => {
 
     await trash.trash({ publisherId: 'user-1', postingId: 'post-a' });
 
-    expect(await feed.list('user-1')).toHaveLength(0);
+    expect((await feed.list('user-1')).postings).toHaveLength(0);
     expect(galleryRepo.visible('user-1')).toEqual([]);
   });
 
@@ -126,7 +126,7 @@ describe('TrashPostingUseCase', (): void => {
     });
 
     await expect(failing.trash({ publisherId: 'user-1', postingId: 'post-a' })).rejects.toThrow('network down');
-    expect(await feed.list('user-1')).toHaveLength(1);
+    expect((await feed.list('user-1')).postings).toHaveLength(1);
   });
 
   it('rejects empty ids rather than matching nothing and reporting success', async (): Promise<void> => {

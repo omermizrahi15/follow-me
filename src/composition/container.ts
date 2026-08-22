@@ -4,6 +4,7 @@ import { TrashPostingUseCase } from '../application/usecases/TrashPostingUseCase
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
 import { ListSubscribersUseCase } from '../application/usecases/ListSubscribersUseCase';
 import { RemoveSubscriberUseCase } from '../application/usecases/RemoveSubscriberUseCase';
+import { ResolveContactNamesUseCase } from '../application/usecases/ResolveContactNamesUseCase';
 import { SaveConfigUseCase } from '../application/usecases/SaveConfigUseCase';
 import { LoadConfigUseCase } from '../application/usecases/LoadConfigUseCase';
 import { SuggestPhotosUseCase } from '../application/usecases/SuggestPhotosUseCase';
@@ -17,9 +18,11 @@ import { LoadProfileUseCase } from '../application/usecases/LoadProfileUseCase';
 import { GeminiPhotoClassifier } from '../infrastructure/classifiers/GeminiPhotoClassifier';
 import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri, expoResolveAssetLocation } from '../infrastructure/media/ExpoMediaLibrary';
 import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotificationScheduler';
+import { ExpoContactsDirectory } from '../infrastructure/contacts/ExpoContactsDirectory';
 import { registerExpoPushToken } from '../infrastructure/notifiers/ExpoPushToken';
 import type { Coordinate, ISentPhotoTracker, PhotoSyncState } from '../domain/interfaces';
 import { resolvePostingPlace } from '../application/services/resolvePostingPlace';
+import { createQueryCache } from '../application/services/queryCache';
 import { ConsoleConfirmationSender } from '../infrastructure/notifiers/ConsoleNotifier';
 import { WhatsAppEdgeNotifier } from '../infrastructure/notifiers/WhatsAppEdgeNotifier';
 import { RetryingNotifier } from '../infrastructure/notifiers/RetryingNotifier';
@@ -110,20 +113,17 @@ const photoClassifier = new GeminiPhotoClassifier(
 );
 const notificationScheduler = new ExpoNotificationScheduler();
 // Already-sent = anything recorded in `media` for this publisher (id == asset id).
+// Ids only: this runs on every suggestion scan and every "+" top-up, and used
+// to read every column of every photo the publisher had ever posted (#116).
 const sentPhotoTracker: ISentPhotoTracker = {
-  sentCandidateIds: async publisherId =>
-    new Set((await mediaRepo.findByOwner(publisherId)).map(m => m.id)),
+  sentCandidateIds: publisherId => mediaRepo.postedAssetIds(publisherId),
   // The newest photo they have already posted. Deleted postings still count:
   // the publisher saw those photos and chose them once, so re-offering them as
   // "new since your last post" would be a worse surprise than missing them.
-  newestPostedPhotoAt: async publisherId => {
-    const posted = await mediaRepo.findByOwner(publisherId);
-    let newest: Date | null = null;
-    for (const m of posted) {
-      if (newest == null || m.createdAt > newest) newest = m.createdAt;
-    }
-    return newest;
-  },
+  //
+  // One row answers it: the store returns an owner's media newest first.
+  newestPostedPhotoAt: async publisherId =>
+    (await mediaRepo.findByOwner(publisherId, { limit: 1 }))[0]?.createdAt ?? null,
 };
 // Names the posting's place ("Lisbon, Portugal") from the batch's EXIF GPS.
 const geocoder = new BigDataCloudGeocoder();
@@ -145,6 +145,13 @@ export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(m
 export const subscribe = monitored('subscribe', new SubscribeUseCase(subscriberRepo, confirmationSender));
 export const listSubscribers = monitored('list_subscribers', new ListSubscribersUseCase(subscriberRepo));
 export const removeSubscriber = monitored('remove_subscriber', new RemoveSubscriberUseCase(subscriberRepo));
+// Follower names come from the device address book and stay there (issue #144):
+// this use case reads contacts locally, matches them against numbers the app
+// already holds, and returns nothing but names for those numbers.
+export const resolveContactNames = monitored(
+  'resolve_contact_names',
+  new ResolveContactNamesUseCase(new ExpoContactsDirectory()),
+);
 export const authService = new SupabaseAuthService(supabase);
 export const saveConfig = monitored('save_config', new SaveConfigUseCase(configRepo));
 export const loadConfig = monitored('load_config', new LoadConfigUseCase(configRepo));
@@ -327,6 +334,14 @@ async function deleteCandidates(body: { olderThanDays?: number }): Promise<{ del
 
 /** Crash and event reporting. Callers pass the operation name that failed. */
 export { reportError, reportMessage };
+
+/**
+ * The app's one read cache (issue #114). Every screen that wants the feed, the
+ * profile or the followers goes through it, so the same row is fetched once and
+ * shared rather than once per hook instance. Bound here because "which cache"
+ * is a composition decision; the hooks only know the interface.
+ */
+export const queryCache = createQueryCache();
 
 /**
  * The app's single answer to "are we online?" (issue #145) — started by the

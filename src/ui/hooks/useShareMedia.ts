@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { shareMedia } from '../../composition/container';
+import { invalidateFeed } from '../data/queries';
 import { clearUploads, rememberUploads, resumableUploads } from '../data/shareCheckpoint';
 import type { MediaDto } from '../../application/dtos';
 import type { ShareProgress } from '../../application/usecases/ShareMediaUseCase';
@@ -14,7 +15,7 @@ interface MediaItem {
 
 interface ShareMediaState {
   loading: boolean;
-  /** The caught failure itself — see the note in useFeed. */
+  /** The caught failure itself — see `useCachedQuery`. */
   error: unknown;
   result: MediaDto[] | null;
   /** Live stage/count while a share is in flight (null when idle). */
@@ -63,6 +64,9 @@ export function useShareMedia(): ShareMediaState & {
           setState(s => ({ ...s, progress }));
         },
       );
+      // The feed just gained a post — every screen showing it (the Me list, the
+      // globe) refreshes from this rather than each one refetching on focus.
+      invalidateFeed(ownerId);
       // Posted. The notes are spent — and must not be offered to a later post.
       await clearUploads(ownerId);
       setState({ loading: false, error: null, result: dtos, progress: null });

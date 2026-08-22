@@ -25,7 +25,8 @@ Deno.test('buildPostTemplate — no place uses the post template with the 6-vari
     '2': '3',
     '3': 'https://gallery/abc',
     '4': 'Uri',
-    '5': 'https://wa.me/14155238886', // reply link strips the leading +
+    // Reply link strips the leading + and pre-fills the subject (issue #143).
+    '5': 'https://wa.me/14155238886?text=Re%3A%20your%20latest%20photos%20%E2%9C%A8',
     '6': 'https://media/collage.jpg',
   });
 });
@@ -39,7 +40,7 @@ Deno.test('buildPostTemplate — with place uses the location template and 7-var
     '3': '3',
     '4': 'https://gallery/abc',
     '5': 'Uri',
-    '6': 'https://wa.me/14155238886',
+    '6': 'https://wa.me/14155238886?text=Re%3A%20your%20photos%20from%20Lisbon%2C%20Portugal%20%E2%9C%A8',
     '7': 'https://media/collage.jpg',
   });
 });
@@ -57,6 +58,11 @@ Deno.test('buildPostTemplate — null when no usable SID is configured', () => {
 Deno.test('buildPostTemplate — blank/whitespace place is treated as no place', () => {
   const send = buildPostTemplate(env, { ...base, place: '   ' });
   assertEquals(send?.contentSid, 'HX_post');
+});
+
+Deno.test('buildPostTemplate — the no-location fallback still names the place in the reply subject', () => {
+  const send = buildPostTemplate({ postSid: 'HX_post' }, { ...base, place: 'Lisbon' });
+  assertEquals(send?.variables['5'], 'https://wa.me/14155238886?text=Re%3A%20your%20photos%20from%20Lisbon%20%E2%9C%A8');
 });
 
 Deno.test('buildPostTemplate — collapses whitespace/newlines in name and place (WhatsApp rejects them)', () => {

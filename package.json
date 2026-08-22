@@ -54,6 +54,7 @@
     "expo": "~54.0.0",
     "expo-background-task": "~1.0.10",
     "expo-blur": "~15.0.8",
+    "expo-contacts": "~15.0.11",
     "expo-dev-client": "~6.0.21",
     "expo-file-system": "~19.0.23",
     "expo-image": "~3.0.11",

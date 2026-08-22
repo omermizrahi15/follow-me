@@ -1,0 +1,172 @@
+/*
+  Shared styling for the hosted legal pages (docs/privacy, docs/terms).
+
+  Tokens mirror the app's theme.ts and the join page, so the policy a publisher
+  opens from Settings reads as the same product rather than a stray document.
+  Plain CSS in one file because GitHub Pages serves docs/ as-is — there is no
+  build step here.
+*/
+:root {
+  color-scheme: light;
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --text: #13212b;
+  --text-secondary: #5a6672;
+  --text-muted: #9aa5ae;
+  --accent: #0e3a53;
+  --border: #e2e8f0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+body {
+  padding: 24px 20px 72px;
+}
+
+main {
+  max-width: 720px;
+  margin: 0 auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 40px 32px;
+  box-shadow: 0 12px 40px rgba(19, 33, 43, 0.06);
+}
+
+.brand {
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--accent);
+  margin: 0 0 20px;
+}
+
+h1 {
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.6px;
+  line-height: 1.2;
+  margin: 0 0 8px;
+}
+
+.updated {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin: 0 0 32px;
+}
+
+.lede {
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--text-secondary);
+  margin: 0 0 32px;
+}
+
+h2 {
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.2px;
+  margin: 36px 0 10px;
+  padding-top: 20px;
+  border-top: 1px solid var(--border);
+}
+
+h3 {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 22px 0 6px;
+}
+
+p,
+li {
+  font-size: 15px;
+  line-height: 1.65;
+  color: var(--text);
+}
+
+p {
+  margin: 0 0 12px;
+}
+
+ul {
+  margin: 0 0 12px;
+  padding-left: 22px;
+}
+
+li {
+  margin-bottom: 8px;
+}
+
+a {
+  color: var(--accent);
+}
+
+strong {
+  font-weight: 650;
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 0 0 16px;
+  font-size: 14px;
+}
+
+th,
+td {
+  text-align: left;
+  vertical-align: top;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  line-height: 1.55;
+}
+
+th {
+  color: var(--text-secondary);
+  font-weight: 650;
+  font-size: 13px;
+}
+
+.table-wrap {
+  overflow-x: auto;
+  margin: 0 0 16px;
+}
+
+footer {
+  max-width: 720px;
+  margin: 20px auto 0;
+  padding: 0 32px;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+footer a {
+  color: var(--text-secondary);
+}
+
+@media (max-width: 600px) {
+  main {
+    padding: 28px 20px;
+    border-radius: 16px;
+  }
+
+  h1 {
+    font-size: 25px;
+  }
+
+  footer {
+    padding: 0 20px;
+  }
+}

@@ -1,6 +1,8 @@
 import { ShareMediaUseCase } from './ShareMediaUseCase';
 import { Subscriber } from '../../domain/entities/Subscriber';
+import type { Media } from '../../domain/entities/Media';
 import {
+  FailingMediaRepository,
   FakeGeocoder,
   InMemoryMediaRepository,
   InMemorySubscriberRepository,
@@ -567,6 +569,59 @@ describe('ShareMediaUseCase — history backfill (issue #81)', () => {
     const { useCase, mediaRepo } = makeSut();
     await useCase.share({ ownerId: 'user-1', items: singleItem });
     expect(mediaRepo.all()[0]?.backfilled).toBe(false);
+  });
+});
+
+describe('ShareMediaUseCase — storing the posting', () => {
+  /** Counts writes, to keep a post from going back to a request per photo. */
+  class CountingMediaRepository extends InMemoryMediaRepository {
+    writes = 0;
+
+    override saveMany(media: Media[]): Promise<void> {
+      this.writes++;
+      return super.saveMany(media);
+    }
+  }
+
+  it('stores the whole batch in one write', async (): Promise<void> => {
+    const mediaRepo = new CountingMediaRepository();
+    const useCase = new ShareMediaUseCase(
+      mediaRepo,
+      new InMemorySubscriberRepository(),
+      new InMemoryNotifier(),
+      new InMemoryStorageService(),
+    );
+
+    await useCase.share({ ownerId: 'user-1', items: multipleItems });
+
+    expect(mediaRepo.writes).toBe(1);
+    expect(mediaRepo.all()).toHaveLength(3);
+  });
+
+  it('leaves no half-written posting when the write fails', async (): Promise<void> => {
+    const mediaRepo = new FailingMediaRepository();
+    const subscriberRepo = new InMemorySubscriberRepository();
+    const notifier = new InMemoryNotifier();
+    const deliveryLog = new InMemoryNotificationLogger();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+    const useCase = new ShareMediaUseCase(
+      mediaRepo,
+      subscriberRepo,
+      notifier,
+      new InMemoryStorageService(),
+      undefined,
+      deliveryLog,
+    );
+
+    await expect(useCase.share({ ownerId: 'user-1', items: multipleItems })).rejects.toThrow(
+      'media insert rejected',
+    );
+
+    // Nothing stored, and — just as important — nobody told about a posting
+    // that does not exist.
+    expect(mediaRepo.all()).toHaveLength(0);
+    expect(notifier.sent).toHaveLength(0);
+    expect(await deliveryLog.findByPhoto('media-1')).toEqual([]);
   });
 });
 

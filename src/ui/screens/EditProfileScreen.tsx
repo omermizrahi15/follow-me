@@ -25,6 +25,7 @@ import { startOfDay } from '../../domain/services/calendarMonth';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { usePublisherId } from '../context/AuthContext';
 import { useProfile } from '../hooks/useProfile';
+import { invalidateProfile } from '../data/queries';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /**
@@ -117,6 +118,9 @@ export function EditProfileScreen(): React.JSX.Element {
             tripStartDate: tripStart,
           }),
         );
+        // Home's header and the invite share sheet read the same cached row;
+        // this is what makes the new name and photo show on the way back.
+        invalidateProfile(publisherId);
         navigation.goBack();
       } catch (e: unknown) {
         setSaveError(e);

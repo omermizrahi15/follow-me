@@ -9,6 +9,12 @@
  * or as base64 (the app reads local library photos this way, avoiding an upload
  * just to classify). Swapping providers means rewriting only this file.
  *
+ * A 429 always carries a `reason` saying which wall was hit — `daily_quota`
+ * (ours, lasts until tomorrow) or `rate_limited` (the provider's per-minute
+ * ceiling, lifts in seconds, and carries `retry_after_seconds`). They were
+ * indistinguishable until issue #141, which is why a throttle two seconds into
+ * the first scan of the day told publishers their daily AI limit was gone.
+ *
  * Auth: requires a signed-in user's JWT (the anon key alone is rejected) —
  * the endpoint is quota/cost-sensitive. Per-user daily quota enforced via
  * increment_classify_quota() (migration 20240015). `auto-post` calls this from a
@@ -26,6 +32,8 @@ import {
   type Classification,
   classifyCaller,
   parseClassification,
+  parseRetryDelaySeconds,
+  type RefusalReason,
 } from './logic.ts';
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
@@ -150,15 +158,75 @@ async function resolveImage(photo: PhotoInput): Promise<{ data: string; mimeType
   throw new Error('photo has neither url nor base64');
 }
 
-/** One retry on transient failures (5xx / 429) with a short backoff. */
-async function callGemini(body: string): Promise<Response> {
+/**
+ * A Gemini call that did not produce a grade, with everything the caller needs
+ * to decide whether waiting will help.
+ */
+interface GeminiFailure {
+  status: number;
+  body: string;
+  /** From Gemini's own RetryInfo; null when it didn't say. */
+  retryAfterSeconds: number | null;
+}
+
+type GeminiResult = { ok: true; payload: unknown } | { ok: false; failure: GeminiFailure };
+
+/**
+ * Longest wall Gemini can name that is still worth sitting out inside the
+ * function. Beyond this the request is handed back to the app to retry, because
+ * an Edge Function sleeping for half a minute is billed wall-clock time that
+ * buys nothing the client can't do itself.
+ */
+const INLINE_RETRY_MAX_SECONDS = 2;
+
+/** Attempts per Gemini call — one retry, and only when a retry can plausibly work. */
+const GEMINI_ATTEMPTS = 2;
+
+/**
+ * What to tell the app to wait when Gemini rate-limits us without naming a
+ * delay. Sized to the free tier's per-minute window: long enough that the retry
+ * is not just another wasted request, short enough that the scan resumes while
+ * the user is still watching it.
+ */
+const DEFAULT_RATE_LIMIT_RETRY_SECONDS = 30;
+
+/**
+ * Calls Gemini, retrying only when retrying can actually succeed.
+ *
+ * The previous version retried EVERY 429 once, 800ms later. Against the free
+ * tier's requests-per-minute cap that retry cannot succeed — the window is tens
+ * of seconds wide — and it spends another request from the very budget that is
+ * already exhausted, so a single throttled photo made the next one likelier to
+ * fail too. Now a 429 is only re-sent when Gemini itself says the wait is
+ * negligible; anything longer comes back with the delay attached.
+ */
+async function callGemini(body: string): Promise<GeminiResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
   const request = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body };
-  const first = await fetch(url, request);
-  if (first.ok || (first.status < 500 && first.status !== 429)) return first;
-  await first.body?.cancel();
-  await new Promise(resolve => setTimeout(resolve, 800));
-  return fetch(url, request);
+
+  let failure: GeminiFailure = { status: 0, body: 'no attempt made', retryAfterSeconds: null };
+
+  for (let attempt = 1; attempt <= GEMINI_ATTEMPTS; attempt++) {
+    const res = await fetch(url, request);
+    if (res.ok) return { ok: true, payload: await res.json() };
+
+    const text = await res.text().catch(() => '<unreadable body>');
+    const retryAfterSeconds = res.status === 429 ? parseRetryDelaySeconds(text) : null;
+    failure = { status: res.status, body: text, retryAfterSeconds };
+
+    const worthRetrying =
+      res.status >= 500 ||
+      (res.status === 429 &&
+        retryAfterSeconds != null &&
+        retryAfterSeconds <= INLINE_RETRY_MAX_SECONDS);
+    if (!worthRetrying || attempt === GEMINI_ATTEMPTS) break;
+
+    await new Promise(resolve =>
+      setTimeout(resolve, retryAfterSeconds != null ? retryAfterSeconds * 1000 : 800),
+    );
+  }
+
+  return { ok: false, failure };
 }
 
 /**
@@ -174,6 +242,8 @@ class ClassifyError extends Error {
     readonly photoId: string,
     message: string,
     readonly upstreamStatus?: number,
+    /** Seconds Gemini asked us to wait, when it named one. */
+    readonly retryAfterSeconds?: number | null,
   ) {
     super(message);
     this.name = 'ClassifyError';
@@ -183,7 +253,7 @@ class ClassifyError extends Error {
 async function classifyOne(photo: PhotoInput): Promise<Classification> {
   const { data, mimeType } = await resolveImage(photo);
 
-  const res = await callGemini(
+  const result = await callGemini(
     JSON.stringify({
       contents: [{ parts: [{ text: PROMPT }, { inlineData: { mimeType, data } }] }],
       generationConfig: {
@@ -194,11 +264,14 @@ async function classifyOne(photo: PhotoInput): Promise<Classification> {
     }),
   );
 
-  if (!res.ok) {
-    throw new ClassifyError(photo.id, `Gemini error (${res.status}): ${await res.text()}`, res.status);
+  if (!result.ok) {
+    const { status, body, retryAfterSeconds } = result.failure;
+    throw new ClassifyError(photo.id, `Gemini error (${status}): ${body}`, status, retryAfterSeconds);
   }
 
-  const payload = await res.json();
+  const payload = result.payload as
+    | { candidates?: { content?: { parts?: { text?: unknown }[] } }[] }
+    | null;
   const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (typeof text !== 'string') {
     // Log the shape so an API format change is diagnosable from function logs.
@@ -237,7 +310,8 @@ Deno.serve(async (req: Request) => {
     console.error('classify quota check failed:', quota.error.message);
   } else if (typeof quota.data === 'number' && quota.data > DAILY_QUOTA) {
     console.warn(`classify quota exceeded: user ${userId} at ${quota.data}/${DAILY_QUOTA}`);
-    return json({ error: 'Daily classification quota exceeded' }, 429);
+    const reason: RefusalReason = 'daily_quota';
+    return json({ error: 'Daily classification quota exceeded', reason }, 429);
   }
 
   // Classify sequentially (called one photo at a time by the app) so a single
@@ -259,17 +333,34 @@ Deno.serve(async (req: Request) => {
   } catch (err) {
     const failure = err instanceof ClassifyError ? err : null;
     console.error('classify failed:', err);
-    // A spent upstream quota is not a malformed request: report it as 429 so
-    // the app stops the scan and says "try again tomorrow", rather than
-    // presenting it as a transient fault worth hammering.
-    const status = failure?.upstreamStatus === 429 ? 429 : 502;
+
+    // An upstream 429 is Gemini's per-minute cap, NOT the day's budget — the
+    // free tier allows 5 requests/minute per model and the app grades four
+    // photos at a time, so a scan trips this within seconds of starting and is
+    // usually fine again half a minute later. It is reported as its own reason,
+    // with the wait attached, so the app can pause and resume instead of
+    // declaring the day over on the user's first attempt.
+    if (failure?.upstreamStatus === 429) {
+      const reason: RefusalReason = 'rate_limited';
+      return json(
+        {
+          error: 'Classification rate limited',
+          reason,
+          retry_after_seconds: failure.retryAfterSeconds ?? DEFAULT_RATE_LIMIT_RETRY_SECONDS,
+          photo_id: failure.photoId,
+          detail: failure.message,
+        },
+        429,
+      );
+    }
+
     return json(
       {
         error: 'Classification failed',
         photo_id: failure?.photoId ?? null,
         detail: failure?.message ?? String(err),
       },
-      status,
+      502,
     );
   }
 

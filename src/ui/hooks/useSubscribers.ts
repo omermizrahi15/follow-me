@@ -1,63 +1,60 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { listSubscribers, removeSubscriber } from '../../composition/container';
 import type { SubscriberDto } from '../../application/dtos';
+import { invalidateSubscribers, subscribersKey } from '../data/queries';
+import { useCachedQuery } from './useCachedQuery';
 
-interface SubscribersState {
+interface UseSubscribers {
   subscribers: SubscriberDto[];
   loading: boolean;
-  /** The caught failure itself — see the note in useFeed. */
+  /** The caught failure itself — see `useCachedQuery`. */
   error: unknown;
-}
-
-interface UseSubscribers extends SubscribersState {
   reload: () => Promise<void>;
   remove: (subscriberId: string) => Promise<void>;
 }
 
+/**
+ * The publisher's followers, from the shared cache (issue #114) — Home's count,
+ * the Followers section and the Upload screen's recipient list are one request
+ * between them, and a removal shows in all three at once.
+ *
+ * Refreshes on focus, because followers arrive without this app doing anything:
+ * someone opens the invite link and subscribes.
+ */
 export function useSubscribers(publisherId: string | null): UseSubscribers {
-  const [state, setState] = useState<SubscribersState>({
-    subscribers: [],
-    loading: true,
-    error: null,
-  });
-
-  const reload = useCallback(async (): Promise<void> => {
-    if (publisherId == null) {
-      setState({ subscribers: [], loading: false, error: null });
-      return;
-    }
-    setState(prev => ({ ...prev, loading: true, error: null }));
-    try {
-      const subscribers = await listSubscribers.list(publisherId);
-      setState({ subscribers, loading: false, error: null });
-    } catch (e: unknown) {
-      setState({ subscribers: [], loading: false, error: e });
-    }
-  }, [publisherId]);
-
-  useEffect(() => {
-    void reload();
-  }, [reload]);
+  const { data, loading, error, reload, read, update } = useCachedQuery(
+    publisherId != null ? subscribersKey(publisherId) : null,
+    async () => {
+      // Unreachable while signed out: a null key means the query never runs.
+      if (publisherId == null) return [];
+      return listSubscribers.list(publisherId);
+    },
+    { revalidateOnFocus: true },
+  );
 
   const remove = useCallback(
     async (subscriberId: string): Promise<void> => {
       if (publisherId == null) return;
-      // Optimistically drop the row; restore on failure.
-      const previous = state.subscribers;
-      setState(prev => ({
-        ...prev,
-        subscribers: prev.subscribers.filter(s => s.id !== subscriberId),
-        error: null,
-      }));
+      // Optimistically drop the row; put it back if the write fails. Callers
+      // surface the failure themselves (the Followers section alerts) — this
+      // only has to make sure the list never claims a removal that didn't
+      // happen, and that the server has the last word once it can be reached.
+      //
+      // `read()` rather than the rendered `subscribers`: closing over that made
+      // a new callback on every change, which re-ran every effect depending on
+      // it. This callback now keeps one identity for the life of the hook.
+      const previous = read() ?? [];
+      update(previous.filter(s => s.id !== subscriberId));
       try {
         await removeSubscriber.remove({ publisherId, subscriberId });
       } catch (e: unknown) {
-        setState(prev => ({ ...prev, subscribers: previous, error: e }));
+        update(previous);
+        invalidateSubscribers(publisherId);
         throw e;
       }
     },
-    [publisherId, state.subscribers],
+    [publisherId, read, update],
   );
 
-  return { ...state, reload, remove };
+  return { subscribers: data ?? [], loading, error, reload, remove };
 }
