@@ -1,3 +1,4 @@
+import { appFetch } from '../http/appFetch';
 import type { INotifier } from '../../domain/interfaces';
 import type { Media } from '../../domain/entities/Media';
 import type { Subscriber } from '../../domain/entities/Subscriber';
@@ -16,7 +17,7 @@ export class WhatsAppEdgeNotifier implements INotifier {
   async notify(subscriber: Subscriber, media: Media[]): Promise<void> {
     const first = media[0];
     if (first == null) return;
-    const res = await fetch(this.functionUrl, {
+    const res = await appFetch(this.functionUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

@@ -2,6 +2,7 @@ import { Alert } from 'react-native';
 import { deleteUploadedPhotos } from '../../composition/container';
 import { withdrawPhotoSyncConsent } from './photoSyncConsent';
 import { syncBlocked } from './syncStatus';
+import { alertFailure, refuseIfOffline } from './writeGuard';
 
 /**
  * "Remove my photos from the cloud" — the privacy escape hatch.
@@ -19,6 +20,9 @@ import { syncBlocked } from './syncStatus';
  * carries the one action that turns upload back on.
  */
 export function confirmCloudPhotoWipe(onDone?: () => void): void {
+  // Server-side delete: asking for it offline can only end in a timeout, and
+  // a wipe that half-happened is the last thing this dialog should risk (#145).
+  if (refuseIfOffline('Removing your photos from the cloud')) return;
   Alert.alert(
     'Remove your photos from the cloud?',
     'This deletes every private copy the app has uploaded, and stops uploading new ones — so posts can no longer be prepared while the app is closed. Photos on your phone and posts already sent are untouched. You can turn upload back on any time.',
@@ -41,8 +45,8 @@ export function confirmCloudPhotoWipe(onDone?: () => void): void {
                 'Deleted',
                 `${deletedRows} uploaded photo${deletedRows === 1 ? '' : 's'} removed. Photo upload is now off.`,
               );
-            } catch (e) {
-              Alert.alert('Delete failed', e instanceof Error ? e.message : 'Something went wrong');
+            } catch (e: unknown) {
+              alertFailure(e, 'Couldn’t remove your photos');
             }
           })();
         },
