@@ -196,7 +196,13 @@ export function HomeScreen(): React.JSX.Element {
   function selectSection(next: HomeSection): void {
     setShowingSuggestions(false);
     setSection(next);
-    snapTo(MEDIUM_H);
+    // Moving to another section opens the sheet fully (issue #159): each one is
+    // a page in its own right — a followers list, a settings form — and landing
+    // on it at the Me page's half height meant every switch was followed by a
+    // drag. Re-tapping the section already showing is left alone, so the
+    // publisher can still park the sheet where they like without a tap on the
+    // lit tab yanking it back open.
+    if (next !== section) snapTo(FULL_H);
   }
 
   function handlePreview(): void {
@@ -587,18 +593,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
   },
   inviteButtonText: { color: colors.ink, fontWeight: '600', fontSize: 11 },
-  // A centred capsule 80% of the screen wide: percentage insets rather than
-  // fixed points, so it keeps those proportions on a small phone and a tablet
-  // alike. `stretch` is what hands the bar that width — without it the bar
-  // collapses to the size of its own tabs and drifts off centre.
-  // Near-full width, like the bar this copies: inset by a margin, not squeezed
-  // into the middle 80% of the screen.
+  // Anchored to the left edge and sized by the bar itself (issue #159), not
+  // stretched across the screen: the reference bar fills its right-hand end
+  // with a search button, and we have no search to put there. `flex-start` on
+  // both axes is what leaves the capsule at its own size — stretching it was
+  // what spread the icons across the full width.
   navWrap: {
     position: 'absolute',
     left: spacing.xl,
     right: spacing.xl,
     flexDirection: 'row',
-    alignItems: 'stretch',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-start',
   },
   // "New post" chooser
   chooserBackdrop: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(8,12,18,0.45)' },
