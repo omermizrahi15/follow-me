@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { shareMedia } from '../../composition/container';
 import { invalidateFeed } from '../data/queries';
+import { clearUploads, rememberUploads, resumableUploads } from '../data/shareCheckpoint';
 import type { MediaDto } from '../../application/dtos';
 import type { ShareProgress } from '../../application/usecases/ShareMediaUseCase';
 import type { Coordinate } from '../../domain/interfaces';
@@ -14,7 +15,8 @@ interface MediaItem {
 
 interface ShareMediaState {
   loading: boolean;
-  error: string | null;
+  /** The caught failure itself — see `useCachedQuery`. */
+  error: unknown;
   result: MediaDto[] | null;
   /** Live stage/count while a share is in flight (null when idle). */
   progress: ShareProgress | null;
@@ -43,10 +45,16 @@ export function useShareMedia(): ShareMediaState & {
   ): Promise<void> {
     setState({ loading: true, error: null, result: null, progress: null });
     try {
+      // What a previous attempt already got into the cloud. On a first attempt
+      // this is empty; on a retry after a dropped connection it is the reason
+      // the publisher does not pay for those photos twice (issue #145).
+      const uploadedUrls = await resumableUploads(ownerId);
       const dtos = await shareMedia.share(
         {
           ownerId,
           items,
+          uploadedUrls,
+          onUploaded: uploads => rememberUploads(ownerId, uploads),
           ...(location !== undefined ? { location } : {}),
           // Only set when the publisher picked a place because the batch had
           // no GPS; per-photo fixes still win inside the use case.
@@ -59,10 +67,11 @@ export function useShareMedia(): ShareMediaState & {
       // The feed just gained a post — every screen showing it (the Me list, the
       // globe) refreshes from this rather than each one refetching on focus.
       invalidateFeed(ownerId);
+      // Posted. The notes are spent — and must not be offered to a later post.
+      await clearUploads(ownerId);
       setState({ loading: false, error: null, result: dtos, progress: null });
     } catch (e: unknown) {
-      const message = e instanceof Error ? e.message : 'Something went wrong';
-      setState({ loading: false, error: message, result: null, progress: null });
+      setState({ loading: false, error: e, result: null, progress: null });
       throw e;
     }
   }

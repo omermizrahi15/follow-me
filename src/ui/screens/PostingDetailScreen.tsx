@@ -20,6 +20,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute, type RouteProp } from '@react-navigation/native';
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { toFeedPosting, type FeedMedia, type FeedPosting } from '../data/feed';
+import { ErrorState } from '../components/ErrorState';
+import { useConnectionStatus } from '../data/connectivity';
+import { isUsable } from '../../domain/services/connectivityCopy';
 import { usePublisherId } from '../context/AuthContext';
 import { confirmMoveToTrash } from '../hooks/useTrash';
 import { listFeed } from '../../composition/container';
@@ -46,6 +49,20 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
   const count = posting.media.length;
   const [index, setIndex] = useState(0);
   const listRef = useRef<FlatList<FeedMedia>>(null);
+  const connection = useConnectionStatus();
+  // Photos whose download failed. Tracked per media id because the alternative
+  // is worse than a blank: a page whose image never arrives keeps showing
+  // whatever the recycled view last held, so paging to photo 2 with no
+  // connection showed photo 1 again — with the progress bar insisting you had
+  // moved on.
+  const [failedIds, setFailedIds] = useState<Set<string>>(new Set());
+  // Bumped to remount the images and let them try the network again.
+  const [loadAttempt, setLoadAttempt] = useState(0);
+
+  const retryPhotos = useCallback((): void => {
+    setFailedIds(new Set());
+    setLoadAttempt(a => a + 1);
+  }, []);
   // The tap handler needs the current index without re-rendering every page
   // Pressable each time the index changes.
   const indexRef = useRef(0);
@@ -122,8 +139,11 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
             goTo(indexRef.current + (back ? -1 : 1));
           }}
         >
-          {uri != null ? (
+          {uri != null && !failedIds.has(item.id) ? (
             <Image
+              // Remounted by a retry, so a photo that failed while offline can
+              // be asked for again without leaving the story.
+              key={`${item.id}-${loadAttempt}`}
               source={uri}
               style={styles.photo}
               contentFit="contain"
@@ -132,16 +152,41 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
               // watchdog kills the app for (#77).
               cachePolicy="disk"
               recyclingKey={uri}
+              // No cross-fade: dissolving out of the previous page's photo is
+              // exactly the confusion this is fixing.
+              transition={0}
+              onError={() => setFailedIds(prev => new Set(prev).add(item.id))}
             />
           ) : (
             <View style={[styles.photo, styles.placeholder]}>
-              <Ionicons name="image-outline" size={40} color={colors.textMuted} />
+              <Ionicons
+                name={uri == null ? 'image-outline' : 'cloud-offline-outline'}
+                size={40}
+                color={colors.textMuted}
+              />
+              {uri != null && (
+                <>
+                  <Text style={styles.placeholderText}>
+                    {isUsable(connection)
+                      ? 'This photo couldn’t be loaded.'
+                      : 'This photo isn’t downloaded, and you’re offline.'}
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.placeholderButton}
+                    onPress={retryPhotos}
+                    hitSlop={8}
+                    accessibilityRole="button"
+                  >
+                    <Text style={styles.placeholderButtonText}>Try again</Text>
+                  </TouchableOpacity>
+                </>
+              )}
             </View>
           )}
         </Pressable>
       );
     },
-    [width, height, goTo],
+    [width, height, goTo, failedIds, loadAttempt, connection, retryPhotos],
   );
 
   return (
@@ -226,20 +271,28 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
  */
 function usePostingParam(
   params: RootStackParamList['Posting'],
-): { posting: FeedPosting | null; loading: boolean } {
+): { posting: FeedPosting | null; loading: boolean; error: unknown; retry: () => void } {
   const publisherId = usePublisherId();
   const postingId = 'postingId' in params ? params.postingId : null;
   const [resolved, setResolved] = useState<FeedPosting | null>(null);
   const [loading, setLoading] = useState(postingId != null);
+  // The failure is kept rather than swallowed: a lookup that failed because
+  // the phone is offline is not the same as a post that does not exist, and
+  // this screen used to tell the user the second thing for both (issue #145).
+  const [error, setError] = useState<unknown>(null);
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     if (postingId == null) return;
+    setLoading(true);
+    setError(null);
     // Object property (not a local) so eslint doesn't flow-narrow it — the
     // cleanup closure flips it after this effect body has been analysed.
     const run = { cancelled: false };
     // Checked via a function call so lint doesn't flow-narrow across awaits.
     const isStale = (): boolean => run.cancelled;
     void (async (): Promise<void> => {
+      let lastError: unknown = null;
       for (const delayMs of [0, 1500]) {
         if (delayMs > 0) await new Promise(r => setTimeout(r, delayMs));
         if (isStale()) return;
@@ -253,23 +306,30 @@ function usePostingParam(
             setLoading(false);
             return;
           }
-        } catch {
-          /* retry, then fall through to the empty state */
+          // A clean answer that simply doesn't contain it — the post really is
+          // missing (still propagating, or deleted). Not a failure.
+          lastError = null;
+        } catch (e: unknown) {
+          lastError = e;
         }
       }
-      if (!isStale()) setLoading(false);
+      if (isStale()) return;
+      setError(lastError);
+      setLoading(false);
     })();
     return () => { run.cancelled = true; };
-  }, [postingId, publisherId]);
+  }, [postingId, publisherId, attempt]);
 
-  if ('posting' in params) return { posting: params.posting, loading: false };
-  return { posting: resolved, loading };
+  if ('posting' in params) {
+    return { posting: params.posting, loading: false, error: null, retry: () => undefined };
+  }
+  return { posting: resolved, loading, error, retry: () => setAttempt(a => a + 1) };
 }
 
 export function PostingDetailScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
   const route = useRoute<RouteProp<RootStackParamList, 'Posting'>>();
-  const { posting, loading } = usePostingParam(route.params);
+  const { posting, loading, error, retry } = usePostingParam(route.params);
 
   if (posting != null) return <StoryViewer posting={posting} />;
 
@@ -278,6 +338,13 @@ export function PostingDetailScreen(): React.JSX.Element {
       <StatusBar barStyle="light-content" />
       {loading ? (
         <ActivityIndicator color="#FFFFFF" />
+      ) : error != null ? (
+        <>
+          <ErrorState error={error} title="Couldn’t open this post" onRetry={retry} onDark />
+          <TouchableOpacity style={styles.closeButton} onPress={() => navigation.goBack()} hitSlop={8}>
+            <Ionicons name="close" size={20} color="#FFFFFF" />
+          </TouchableOpacity>
+        </>
       ) : (
         <>
           <Text style={styles.missing}>This post isn&apos;t available yet.</Text>
@@ -293,7 +360,16 @@ export function PostingDetailScreen(): React.JSX.Element {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000000' },
   photo: { width: '100%', height: '100%' },
-  placeholder: { alignItems: 'center', justifyContent: 'center', gap: spacing.lg },
+  placeholder: { alignItems: 'center', justifyContent: 'center', gap: spacing.md, paddingHorizontal: spacing.xl },
+  placeholderText: { color: 'rgba(255,255,255,0.75)', fontSize: 13, textAlign: 'center' },
+  placeholderButton: {
+    borderRadius: radius.pill,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.35)',
+    paddingVertical: spacing.sm,
+    paddingHorizontal: spacing.lg,
+  },
+  placeholderButtonText: { color: '#FFFFFF', fontSize: 13, fontWeight: '600' },
   missing: { color: '#FFFFFF', fontSize: 15 },
   scrim: { position: 'absolute', top: 0, left: 0, right: 0 },
   top: { position: 'absolute', top: 0, left: 0, right: 0, paddingHorizontal: spacing.md },

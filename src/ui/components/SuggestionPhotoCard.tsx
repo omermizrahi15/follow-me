@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator } from 'react-native';
-import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Photo } from './Photo';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -39,11 +39,9 @@ export function SuggestionPhotoCard({ photo, onSwap, busy = false, width = '47%'
         {/* The uri is a ph:// library handle as often as an https one — both
             go through expo-image's own loaders. `recyclingKey` matters here:
             swapping a photo replaces the source in place. */}
-        <Image
-          source={photo.candidate.uri}
+        <Photo
+          uri={photo.candidate.uri}
           style={styles.photo}
-          contentFit="cover"
-          cachePolicy="memory-disk"
           recyclingKey={photo.candidate.id}
           transition={120}
         />

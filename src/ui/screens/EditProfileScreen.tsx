@@ -11,8 +11,10 @@ import {
   Platform,
   ScrollView,
 } from 'react-native';
-import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
+import { Photo } from '../components/Photo';
+import { ErrorState } from '../components/ErrorState';
+import { refuseIfOffline } from '../data/writeGuard';
 import * as ImagePicker from 'expo-image-picker';
 import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
@@ -49,7 +51,10 @@ export function EditProfileScreen(): React.JSX.Element {
   const [avatarUri, setAvatarUri] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   const [saving, setSaving] = useState(false);
+  // Validation (a missing name) and a failed save are different problems with
+  // different fixes, so they no longer share one string.
   const [error, setError] = useState<string | null>(null);
+  const [saveError, setSaveError] = useState<unknown>(null);
   const [tripStart, setTripStart] = useState<Date | null>(null);
 
   // Pinned per mount so the picker's bounds can't shift mid-edit.
@@ -91,8 +96,12 @@ export function EditProfileScreen(): React.JSX.Element {
         setError('Please enter your name so followers recognise you.');
         return;
       }
+      // Uploading an avatar and writing the profile is two round trips; asking
+      // for them with no connection just spends two timeouts to say so.
+      if (refuseIfOffline('Saving your profile')) return;
       setSaving(true);
       setError(null);
+      setSaveError(null);
       try {
         // A newly picked photo is a local file that needs uploading; the
         // already-saved avatar is an https URL and passes through as-is.
@@ -114,7 +123,7 @@ export function EditProfileScreen(): React.JSX.Element {
         invalidateProfile(publisherId);
         navigation.goBack();
       } catch (e: unknown) {
-        setError(e instanceof Error ? e.message : 'Could not save your profile. Please try again.');
+        setSaveError(e);
       } finally {
         setSaving(false);
       }
@@ -149,13 +158,7 @@ export function EditProfileScreen(): React.JSX.Element {
           <View style={styles.avatarRow}>
             <TouchableOpacity testID="edit-profile-avatar" style={styles.avatar} onPress={handlePickAvatar} activeOpacity={0.8}>
               {avatarUri != null ? (
-                <Image
-                  source={avatarUri}
-                  style={styles.avatarImage}
-                  contentFit="cover"
-                  cachePolicy="memory-disk"
-                  recyclingKey={avatarUri}
-                />
+                <Photo uri={avatarUri} style={styles.avatarImage} recyclingKey={avatarUri} />
               ) : (
                 <Ionicons name="camera" size={26} color={colors.accent} />
               )}
@@ -192,6 +195,15 @@ export function EditProfileScreen(): React.JSX.Element {
           />
 
           {error != null && <Text style={styles.error}>{error}</Text>}
+          {saveError != null && (
+            <ErrorState
+              error={saveError}
+              title="Couldn’t save your profile"
+              onRetry={handleSave}
+              retrying={saving}
+              compact
+            />
+          )}
         </ScrollView>
 
         <View style={styles.footer}>
