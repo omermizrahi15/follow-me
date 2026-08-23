@@ -32,7 +32,15 @@
  * service-role key and names the publisher in `x-publisher-id`. See
  * authenticatedUserId.
  *
- * Env: GEMINI_API_KEY (required), GEMINI_MODEL (optional, default gemini-3.5-flash),
+ * Which model vendor answers is a runtime choice — see VISION_PROVIDER and
+ * vision.ts. The request and response shapes below do NOT change with it, so
+ * switching vendors never needs an app release.
+ *
+ * Env: VISION_PROVIDER (optional, "gemini" | "groq", default gemini)
+ *      GEMINI_API_KEY (required for gemini), GEMINI_MODEL (optional,
+ *        default gemini-3.5-flash)
+ *      GROQ_API_KEY (required for groq), GROQ_MODEL (optional,
+ *        default qwen/qwen3.6-27b)
  *      SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (auto-injected).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
@@ -42,12 +50,13 @@ import {
   type Classification,
   classifyCaller,
   downscaledUrl,
-  isDailyQuotaError,
   pairBatchResults,
   parseClassification,
-  parseRetryDelaySeconds,
   type RefusalReason,
 } from './logic.ts';
+import { geminiProvider } from './gemini.ts';
+import { groqProvider } from './groq.ts';
+import type { ResolvedImage, VisionProvider } from './vision.ts';
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 /**
@@ -58,6 +67,7 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
  * GEMINI_MODEL secret to pin a different one.
  */
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.5-flash';
+const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY') ?? '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
@@ -227,12 +237,6 @@ interface PhotoInput extends ImageInput {
   id: string;
 }
 
-/** An image already in the shape Gemini wants it. */
-interface ResolvedImage {
-  data: string;
-  mimeType: string;
-}
-
 async function resolveImage(photo: ImageInput): Promise<ResolvedImage> {
   if (photo.base64) {
     return { data: photo.base64, mimeType: photo.mimeType ?? 'image/jpeg' };
@@ -272,92 +276,37 @@ async function resolveReference(reference: ImageInput | null): Promise<ResolvedI
  * A Gemini call that did not produce a grade, with everything the caller needs
  * to decide whether waiting will help.
  */
-interface GeminiFailure {
-  status: number;
-  body: string;
-  /** From Gemini's own RetryInfo; null when it didn't say. */
-  retryAfterSeconds: number | null;
-  /** The per-DAY request cap rather than the per-minute one. */
-  dailyQuota: boolean;
-}
-
-type GeminiResult = { ok: true; payload: unknown } | { ok: false; failure: GeminiFailure };
-
 /**
- * Longest wall Gemini can name that is still worth sitting out inside the
- * function. Beyond this the request is handed back to the app to retry, because
- * an Edge Function sleeping for half a minute is billed wall-clock time that
- * buys nothing the client can't do itself.
- */
-const INLINE_RETRY_MAX_SECONDS = 2;
-
-/** Attempts per Gemini call — one retry, and only when a retry can plausibly work. */
-const GEMINI_ATTEMPTS = 2;
-
-/**
- * What to tell the app to wait when Gemini rate-limits us without naming a
- * delay. Sized to the free tier's per-minute window: long enough that the retry
- * is not just another wasted request, short enough that the scan resumes while
- * the user is still watching it.
+ * What to tell the app to wait when a provider rate-limits us without naming a
+ * delay. Sized to a per-minute window: long enough that the retry has a chance,
+ * short enough that a scan resumes rather than ending the day.
  */
 const DEFAULT_RATE_LIMIT_RETRY_SECONDS = 30;
 
 /**
- * Calls Gemini, retrying only when retrying can actually succeed.
+ * Which vendor grades photos, chosen at runtime.
  *
- * The previous version retried EVERY 429 once, 800ms later. Against the free
- * tier's requests-per-minute cap that retry cannot succeed — the window is tens
- * of seconds wide — and it spends another request from the very budget that is
- * already exhausted, so a single throttled photo made the next one likelier to
- * fail too. Now a 429 is only re-sent when Gemini itself says the wait is
- * negligible; anything longer comes back with the delay attached.
+ * A secret rather than a deploy, because the binding constraint here has been
+ * vendor quota and it moves without warning: Gemini 2.0/2.5 went to `limit: 0`,
+ * and 3.5-flash allows twenty requests a DAY. Switching must not require a code
+ * change, and — since this all lives server-side — never requires an app build.
+ *
+ * Defaults to gemini: it is the provider whose grading has actually been checked
+ * against real photos, so an unset secret changes nothing.
  */
-async function callGemini(body: string): Promise<GeminiResult> {
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
-  const request = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body };
-
-  let failure: GeminiFailure = {
-    status: 0,
-    body: 'no attempt made',
-    retryAfterSeconds: null,
-    dailyQuota: false,
-  };
-
-  for (let attempt = 1; attempt <= GEMINI_ATTEMPTS; attempt++) {
-    const res = await fetch(url, request);
-    if (res.ok) return { ok: true, payload: await res.json() };
-
-    const text = await res.text().catch(() => '<unreadable body>');
-    const retryAfterSeconds = res.status === 429 ? parseRetryDelaySeconds(text) : null;
-    // Google attaches a sub-minute RetryInfo to the per-day cap too, so the
-    // delay alone cannot tell the two apart — the quotaId can.
-    const dailyQuota = res.status === 429 && isDailyQuotaError(text);
-    failure = { status: res.status, body: text, retryAfterSeconds, dailyQuota };
-
-    const worthRetrying =
-      res.status >= 500 ||
-      (res.status === 429 &&
-        !dailyQuota &&
-        retryAfterSeconds != null &&
-        retryAfterSeconds <= INLINE_RETRY_MAX_SECONDS);
-    if (!worthRetrying || attempt === GEMINI_ATTEMPTS) break;
-
-    await new Promise(resolve =>
-      setTimeout(resolve, retryAfterSeconds != null ? retryAfterSeconds * 1000 : 800),
-    );
+function activeProvider(): VisionProvider {
+  const choice = (Deno.env.get('VISION_PROVIDER') ?? 'gemini').toLowerCase().trim();
+  if (choice === 'groq') {
+    if (GROQ_API_KEY === '') {
+      // Falling back silently would look like "the switch did nothing" while
+      // quietly spending the quota we were trying to escape.
+      throw new Error('VISION_PROVIDER=groq but GROQ_API_KEY is not set');
+    }
+    return groqProvider(GROQ_API_KEY);
   }
-
-  return { ok: false, failure };
+  return geminiProvider(GEMINI_API_KEY, GEMINI_MODEL);
 }
 
-/**
- * A photo the model could not grade.
- *
- * Carries the upstream status so the handler can tell a spent Gemini quota —
- * nothing will work again today — from a broken call that is worth retrying
- * now. Flattening both into one opaque failure is what made "no more photos"
- * unexplainable.
- */
 class ClassifyError extends Error {
   constructor(
     readonly photoId: string,
@@ -396,59 +345,55 @@ async function classifyBatch(
   photos: PhotoInput[],
   reference: ResolvedImage | null,
 ): Promise<{ classifications: Classification[]; missing: string[] }> {
-  const images = await Promise.all(photos.map(resolveImage));
-  const parts = [
-    { text: reference == null ? PROMPT : REFERENCE_PROMPT + PROMPT },
-    ...(reference == null
-      ? []
-      : [{ inlineData: { mimeType: reference.mimeType, data: reference.data } }]),
-    ...images.map(({ data, mimeType }) => ({ inlineData: { mimeType, data } })),
-  ];
+  const provider = activeProvider();
+  const prompt = reference == null ? PROMPT : REFERENCE_PROMPT + PROMPT;
 
-  const result = await callGemini(
-    JSON.stringify({
-      contents: [{ parts }],
-      generationConfig: {
-        responseMimeType: 'application/json',
-        responseSchema: responseSchema(reference != null),
-        temperature: 0,
-      },
-    }),
-  );
+  // The reference rides in every call and counts against the provider's image
+  // budget, so it is subtracted once here rather than remembered in each one.
+  const perCall = Math.max(1, provider.maxImagesPerCall - (reference == null ? 0 : 1));
 
-  // The whole batch shares one call, so a refusal refuses all of it. The first
-  // photo's id names the failure only so the error keeps its shape; the caller
-  // reports the request, not the photo.
-  if (!result.ok) {
-    const { status, body, retryAfterSeconds, dailyQuota } = result.failure;
-    throw new ClassifyError(
-      photos[0]?.id ?? '',
-      `Gemini error (${status}): ${body}`,
-      status,
-      retryAfterSeconds,
-      dailyQuota,
-    );
+  const classifications: Classification[] = [];
+  const missing: string[] = [];
+
+  // One app request can outgrow one provider call — Groq takes five images where
+  // Gemini takes a dozen. Splitting here keeps MAX_PHOTOS_PER_REQUEST, which the
+  // app is built against, independent of whichever vendor is answering today.
+  for (let offset = 0; offset < photos.length; offset += perCall) {
+    const slice = photos.slice(offset, offset + perCall);
+    const images = await Promise.all(slice.map(resolveImage));
+
+    const result = await provider.classify({
+      prompt,
+      reference,
+      images,
+      responseSchema: responseSchema(reference != null),
+    });
+
+    // A refusal refuses the whole call. Photos already graded by an earlier
+    // slice are thrown away with it — the caller retries the request as a unit,
+    // and half a batch is not something the response shape can express.
+    if (!result.ok) {
+      const { status, body, retryAfterSeconds, dailyQuota } = result.failure;
+      throw new ClassifyError(
+        slice[0]?.id ?? '',
+        `${provider.name} error (${status}): ${body}`,
+        status,
+        retryAfterSeconds,
+        dailyQuota,
+      );
+    }
+
+    // Indices are per call, so each slice is paired against its own ids. A
+    // provider that answered about the wrong picture is caught here rather than
+    // cached for months looking correct.
+    const paired = pairBatchResults(slice.map(p => p.id), result.entries);
+    for (const { id, parsed } of paired.paired) {
+      classifications.push(parseClassification(id, parsed, reference != null));
+    }
+    missing.push(...paired.missing);
   }
 
-  const payload = result.payload as
-    | { candidates?: { content?: { parts?: { text?: unknown }[] } }[] }
-    | null;
-  const text = payload?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (typeof text !== 'string') {
-    // Log the shape so an API format change is diagnosable from function logs.
-    console.error('Gemini returned no content; payload shape:', JSON.stringify(payload)?.slice(0, 500));
-    throw new ClassifyError(photos[0]?.id ?? '', 'Gemini returned no content');
-  }
-
-  const parsed = JSON.parse(text);
-  const entries = Array.isArray(parsed) ? (parsed as Record<string, unknown>[]) : [];
-  const { paired, missing } = pairBatchResults(photos.map(p => p.id), entries);
-
-  return {
-    classifications: paired.map(({ id, parsed: entry }) =>
-      parseClassification(id, entry, reference != null)),
-    missing,
-  };
+  return { classifications, missing };
 }
 
 Deno.serve(async (req: Request) => {
