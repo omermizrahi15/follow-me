@@ -125,7 +125,7 @@ Setup:
    - `TWILIO_TEMPLATE_POST_SID` — no place (`follow_me_post`), used by
      auto-post (candidate photos are location-less) and as the fallback
    - `TWILIO_TEMPLATE_WELCOME_SID` — the new-follower welcome
-     (`follow_me_welcome`, issue #164), read by `subscribe`
+     (`follow_me_subscriber_welcome`, issue #164), read by `subscribe`
    `send-post` / `auto-post` send via the template only when these are set AND
    a collage + gallery link + publisher phone are present; otherwise they fall
    back to the free-form caption (fine in the sandbox / before approval). Do
@@ -135,10 +135,24 @@ Setup:
    The **welcome** template is the one followers actually depend on: they
    subscribe by typing a number on the join page and have never messaged our
    sender, so *no* session window is ever open on that path and free-form is
-   rejected outright. Body, UTILITY category, one variable, no header/buttons:
+   rejected outright. One variable, no header/buttons, and submit it as
+   **UTILITY** — it confirms an action the follower just took, and utility
+   templates escape the per-user frequency caps the two post templates live
+   under (both were approved as MARKETING). Body:
 
    ```
-   You're now following {{1}}. You'll receive their photos here on WhatsApp. Reply STOP at any time to unsubscribe.
+   You're now following {{1}}.
+   You'll receive their photos here on WhatsApp.
+   Reply STOP at any time to unsubscribe.
+   ```
+
+   Saving a draft in the Content Template Builder does **not** submit it:
+   a saved-but-unsubmitted template reads `status: unsubmitted` and Meta never
+   sees it. Check with
+
+   ```bash
+   curl -s -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" \
+     https://content.twilio.com/v1/ContentAndApprovals
    ```
 
    It mirrors `composeWelcomeMessage` (`src/domain/services/optOutMessages.ts`),

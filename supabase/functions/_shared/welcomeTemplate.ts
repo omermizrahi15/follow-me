@@ -6,7 +6,7 @@
 // template or Twilio rejects it with 63016. The variable ORDER here must stay
 // in lock-step with the template registered in Twilio:
 //
-//   follow_me_welcome:
+//   follow_me_subscriber_welcome:
 //     1 name
 //
 // No imports on purpose — keeps this file jest-importable from src/ tests.

@@ -129,7 +129,7 @@ Twilio is only needed to *deliver* messages, not to record the subscription —
 the row is written whether or not the send works. It does deliver one message
 right at subscribe time: the welcome. Because the follower typed their number
 and never messaged our sender, that one has no 24h session window to ride on
-and needs the approved `follow_me_welcome` template on a production sender
+and needs the approved `follow_me_subscriber_welcome` template on a production sender
 (`TWILIO_TEMPLATE_WELCOME_SID`, issue #164); without the SID it falls back to
 free-form, which is what the sandbox wants.
 

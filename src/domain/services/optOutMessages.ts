@@ -10,14 +10,19 @@
 /**
  * The welcome a follower gets the moment they subscribe.
  *
- * MIRRORED by the approved `follow_me_welcome` WhatsApp template (issue #164):
- * on the production sender the follower has never messaged us — they typed
- * their number on the join page — so there is no 24h session window and this
- * text can only be delivered as a template. `welcomeTemplate.test.ts` asserts
- * the template body and this function stay byte-identical; re-cut both together.
+ * MIRRORED by the `follow_me_subscriber_welcome` WhatsApp template (issue
+ * #164): on the production sender the follower has never messaged us — they
+ * typed their number on the join page — so there is no 24h session window and
+ * this text can only be delivered as a template. `welcomeTemplate.test.ts`
+ * pins the two together; re-cut both at once (a body change means another
+ * round of Meta approval).
  */
 export function composeWelcomeMessage(publisherName: string): string {
-  return `You're now following ${publisherName}. You'll receive their photos here on WhatsApp. Reply STOP at any time to unsubscribe.`;
+  return (
+    `You're now following ${publisherName}.\n` +
+    "You'll receive their photos here on WhatsApp.\n" +
+    'Reply STOP at any time to unsubscribe.'
+  );
 }
 
 export function composeUnsubscribeConfirmation(publisherName: string): string {
