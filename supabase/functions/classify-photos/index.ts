@@ -42,6 +42,7 @@ import {
   type Classification,
   classifyCaller,
   downscaledUrl,
+  isDailyQuotaError,
   pairBatchResults,
   parseClassification,
   parseRetryDelaySeconds,
@@ -276,6 +277,8 @@ interface GeminiFailure {
   body: string;
   /** From Gemini's own RetryInfo; null when it didn't say. */
   retryAfterSeconds: number | null;
+  /** The per-DAY request cap rather than the per-minute one. */
+  dailyQuota: boolean;
 }
 
 type GeminiResult = { ok: true; payload: unknown } | { ok: false; failure: GeminiFailure };
@@ -313,7 +316,12 @@ async function callGemini(body: string): Promise<GeminiResult> {
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
   const request = { method: 'POST', headers: { 'Content-Type': 'application/json' }, body };
 
-  let failure: GeminiFailure = { status: 0, body: 'no attempt made', retryAfterSeconds: null };
+  let failure: GeminiFailure = {
+    status: 0,
+    body: 'no attempt made',
+    retryAfterSeconds: null,
+    dailyQuota: false,
+  };
 
   for (let attempt = 1; attempt <= GEMINI_ATTEMPTS; attempt++) {
     const res = await fetch(url, request);
@@ -321,11 +329,15 @@ async function callGemini(body: string): Promise<GeminiResult> {
 
     const text = await res.text().catch(() => '<unreadable body>');
     const retryAfterSeconds = res.status === 429 ? parseRetryDelaySeconds(text) : null;
-    failure = { status: res.status, body: text, retryAfterSeconds };
+    // Google attaches a sub-minute RetryInfo to the per-day cap too, so the
+    // delay alone cannot tell the two apart — the quotaId can.
+    const dailyQuota = res.status === 429 && isDailyQuotaError(text);
+    failure = { status: res.status, body: text, retryAfterSeconds, dailyQuota };
 
     const worthRetrying =
       res.status >= 500 ||
       (res.status === 429 &&
+        !dailyQuota &&
         retryAfterSeconds != null &&
         retryAfterSeconds <= INLINE_RETRY_MAX_SECONDS);
     if (!worthRetrying || attempt === GEMINI_ATTEMPTS) break;
@@ -353,6 +365,8 @@ class ClassifyError extends Error {
     readonly upstreamStatus?: number,
     /** Seconds Gemini asked us to wait, when it named one. */
     readonly retryAfterSeconds?: number | null,
+    /** Gemini's per-day cap, which no wait short of tomorrow clears. */
+    readonly dailyQuota?: boolean,
   ) {
     super(message);
     this.name = 'ClassifyError';
@@ -406,12 +420,13 @@ async function classifyBatch(
   // photo's id names the failure only so the error keeps its shape; the caller
   // reports the request, not the photo.
   if (!result.ok) {
-    const { status, body, retryAfterSeconds } = result.failure;
+    const { status, body, retryAfterSeconds, dailyQuota } = result.failure;
     throw new ClassifyError(
       photos[0]?.id ?? '',
       `Gemini error (${status}): ${body}`,
       status,
       retryAfterSeconds,
+      dailyQuota,
     );
   }
 
@@ -510,6 +525,16 @@ Deno.serve(async (req: Request) => {
     // scan still reaches it. It clears in about a minute, and is reported as its
     // own reason with the wait attached, so the app can pause and resume instead
     // of declaring the day over on the user's first attempt.
+    // Gemini's per-day cap reads as `daily_quota`, the same as our own ceiling,
+    // because it means the same thing to the app: stop, nothing today helps.
+    // Reporting it as `rate_limited` with Gemini's own sub-minute RetryInfo is
+    // what made a scan retry a budget that was already spent, until it gave up
+    // — several more requests gone, and minutes on "Scanning your library".
+    if (failure?.upstreamStatus === 429 && failure.dailyQuota === true) {
+      const reason: RefusalReason = 'daily_quota';
+      return json({ error: 'Gemini daily quota exhausted', reason, detail: failure.message }, 429);
+    }
+
     if (failure?.upstreamStatus === 429) {
       const reason: RefusalReason = 'rate_limited';
       return json(
