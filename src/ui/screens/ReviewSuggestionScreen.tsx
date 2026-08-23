@@ -146,6 +146,10 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
         <Ionicons name="chevron-back" size={18} color={colors.textSecondary} />
       </TouchableOpacity>
       <Text style={styles.title}>Suggested post</Text>
+      {/* Balances the back button so the title centres on the screen rather
+          than on the space left over beside it — a flex:1 + textAlign:center
+          title with nothing on its right sits half a button off-centre. */}
+      <View style={styles.backButtonSpacer} />
     </View>
   );
 
@@ -304,6 +308,7 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     marginBottom: spacing.xs,
   },
+  backButtonSpacer: { width: 34, height: 34 },
   backButton: {
     width: 34,
     height: 34,
