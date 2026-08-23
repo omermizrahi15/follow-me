@@ -127,6 +127,16 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
    */
   private static readonly CHUNK_SIZE = 12;
 
+  /**
+   * How many times a chunk waits for a usable session token before giving up.
+   *
+   * Covers both "no token yet" and "the token we sent was rejected", because
+   * they are the same situation seen from either side of the request: a refresh
+   * in flight. A scan runs for minutes and the access token does not, so this
+   * has to be survivable rather than fatal.
+   */
+  private static readonly MAX_AUTH_WAITS = 3;
+
   /** Attempts per photo — transient network drops get one retry. */
   private static readonly MAX_ATTEMPTS = 2;
 
@@ -355,18 +365,40 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       photos: readable.map(r => r.payload),
       ...(reference != null ? { reference: { url: reference.url } } : {}),
     });
-    const userToken = (await this.getAccessToken?.().catch(() => null)) ?? null;
-    const bearer = userToken ?? this.authKey;
-
     let lastNetworkError: unknown;
     let networkAttempts = 0;
     let rateLimitWaits = 0;
+    let authWaits = 0;
 
     while (networkAttempts < GeminiPhotoClassifier.MAX_ATTEMPTS) {
       // Every worker sits out a rate-limit window, not only the one that hit it:
       // with four photos in flight against a five-per-minute ceiling, letting
       // the others keep firing just spends the next window before it opens.
       await this.awaitRateLimitWindow();
+
+      // Read the session on EVERY attempt, not once before the loop. A scan is
+      // minutes of work, so it routinely outlives the access token it started
+      // with; a bearer captured up front is stale by the time a retry uses it.
+      //
+      // No provider at all is a caller with no session concept, which keeps the
+      // old anon-key behaviour. A provider that answers null is the case that
+      // matters: a signed-in user mid-refresh.
+      const sessionToken = await this.getAccessToken?.().catch(() => null);
+      const bearer = this.getAccessToken == null ? this.authKey : sessionToken ?? null;
+
+      // The endpoint requires a signed-in user's JWT and rejects the anon key
+      // outright, so sending the anon key when the session is briefly missing —
+      // which this used to do — is a guaranteed 401 dressed up as an attempt.
+      // 401 is fatal, so that one substitution killed the whole scan. Waiting
+      // for the refresh to land is what the situation actually calls for.
+      if (bearer == null) {
+        if (authWaits >= GeminiPhotoClassifier.MAX_AUTH_WAITS) {
+          throw new ClassificationFailedError(c.id, 'not signed in — cannot classify photos');
+        }
+        authWaits++;
+        await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS, this.runOver.signal);
+        continue;
+      }
 
       networkAttempts++;
       let res: Response;
@@ -387,6 +419,19 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         if (networkAttempts < GeminiPhotoClassifier.MAX_ATTEMPTS) {
           await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS, this.runOver.signal);
         }
+        continue;
+      }
+
+      // An expired token, mid-scan. The next pass reads the session again, by
+      // which time the client's own refresh has usually landed — so this is a
+      // pause, not the end of the run. Bounded by MAX_AUTH_WAITS so a genuinely
+      // signed-out user still surfaces instead of looping.
+      if (res.status === 401 && authWaits < GeminiPhotoClassifier.MAX_AUTH_WAITS) {
+        authWaits++;
+        // A rejected token never reached the model, so it must not spend one of
+        // the attempts reserved for genuine network trouble.
+        networkAttempts--;
+        await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS, this.runOver.signal);
         continue;
       }
 
