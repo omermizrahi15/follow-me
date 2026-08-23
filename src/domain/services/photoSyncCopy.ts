@@ -63,8 +63,13 @@ export function syncStatusCopy(status: SyncStatus, now: number): SyncStatusCopy 
     case 'no-consent':
       return {
         title: 'Photo upload is off',
-        hint: 'Posts are prepared from private copies of your recent photos. Without them nothing can be posted while the app is closed.',
-        action: 'Turn on',
+        // No action here. Upload is on by default now, so this state only ever
+        // follows a deliberate switch-off, and the switch that undid it is the
+        // one that puts it back — an extra "Turn on" beside the auto-posting
+        // settings would be a second control for the same thing, in the flow
+        // the toggle was moved out of.
+        hint: 'Posts are prepared from private copies of your recent photos. Turn "Sync recent photos" back on in Settings → Privacy to post while the app is closed.',
+        action: null,
         needsAttention: true,
       };
     case 'failed':

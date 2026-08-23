@@ -13,11 +13,12 @@ import { alertFailure, refuseIfOffline } from './writeGuard';
  * in Settings rather than in the middle of the auto-posting setup, where it
  * read as a chore the publisher was expected to perform.
  *
- * Deleting also withdraws consent. Without that the next foreground would
- * re-upload everything that was just deleted, which made the wipe cosmetic
- * (issue #72). The consequence — nothing can be posted while the app is closed
- * — is stated in the dialog and shown afterwards by PhotoSyncStatus, which
- * carries the one action that turns upload back on.
+ * Deleting also switches photo upload off. Without that the next foreground
+ * would re-upload everything that was just deleted, which made the wipe
+ * cosmetic (issue #72). The consequence — nothing can be posted while the app
+ * is closed — is stated in the dialog, shown afterwards by PhotoSyncStatus,
+ * and reflected by the "Sync recent photos" toggle directly above this row,
+ * which is what turns upload back on.
  */
 export function confirmCloudPhotoWipe(onDone?: () => void): void {
   // Server-side delete: asking for it offline can only end in a timeout, and

@@ -14,7 +14,7 @@ import { AutoPostingForm } from '../sections/AutoPostingForm';
 import { useAutoPostingConfig } from '../../hooks/useAutoPostingConfig';
 import { saveConfig, scheduleReminder, registerPushToken } from '../../../composition/container';
 import { colors, radius, spacing, typography } from '../../theme/theme';
-import { confirmPhotoSync } from '../../data/photoSyncConsent';
+import { setPhotoSyncEnabled } from '../../data/photoSyncConsent';
 import { runCandidateSyncQuietly } from '../../data/candidateSync';
 
 type Props = {
@@ -42,11 +42,14 @@ export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: 
         config.setPushToken(token);
         const next = config.buildConfig(token);
         await saveConfig.execute(next);
-        // Onboarding is the one place that asks for photo-upload consent. The
-        // settings section deliberately never does — see persistConfig there.
-        if (await confirmPhotoSync()) {
-          await runCandidateSyncQuietly(publisherId, 'onboarding_sync_candidates', next.lookbackDays);
-        }
+        // Accepting the step is the consent: what gets uploaded is stated in
+        // full above the button that lands here, rather than in an Alert whose
+        // low-friction answer ("Not now") silently broke every automatic
+        // feature downstream. Written explicitly even though sync is already on
+        // by default, so a publisher who set posting up here is never mistaken
+        // for one who declined it.
+        await setPhotoSyncEnabled(true);
+        await runCandidateSyncQuietly(publisherId, 'onboarding_sync_candidates', next.lookbackDays);
         if (token !== '') {
           // Server owns the reminder — cancel the local one to avoid double-notifying.
           await scheduleReminder.cancel().catch(() => undefined);
@@ -123,6 +126,17 @@ export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: 
       </ScrollView>
 
       <View style={styles.footer}>
+        {/* The consent, where the consent happens. It sits in the fixed footer
+            rather than up in the scroll view because it has to be on screen at
+            the moment the button below it is pressed — text the publisher may
+            never have scrolled to is not something they agreed to. */}
+        <Text style={styles.consent} testID="onboarding-photo-sync-consent">
+          To prepare posts while the app is closed, private copies of your photos
+          from the chosen window are uploaded to your own cloud space. Copies
+          that fall outside it are deleted automatically, and you can stop
+          uploading — or delete every copy — in Settings → Privacy.
+        </Text>
+
         <TouchableOpacity
           style={[styles.primary, saving && styles.disabled]}
           onPress={handleSave}
@@ -163,7 +177,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: spacing.xl,
     paddingTop: spacing.md,
     paddingBottom: spacing.xl,
-    gap: spacing.lg,
+    gap: spacing.md,
     alignItems: 'center',
     borderTopWidth: 1,
     borderTopColor: colors.border,
@@ -177,6 +191,13 @@ const styles = StyleSheet.create({
     alignSelf: 'stretch',
   },
   primaryText: { color: colors.onAccent, fontWeight: '600', fontSize: 15 },
+  consent: {
+    ...typography.caption,
+    fontSize: 12,
+    lineHeight: 17,
+    color: colors.textSecondary,
+    textAlign: 'center',
+  },
   disabled: { opacity: 0.5 },
   skip: { color: colors.textSecondary, fontSize: 14, textDecorationLine: 'underline' },
 });
