@@ -113,3 +113,30 @@ export function retryAfterHeader(headers: Headers): number | null {
   const seconds = Number(raw);
   return Number.isFinite(seconds) && seconds >= 0 ? Math.ceil(seconds) : null;
 }
+
+/**
+ * Whether a failure means "this provider is done — try the next one".
+ *
+ * The distinction that matters is exhausted versus busy. A spent daily budget,
+ * a bad key, an unreachable host or a broken vendor are all permanent for this
+ * request, and falling through costs nothing. A per-minute rate limit is not:
+ * it clears on its own in seconds, and spending a scarce fallback budget on a
+ * pause that would have ended by itself is how a safety net gets used up before
+ * it is needed. Those propagate to the app, which waits and retries.
+ *
+ * Unrecognised statuses stay put for the same reason — falling through on
+ * everything makes the fallback the main road by accident.
+ */
+export function isProviderExhausted(failure: VisionFailure): boolean {
+  if (failure.dailyQuota) return true;
+  // Never completed — DNS, TLS, timeout.
+  if (failure.status === 0) return true;
+  // Missing or rejected credentials: no amount of retrying fixes this one.
+  if (failure.status === 401 || failure.status === 403) return true;
+  // The request itself was refused. Another vendor may well accept it — this is
+  // how a payload one provider considers too large still gets graded.
+  if (failure.status === 400) return true;
+  // The vendor is broken, not busy.
+  if (failure.status >= 500) return true;
+  return false;
+}

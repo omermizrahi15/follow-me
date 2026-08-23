@@ -1,5 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
-import { entriesFrom, retryAfterHeader } from './vision.ts';
+import { entriesFrom, isProviderExhausted, retryAfterHeader } from './vision.ts';
 import { isGroqDailyLimit, parseGroqRetrySeconds } from './groq.ts';
 
 Deno.test('entriesFrom — a bare array is what a schema-enforcing provider returns', () => {
@@ -57,4 +57,43 @@ Deno.test('isGroqDailyLimit — a daily ceiling is not something to wait out', (
 Deno.test('isGroqDailyLimit — a per-minute limit stays recoverable', () => {
   assertEquals(isGroqDailyLimit('Limit 30 requests per minute, try again in 2s'), false);
   assertEquals(isGroqDailyLimit('tokens per minute exceeded'), false);
+});
+
+const failure = (over: Partial<import('./vision.ts').VisionFailure> = {}) => ({
+  status: 500,
+  body: '',
+  retryAfterSeconds: null,
+  dailyQuota: false,
+  ...over,
+});
+
+Deno.test('isProviderExhausted — a spent daily budget hands over to the next provider', () => {
+  // The whole point of the chain: a 20/day allowance is a safety net, and the
+  // net is only useful once the main provider is actually finished.
+  assert(isProviderExhausted(failure({ status: 429, dailyQuota: true })));
+});
+
+Deno.test('isProviderExhausted — a per-minute limit does NOT hand over', () => {
+  // It clears on its own in seconds. Spending a scarce fallback budget on a
+  // pause that would have ended by itself uses up the net before it is needed.
+  assertEquals(
+    isProviderExhausted(failure({ status: 429, dailyQuota: false, retryAfterSeconds: 28 })),
+    false,
+  );
+});
+
+Deno.test('isProviderExhausted — unreachable, unauthorised and broken all hand over', () => {
+  assert(isProviderExhausted(failure({ status: 0 })));        // never completed
+  assert(isProviderExhausted(failure({ status: 401 })));      // bad key
+  assert(isProviderExhausted(failure({ status: 403 })));
+  assert(isProviderExhausted(failure({ status: 503 })));      // vendor down
+  // A refused request may well be accepted by a vendor with different limits.
+  assert(isProviderExhausted(failure({ status: 400 })));
+});
+
+Deno.test('isProviderExhausted — anything unrecognised stays put', () => {
+  // Falling through on everything would make the fallback the main road by
+  // accident, quietly draining the provider being held in reserve.
+  assertEquals(isProviderExhausted(failure({ status: 404 })), false);
+  assertEquals(isProviderExhausted(failure({ status: 418 })), false);
 });

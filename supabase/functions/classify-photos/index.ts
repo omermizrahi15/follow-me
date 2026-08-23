@@ -36,7 +36,8 @@
  * vision.ts. The request and response shapes below do NOT change with it, so
  * switching vendors never needs an app release.
  *
- * Env: VISION_PROVIDER (optional, "gemini" | "groq", default gemini)
+ * Env: VISION_PROVIDER (optional, comma-separated chain tried in order,
+ *        e.g. "groq,gemini" — default "gemini")
  *      GEMINI_API_KEY (required for gemini), GEMINI_MODEL (optional,
  *        default gemini-3.5-flash)
  *      GROQ_API_KEY (required for groq), GROQ_MODEL (optional,
@@ -56,7 +57,12 @@ import {
 } from './logic.ts';
 import { geminiProvider } from './gemini.ts';
 import { groqProvider } from './groq.ts';
-import type { ResolvedImage, VisionProvider } from './vision.ts';
+import {
+  isProviderExhausted,
+  type ResolvedImage,
+  type VisionFailure,
+  type VisionProvider,
+} from './vision.ts';
 
 const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
 /**
@@ -284,27 +290,57 @@ async function resolveReference(reference: ImageInput | null): Promise<ResolvedI
 const DEFAULT_RATE_LIMIT_RETRY_SECONDS = 30;
 
 /**
- * Which vendor grades photos, chosen at runtime.
+ * Every provider this function knows how to build, by name.
  *
- * A secret rather than a deploy, because the binding constraint here has been
- * vendor quota and it moves without warning: Gemini 2.0/2.5 went to `limit: 0`,
- * and 3.5-flash allows twenty requests a DAY. Switching must not require a code
- * change, and — since this all lives server-side — never requires an app build.
- *
- * Defaults to gemini: it is the provider whose grading has actually been checked
- * against real photos, so an unset secret changes nothing.
+ * Adding a vendor is an entry here plus a file implementing VisionProvider —
+ * deliberately, because this has already changed twice and will change again. A
+ * factory returns null when its key is absent, so an unconfigured provider is
+ * skipped rather than exploding a chain that has a working one after it.
  */
-function activeProvider(): VisionProvider {
-  const choice = (Deno.env.get('VISION_PROVIDER') ?? 'gemini').toLowerCase().trim();
-  if (choice === 'groq') {
-    if (GROQ_API_KEY === '') {
-      // Falling back silently would look like "the switch did nothing" while
-      // quietly spending the quota we were trying to escape.
-      throw new Error('VISION_PROVIDER=groq but GROQ_API_KEY is not set');
+const PROVIDERS: Record<string, () => VisionProvider | null> = {
+  gemini: () => (GEMINI_API_KEY === '' ? null : geminiProvider(GEMINI_API_KEY, GEMINI_MODEL)),
+  groq: () => (GROQ_API_KEY === '' ? null : groqProvider(GROQ_API_KEY)),
+};
+
+/**
+ * The provider chain, in the order they should be tried.
+ *
+ * `VISION_PROVIDER` is a comma-separated list, not a single name: "groq,gemini"
+ * means grade on Groq and fall back to Gemini when Groq is spent. Order is the
+ * whole configuration — which vendor leads, and what catches it — so changing
+ * strategy is a secret, never a deploy.
+ *
+ * Defaults to gemini alone, so an unset secret behaves exactly as before.
+ */
+function providerChain(): VisionProvider[] {
+  const requested = (Deno.env.get('VISION_PROVIDER') ?? 'gemini')
+    .split(',')
+    .map(name => name.trim().toLowerCase())
+    .filter(name => name !== '');
+
+  const chain: VisionProvider[] = [];
+  for (const name of requested) {
+    const build = PROVIDERS[name];
+    if (build == null) {
+      console.warn(`classify: unknown VISION_PROVIDER "${name}", skipping`);
+      continue;
     }
-    return groqProvider(GROQ_API_KEY);
+    const provider = build();
+    // Named but keyless. Warned about rather than ignored: silently running on
+    // the fallback looks exactly like the switch having worked.
+    if (provider == null) {
+      console.warn(`classify: provider "${name}" has no API key set, skipping`);
+      continue;
+    }
+    chain.push(provider);
   }
-  return geminiProvider(GEMINI_API_KEY, GEMINI_MODEL);
+
+  if (chain.length === 0) {
+    throw new Error(
+      `No usable vision provider: VISION_PROVIDER="${requested.join(',')}" and no matching API key is set`,
+    );
+  }
+  return chain;
 }
 
 class ClassifyError extends Error {
@@ -341,59 +377,112 @@ class ClassifyError extends Error {
  * offset is stated in REFERENCE_PROMPT and applied in pairBatchResults' input
  * here; the two must move together.
  */
-async function classifyBatch(
+/**
+ * Grades as many of `photos` as one provider can, in calls of its own size.
+ *
+ * Returns what it managed plus whatever stopped it, rather than throwing: the
+ * caller decides whether the next provider should pick up the remainder, and
+ * that decision needs to see the failure.
+ */
+async function gradeWithProvider(
+  provider: VisionProvider,
   photos: PhotoInput[],
   reference: ResolvedImage | null,
-): Promise<{ classifications: Classification[]; missing: string[] }> {
-  const provider = activeProvider();
-  const prompt = reference == null ? PROMPT : REFERENCE_PROMPT + PROMPT;
-
+  prompt: string,
+  schema: Record<string, unknown>,
+): Promise<{
+  classifications: Classification[];
+  ungraded: PhotoInput[];
+  failure: VisionFailure | null;
+}> {
   // The reference rides in every call and counts against the provider's image
   // budget, so it is subtracted once here rather than remembered in each one.
   const perCall = Math.max(1, provider.maxImagesPerCall - (reference == null ? 0 : 1));
-
   const classifications: Classification[] = [];
-  const missing: string[] = [];
 
-  // One app request can outgrow one provider call — Groq takes five images where
-  // Gemini takes a dozen. Splitting here keeps MAX_PHOTOS_PER_REQUEST, which the
-  // app is built against, independent of whichever vendor is answering today.
   for (let offset = 0; offset < photos.length; offset += perCall) {
     const slice = photos.slice(offset, offset + perCall);
     const images = await Promise.all(slice.map(resolveImage));
 
-    const result = await provider.classify({
-      prompt,
-      reference,
-      images,
-      responseSchema: responseSchema(reference != null),
-    });
-
-    // A refusal refuses the whole call. Photos already graded by an earlier
-    // slice are thrown away with it — the caller retries the request as a unit,
-    // and half a batch is not something the response shape can express.
+    const result = await provider.classify({ prompt, reference, images, responseSchema: schema });
     if (!result.ok) {
-      const { status, body, retryAfterSeconds, dailyQuota } = result.failure;
-      throw new ClassifyError(
-        slice[0]?.id ?? '',
-        `${provider.name} error (${status}): ${body}`,
-        status,
-        retryAfterSeconds,
-        dailyQuota,
-      );
+      // Everything from this slice on is still ungraded. Handing it back whole
+      // is what lets a fallback grade only the remainder instead of paying for
+      // the photos this provider already answered.
+      return { classifications, ungraded: photos.slice(offset), failure: result.failure };
     }
 
     // Indices are per call, so each slice is paired against its own ids. A
     // provider that answered about the wrong picture is caught here rather than
     // cached for months looking correct.
-    const paired = pairBatchResults(slice.map(p => p.id), result.entries);
-    for (const { id, parsed } of paired.paired) {
+    const { paired } = pairBatchResults(slice.map(p => p.id), result.entries);
+    for (const { id, parsed } of paired) {
       classifications.push(parseClassification(id, parsed, reference != null));
     }
-    missing.push(...paired.missing);
   }
 
-  return { classifications, missing };
+  return { classifications, ungraded: [], failure: null };
+}
+
+/**
+ * Grades a whole set of photos, falling down the provider chain as needed.
+ *
+ * A provider that is out of budget for the day, unreachable, misconfigured or
+ * broken hands the rest of the work to the next one — which is what makes a
+ * small daily allowance useful as a safety net rather than as the main road.
+ * A provider that is merely rate-limited for the minute does NOT: that clears
+ * on its own, and burning the fallback on it wastes the thing being saved.
+ *
+ * A photo no provider answered for comes back in `missing` rather than as a
+ * guess, exactly as before: a fabricated grade silently retires a photo.
+ */
+async function classifyBatch(
+  photos: PhotoInput[],
+  reference: ResolvedImage | null,
+): Promise<{ classifications: Classification[]; missing: string[] }> {
+  const chain = providerChain();
+  const prompt = reference == null ? PROMPT : REFERENCE_PROMPT + PROMPT;
+  const schema = responseSchema(reference != null);
+
+  const classifications: Classification[] = [];
+  let remaining = photos;
+  let lastFailure: VisionFailure | null = null;
+  let lastProvider = chain[0]?.name ?? 'none';
+
+  for (const provider of chain) {
+    if (remaining.length === 0) break;
+
+    const result = await gradeWithProvider(provider, remaining, reference, prompt, schema);
+    classifications.push(...result.classifications);
+    remaining = result.ungraded;
+    lastFailure = result.failure;
+    lastProvider = provider.name;
+
+    if (result.failure == null) break;
+
+    // Busy, not finished. Let the app wait rather than spending another
+    // provider's budget on a pause that ends by itself.
+    if (!isProviderExhausted(result.failure)) break;
+
+    console.warn(
+      `classify: ${provider.name} exhausted (${result.failure.status}), ` +
+        `${remaining.length} photo(s) fall through to the next provider`,
+    );
+  }
+
+  // Nothing at all came back and something went wrong: report it, so a spent
+  // quota or a broken key surfaces as itself instead of as "no photos matched".
+  if (classifications.length === 0 && lastFailure != null) {
+    throw new ClassifyError(
+      photos[0]?.id ?? '',
+      `${lastProvider} error (${lastFailure.status}): ${lastFailure.body}`,
+      lastFailure.status,
+      lastFailure.retryAfterSeconds,
+      lastFailure.dailyQuota,
+    );
+  }
+
+  return { classifications, missing: remaining.map(p => p.id) };
 }
 
 Deno.serve(async (req: Request) => {
