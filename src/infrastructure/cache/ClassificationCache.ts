@@ -15,6 +15,18 @@ interface StoredGrade {
   caption: string;
   scene: string;
   gradedAt: number; // epoch ms
+  /**
+   * Which face was looked for when this grade was bought — the publisher's
+   * profile photo URL, or absent/'' when none was (issue #137).
+   *
+   * Kept alongside the grade rather than in the storage key so turning the
+   * preference on costs a re-grade of the current window only, and turning it
+   * back off costs nothing at all. Entries written before #137 have no field
+   * here, which reads as '' — correct, since nothing was asked about them.
+   */
+  referenceKey?: string;
+  containsPublisher?: boolean;
+  publisherConfidence?: number;
 }
 
 type Store = Record<string, StoredGrade>;
@@ -55,7 +67,23 @@ function toClassification(id: string, g: StoredGrade): PhotoClassification {
     quality: g.quality,
     caption: g.caption,
     scene: g.scene,
+    containsPublisher: g.containsPublisher ?? false,
+    publisherConfidence: g.publisherConfidence ?? 0,
   };
+}
+
+/**
+ * Whether a remembered grade answers the face question the caller is asking.
+ *
+ * An empty `wanted` is "not asking", and every grade qualifies. Otherwise the
+ * grade has to have been bought while looking for that same face: one bought
+ * without it says `containsPublisher: false` for the trivial reason that nobody
+ * looked, and under `prefer`/`only` that reads as "the publisher isn't in this
+ * photo" — which would sink or hide exactly the photos the feature exists to
+ * surface. A mismatch is therefore a miss, and the photo is re-graded.
+ */
+function answersReference(grade: StoredGrade, wanted: string): boolean {
+  return wanted === '' || (grade.referenceKey ?? '') === wanted;
 }
 
 async function readAll(): Promise<Store> {
@@ -90,7 +118,10 @@ function prune(store: Store, now: number): Store {
  * on the bridge than a single ~1MB round-trip.
  */
 export const ClassificationCache: IClassificationStore = {
-  async load(assetIds: readonly string[]): Promise<Map<string, PhotoClassification>> {
+  async load(
+    assetIds: readonly string[],
+    referenceKey = '',
+  ): Promise<Map<string, PhotoClassification>> {
     const found = new Map<string, PhotoClassification>();
     if (assetIds.length === 0) return found;
 
@@ -100,14 +131,17 @@ export const ClassificationCache: IClassificationStore = {
       const grade = store[id];
       // Expired entries are ignored here and swept on the next save, so a read
       // never has to pay for a write.
-      if (grade != null && now - grade.gradedAt <= TTL_MS) {
+      if (grade != null && now - grade.gradedAt <= TTL_MS && answersReference(grade, referenceKey)) {
         found.set(id, toClassification(id, grade));
       }
     }
     return found;
   },
 
-  async save(classifications: readonly PhotoClassification[]): Promise<void> {
+  async save(
+    classifications: readonly PhotoClassification[],
+    referenceKey = '',
+  ): Promise<void> {
     if (classifications.length === 0) return;
     try {
       const now = Date.now();
@@ -122,6 +156,9 @@ export const ClassificationCache: IClassificationStore = {
           caption: c.caption,
           scene: c.scene,
           gradedAt: now,
+          referenceKey,
+          containsPublisher: c.containsPublisher,
+          publisherConfidence: c.publisherConfidence,
         };
       }
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(prune(store, now)));

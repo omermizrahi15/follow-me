@@ -10,8 +10,9 @@ import {
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { usePublisherId } from '../../context/AuthContext';
 import { saveConfig, scheduleReminder, registerPushToken } from '../../../composition/container';
-import type { PhotoCount } from '../../../domain/entities/PublisherConfig';
-import { isPhotoSyncEnabled, enablePhotoSync } from '../../data/photoSyncConsent';
+import type { PhotoCount, PhotosOfMe } from '../../../domain/entities/PublisherConfig';
+import { useProfile } from '../../hooks/useProfile';
+import { isPhotoSyncEnabled } from '../../data/photoSyncConsent';
 import { runCandidateSyncQuietly } from '../../data/candidateSync';
 import { useConnectionStatus } from '../../data/connectivity';
 import { isUsable } from '../../../domain/services/connectivityCopy';
@@ -48,13 +49,38 @@ function saveStatusFailure(error: unknown, connection: ConnectionStatus): string
   return describeFailure({ error, connection, title: '' }).hint;
 }
 
+/**
+ * The "photos of me" choices, in the order they escalate (issue #137).
+ *
+ * `only` is a genuine filter — it can leave a post short, exactly as switching
+ * categories off can — so the label says what it does rather than selling it.
+ */
+const PHOTOS_OF_ME_OPTIONS: readonly { value: PhotosOfMe; label: string }[] = [
+  { value: 'off', label: 'Off' },
+  { value: 'prefer', label: 'Prefer' },
+  { value: 'only', label: 'Only' },
+];
+
+const PHOTOS_OF_ME_HINT: Record<PhotosOfMe, string> = {
+  off: 'Who is in a photo plays no part in what gets picked.',
+  prefer: "Photos you're in come first. Others still fill the post when there aren't enough.",
+  only: "Only photos you're in are suggested — so a post can come out short.",
+};
+
 export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const config = useAutoPostingConfig(publisherId);
   const {
     frequency, photoCount, askBeforePost, notifyDayOfWeek, notifyTime, orderedCats, pushToken,
-    isLoading, buildConfig, setPushToken,
+    photosOfMe, isLoading, buildConfig, setPushToken,
   } = config;
+  // The profile photo is the only face "photos of me" matches against, so with
+  // no avatar there is nothing to compare against and the control is hidden
+  // rather than shown disabled — a switch that can't do anything is worse than
+  // no switch. Setting an avatar makes it appear; the stored value is still
+  // 'off' by default, so nothing starts happening on its own.
+  const { profile } = useProfile(publisherId);
+  const hasAvatar = (profile?.avatarUrl ?? null) != null;
   /** The settings as they stand — the one place they are turned into an entity. */
   const currentConfig = useMemo(() => buildConfig(), [buildConfig]);
 
@@ -124,12 +150,13 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
       await saveConfig.execute(next);
       savedSnapshotRef.current = snapshot;
 
-      // Deliberately no photo-upload consent prompt here. It used to hang off
-      // Save, which at least was a press; a silent, debounced write is no place
-      // to raise a privacy dialog, and after a cloud wipe — which withdraws
-      // consent — re-asking because someone nudged a setting is exactly the
-      // coupling that made the wipe feel undoable. Onboarding asks once, and
-      // PhotoSyncStatus below carries the "upload is off / turn it on" state.
+      // Deliberately nothing about photo-upload consent here. It used to hang
+      // off Save, which at least was a press; a silent, debounced write is no
+      // place to change a privacy setting, and after a cloud wipe — which
+      // switches upload off — flipping it back because someone nudged a
+      // setting is exactly the coupling that made the wipe feel undoable.
+      // Upload is on by default and its switch is in Settings → Privacy;
+      // PhotoSyncStatus below only reports when it is off.
 
       // Only a changed lookback window needs photos re-synced, and that is the
       // one thing autosave must not do on every keystroke-sized edit: reordering
@@ -213,14 +240,6 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
     })();
   }
 
-  /** Turn photo sync back on (prompting for consent if needed) and start a run. */
-  const handleEnableSync = useCallback((): void => {
-    void (async (): Promise<void> => {
-      if (!(await enablePhotoSync())) return;
-      await runCandidateSyncQuietly(publisherId, 'settings_enable_sync');
-    })();
-  }, [publisherId]);
-
   /** Retry after a failed sync. Same call as every other trigger — nothing special. */
   const handleRetrySync = useCallback((): void => {
     void runCandidateSyncQuietly(publisherId, 'settings_retry_sync');
@@ -279,12 +298,46 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
             ))}
           </View>
         </View>
+
+        {/* Photos of me (issue #137). Hidden outright without a profile photo —
+            see hasAvatar. The hint names the profile photo explicitly, because
+            comparing faces against it is not something the publisher would
+            otherwise know we do. */}
+        {hasAvatar && (
+          <View style={formStyles.group}>
+            <Text style={formStyles.groupLabel}>Photos of me</Text>
+            <Text style={formStyles.hint}>
+              We compare each photo with your profile photo to spot the ones you&apos;re in.
+              Nothing about your face is saved.
+            </Text>
+            <View style={formStyles.options}>
+              {PHOTOS_OF_ME_OPTIONS.map(({ value, label }) => (
+                <TouchableOpacity
+                  key={value}
+                  testID={`auto-photos-of-me-${value}`}
+                  style={[formStyles.option, photosOfMe === value && formStyles.optionActive]}
+                  onPress={() => config.setPhotosOfMe(value)}
+                >
+                  <Text
+                    style={[
+                      formStyles.optionText,
+                      photosOfMe === value && formStyles.optionTextActive,
+                    ]}
+                  >
+                    {label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            <Text style={styles.photosOfMeNote}>{PHOTOS_OF_ME_HINT[photosOfMe]}</Text>
+          </View>
+        )}
       </AutoPostingForm>
 
-      {/* What photo sync is doing right now. Always shown: "nothing is
+      {/* What photo sync is doing right now — reported, not offered. "Nothing is
           happening and nothing will" is exactly the state that used to be
-          invisible, and it is the one the user has to act on. */}
-      <PhotoSyncStatus onEnable={handleEnableSync} onRetry={handleRetrySync} />
+          invisible; the switch that produces it lives in Settings → Privacy. */}
+      <PhotoSyncStatus onRetry={handleRetrySync} />
 
       {/* No Save button — every control above writes itself. This line is the
           only feedback that there was ever a write to wait for, so it has to
@@ -329,6 +382,15 @@ const styles = StyleSheet.create({
   loading: { ...typography.caption, color: colors.textSecondary, padding: spacing.xl },
   title: { ...typography.heading, fontSize: 16, color: colors.text, marginBottom: spacing.xs },
   buttonDisabled: { opacity: 0.6 },
+  // Sits *below* the choices, unlike the hint above them: it describes the
+  // option currently selected, so it changes as the publisher taps.
+  photosOfMeNote: {
+    ...typography.caption,
+    fontSize: 11,
+    color: colors.textMuted,
+    marginTop: spacing.sm,
+    lineHeight: 15,
+  },
   // Autosave feedback, in place of the old Save button.
   saveStatusRow: {
     flexDirection: 'row',

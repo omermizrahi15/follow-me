@@ -1,6 +1,6 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
-import type { IPhotoClassifier } from '../../domain/interfaces';
+import type { FaceReference, IPhotoClassifier } from '../../domain/interfaces';
 import { slowFetch } from '../http/appFetch';
 import { sleep } from '../timers';
 
@@ -87,6 +87,13 @@ interface RawClassification {
   caption: string;
   /** May be omitted by older deployments of the classify function. */
   scene?: string;
+  /**
+   * Both omitted by any deployment that predates issue #137, and by every
+   * request that carried no reference. Absent reads as "not known to contain
+   * the publisher", which is the same thing the selection rules do with false.
+   */
+  contains_reference_person?: boolean;
+  reference_confidence?: number;
 }
 
 /**
@@ -226,6 +233,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     candidates: PhotoCandidate[],
     onEach?: (result: PhotoClassification, index: number, total: number) => void,
     shouldStop?: () => boolean,
+    reference?: FaceReference | null,
   ): Promise<PhotoClassification[]> {
     this.hitQuota = false;
     this.hitRateLimit = false;
@@ -287,7 +295,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
             continue;
           }
 
-          void this.classifyChunk(chunk).then(graded => {
+          void this.classifyChunk(chunk, reference ?? null).then(graded => {
             completed++;
             if (settled) return;
 
@@ -319,7 +327,10 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
    * throws: a classifier that is answering with errors must not be smoothed
    * over into "this photo isn't very good".
    */
-  private async classifyChunk(chunk: PhotoCandidate[]): Promise<PhotoClassification[]> {
+  private async classifyChunk(
+    chunk: PhotoCandidate[],
+    reference: FaceReference | null,
+  ): Promise<PhotoClassification[]> {
     // Unreadable photos are dropped here, not failed: they are a device problem
     // (an asset that won't decode), and the rest of the group is still gradable.
     const readable: { candidate: PhotoCandidate; payload: PhotoPayload }[] = [];
@@ -336,7 +347,14 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
 
     // `c` names the group in error messages; one call covers all of them.
     const c = first.candidate;
-    const body = JSON.stringify({ photos: readable.map(r => r.payload) });
+    // The reference travels as a URL, never as bytes: the profile photo is
+    // already hosted (it is what followers see on the gallery), so there is
+    // nothing to upload and nothing extra leaves the device. One reference
+    // serves the whole group — it is the same portrait for every photo in it.
+    const body = JSON.stringify({
+      photos: readable.map(r => r.payload),
+      ...(reference != null ? { reference: { url: reference.url } } : {}),
+    });
     const userToken = (await this.getAccessToken?.().catch(() => null)) ?? null;
     const bearer = userToken ?? this.authKey;
 
@@ -446,6 +464,8 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           quality: raw.quality,
           caption: raw.caption,
           scene: raw.scene ?? '',
+          containsPublisher: raw.contains_reference_person === true,
+          publisherConfidence: raw.reference_confidence ?? 0,
         });
       }
 

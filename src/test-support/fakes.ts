@@ -19,6 +19,7 @@ import type {
   PhotoSyncState,
   IPublisherProfileRepository,
   IConfirmationSender,
+  FaceReference,
   IMediaLibrary,
   IPhotoClassifier,
   ISentPhotoTracker,
@@ -488,6 +489,8 @@ export class FakePhotoClassifier implements IPhotoClassifier {
    * two are never conflated.
    */
   rateLimitedFromCallIndex: number | null = null;
+  /** The face reference each classify() call was given, in call order (issue #137). */
+  receivedReferences: Array<FaceReference | null> = [];
 
   constructor(private readonly byId: Map<string, PhotoClassification> = new Map()) {}
 
@@ -508,9 +511,11 @@ export class FakePhotoClassifier implements IPhotoClassifier {
     candidates: PhotoCandidate[],
     onEach?: (result: PhotoClassification, index: number, total: number) => void,
     shouldStop?: () => boolean,
+    reference?: FaceReference | null,
   ): Promise<PhotoClassification[]> {
     this.callCount++;
     this.receivedCandidateIds = [];
+    this.receivedReferences.push(reference ?? null);
     const results: PhotoClassification[] = [];
     const total = candidates.length;
     // Out of budget, or throttled after exhausting its patience: the real

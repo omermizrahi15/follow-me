@@ -1,7 +1,17 @@
 /**
  * Supabase Edge Function: POST /classify-photos
- * Body: { "photos": [{ "id": string, "url"?: string, "base64"?: string, "mimeType"?: string }] }
- * Returns: { "classifications": [{ id, category, confidence, quality, caption, scene }] }
+ * Body: { "photos": [{ "id": string, "url"?: string, "base64"?: string, "mimeType"?: string }],
+ *         "reference"?: { "url"?: string, "base64"?: string, "mimeType"?: string } }
+ * Returns: { "classifications": [{ id, category, confidence, quality, caption, scene,
+ *                                  contains_reference_person, reference_confidence }] }
+ *
+ * `reference` is the publisher's profile photo (issue #137). When it is present
+ * each photo is additionally judged for whether that same person appears in it,
+ * which is what the "photos of me" preference ranks and filters on. It is
+ * optional and sent only by a publisher who turned that preference on: with no
+ * reference the model is never shown a face to match and the two extra fields
+ * come back false/0. Nothing about the reference is stored here — it is fetched
+ * per request, used in one prompt, and forgotten.
  *
  * The single place provider specifics live. It holds GEMINI_API_KEY (never shipped
  * in the app) and asks Gemini Flash to classify each photo into one of the rule
@@ -104,12 +114,36 @@ async function authenticatedUserId(req: Request): Promise<string | null> {
   }
 }
 
+/**
+ * Added when the request carries a reference image, which arrives as the FIRST
+ * image in the prompt — before the photos being graded. Spelled out that way
+ * because the model is otherwise free to read the images in any order, and
+ * getting it backwards would grade the publisher's profile photo and answer
+ * about the wrong pictures entirely.
+ *
+ * The wording asks about one specific person — the one in the reference — and
+ * never about who else is in the frame. Naming or recognising travel companions
+ * is explicitly out of scope for issue #137.
+ */
+const REFERENCE_PROMPT = `The FIRST image is a reference portrait of one specific person.
+It is NOT one of the photos being classified and gets no entry of its own. Every image
+AFTER it is a photo to classify, and image index 0 means the first of those — not the
+reference. The reference is used for one extra question per photo:
+
+- contains_reference_person: true if the person from the reference portrait appears anywhere
+  in that photo, false otherwise. Judge only that one person — ignore everyone else in
+  the frame, and do not describe or identify anybody. Say false when you are unsure.
+- reference_confidence: 0..1, how certain you are of that answer.
+
+`;
+
 const PROMPT = `You classify photos for a social "share my travels" app.
 
-You are given N images in order. Grade EVERY image independently and return one
-JSON entry per image, each carrying the 0-based "index" of the image it grades.
-Return exactly N entries. Never merge, skip, or reorder them — an entry whose
-index does not match the image it describes corrupts the publisher's library.
+You are given N images to classify, in order. Grade EVERY one independently and
+return one JSON entry per image, each carrying the 0-based "index" of the image
+it grades. Return exactly N entries. Never merge, skip, or reorder them — an
+entry whose index does not match the image it describes corrupts the publisher's
+library.
 
 For each image:
 
@@ -135,27 +169,39 @@ Also rate:
 
 Respond with JSON only.`;
 
-/**
- * One entry per image, tagged with the index of the image it grades.
- *
- * `index` is required and load-bearing: see pairBatchResults for why a bare
- * ordered array is not safe enough to attach a grade to a photo.
- */
-const RESPONSE_SCHEMA = {
-  type: 'ARRAY',
-  items: {
-    type: 'OBJECT',
-    properties: {
-      index: { type: 'INTEGER' },
-      category: { type: 'STRING', enum: [...CATEGORIES] },
-      confidence: { type: 'NUMBER' },
-      quality: { type: 'NUMBER' },
-      caption: { type: 'STRING' },
-      scene: { type: 'STRING' },
-    },
-    required: ['index', 'category', 'confidence', 'quality', 'caption', 'scene'],
-  },
+const BASE_PROPERTIES = {
+  index: { type: 'INTEGER' },
+  category: { type: 'STRING', enum: [...CATEGORIES] },
+  confidence: { type: 'NUMBER' },
+  quality: { type: 'NUMBER' },
+  caption: { type: 'STRING' },
+  scene: { type: 'STRING' },
 };
+// `index` is required and load-bearing: see pairBatchResults for why a bare
+// ordered array is not safe enough to attach a grade to a photo.
+const BASE_REQUIRED = ['index', 'category', 'confidence', 'quality', 'caption', 'scene'];
+
+/**
+ * One entry per photo, tagged with the index of the image it grades.
+ *
+ * The face fields are added only when a reference was sent. Requiring them
+ * unconditionally would make the model answer a question it was shown nothing
+ * for, and a hallucinated `true` here is a stranger's photo in somebody's post.
+ */
+function responseSchema(hasReference: boolean): Record<string, unknown> {
+  const items = hasReference
+    ? {
+        type: 'OBJECT',
+        properties: {
+          ...BASE_PROPERTIES,
+          contains_reference_person: { type: 'BOOLEAN' },
+          reference_confidence: { type: 'NUMBER' },
+        },
+        required: [...BASE_REQUIRED, 'contains_reference_person', 'reference_confidence'],
+      }
+    : { type: 'OBJECT', properties: BASE_PROPERTIES, required: BASE_REQUIRED };
+  return { type: 'ARRAY', items };
+}
 
 const cors: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
@@ -170,14 +216,23 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-interface PhotoInput {
-  id: string;
+interface ImageInput {
   url?: string;
   base64?: string;
   mimeType?: string;
 }
 
-async function resolveImage(photo: PhotoInput): Promise<{ data: string; mimeType: string }> {
+interface PhotoInput extends ImageInput {
+  id: string;
+}
+
+/** An image already in the shape Gemini wants it. */
+interface ResolvedImage {
+  data: string;
+  mimeType: string;
+}
+
+async function resolveImage(photo: ImageInput): Promise<ResolvedImage> {
   if (photo.base64) {
     return { data: photo.base64, mimeType: photo.mimeType ?? 'image/jpeg' };
   }
@@ -192,6 +247,24 @@ async function resolveImage(photo: PhotoInput): Promise<{ data: string; mimeType
     return { data: bytesToBase64(bytes), mimeType };
   }
   throw new Error('photo has neither url nor base64');
+}
+
+/**
+ * Fetches the reference portrait once per request, or gives up on it.
+ *
+ * Deliberately soft: a profile photo behind a dead URL must not fail the whole
+ * request. Every photo in it is still worth grading on category and quality —
+ * the batch just loses the face preference for this run, which the ranking
+ * already treats as "not known to contain them".
+ */
+async function resolveReference(reference: ImageInput | null): Promise<ResolvedImage | null> {
+  if (reference == null) return null;
+  try {
+    return await resolveImage(reference);
+  } catch (err) {
+    console.warn('classify: reference image unreadable, continuing without it:', String(err));
+    return null;
+  }
 }
 
 /**
@@ -299,25 +372,31 @@ class ClassifyError extends Error {
  * That is the same principle the single-photo version established: a grade we
  * did not receive is never invented, because a fabricated `other`/quality-0
  * verdict silently retires a photo forever.
+ *
+ * The reference portrait, when there is one, leads the image list and is not
+ * graded itself — so photo index 0 is the SECOND image in the request. That
+ * offset is stated in REFERENCE_PROMPT and applied in pairBatchResults' input
+ * here; the two must move together.
  */
 async function classifyBatch(
   photos: PhotoInput[],
+  reference: ResolvedImage | null,
 ): Promise<{ classifications: Classification[]; missing: string[] }> {
   const images = await Promise.all(photos.map(resolveImage));
+  const parts = [
+    { text: reference == null ? PROMPT : REFERENCE_PROMPT + PROMPT },
+    ...(reference == null
+      ? []
+      : [{ inlineData: { mimeType: reference.mimeType, data: reference.data } }]),
+    ...images.map(({ data, mimeType }) => ({ inlineData: { mimeType, data } })),
+  ];
 
   const result = await callGemini(
     JSON.stringify({
-      contents: [
-        {
-          parts: [
-            { text: PROMPT },
-            ...images.map(({ data, mimeType }) => ({ inlineData: { mimeType, data } })),
-          ],
-        },
-      ],
+      contents: [{ parts }],
       generationConfig: {
         responseMimeType: 'application/json',
-        responseSchema: RESPONSE_SCHEMA,
+        responseSchema: responseSchema(reference != null),
         temperature: 0,
       },
     }),
@@ -351,7 +430,8 @@ async function classifyBatch(
   const { paired, missing } = pairBatchResults(photos.map(p => p.id), entries);
 
   return {
-    classifications: paired.map(({ id, parsed: entry }) => parseClassification(id, entry)),
+    classifications: paired.map(({ id, parsed: entry }) =>
+      parseClassification(id, entry, reference != null)),
     missing,
   };
 }
@@ -365,7 +445,7 @@ Deno.serve(async (req: Request) => {
   const userId = await authenticatedUserId(req);
   if (userId == null) return json({ error: 'Authentication required' }, 401);
 
-  let body: { photos?: PhotoInput[] };
+  let body: { photos?: PhotoInput[]; reference?: ImageInput | null };
   try {
     body = await req.json();
   } catch {
@@ -389,6 +469,14 @@ Deno.serve(async (req: Request) => {
     return json({ error: 'Daily classification quota exceeded', reason }, 429);
   }
 
+  // The publisher's profile photo, when they asked for the face preference.
+  // Fetched once for the whole request rather than per photo: it is the same
+  // portrait for every photo in the body, and it is the only image here that
+  // would otherwise be paid for more than once.
+  const reference = await resolveReference(
+    typeof body.reference === 'object' && body.reference !== null ? body.reference : null,
+  );
+
   // Classify sequentially (called one photo at a time by the app) so a single
   // large batch never hits worker memory limits.
   //
@@ -405,7 +493,7 @@ Deno.serve(async (req: Request) => {
     // One call for the whole request. `missing` is photos the model did not
     // answer for; they are simply absent from the response, so the caller
     // re-queues them rather than caching a grade nobody produced.
-    const graded = await classifyBatch(photos);
+    const graded = await classifyBatch(photos, reference);
     classifications = graded.classifications;
     if (graded.missing.length > 0) {
       console.warn(
@@ -419,9 +507,9 @@ Deno.serve(async (req: Request) => {
     // An upstream 429 is Gemini's per-minute cap, NOT the day's budget — the
     // free tier allows 5 requests/minute per model, and although a request now
     // carries up to MAX_PHOTOS_PER_REQUEST photos for one slot, a big enough
-    // scan still reaches it. It clears in about a minute. It is reported as its own reason,
-    // with the wait attached, so the app can pause and resume instead of
-    // declaring the day over on the user's first attempt.
+    // scan still reaches it. It clears in about a minute, and is reported as its
+    // own reason with the wait attached, so the app can pause and resume instead
+    // of declaring the day over on the user's first attempt.
     if (failure?.upstreamStatus === 429) {
       const reason: RefusalReason = 'rate_limited';
       return json(

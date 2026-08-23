@@ -47,4 +47,22 @@ export interface PhotoClassification {
    * should share the same slug so the selection service can deduplicate them.
    */
   scene: string;
+  /**
+   * Whether the publisher themselves appears in the photo, judged against their
+   * profile photo (issue #137).
+   *
+   * `category` only ever knew that *people* were in frame —
+   * `selfie_with_view` / `selfie_with_people` fire on a waiter, a crowd, or
+   * someone else's kids just as readily as on the publisher. This is the
+   * separate question, and it is the one "photos of me" ranks on.
+   *
+   * False whenever the question wasn't asked: the publisher has no profile
+   * photo, or their `photosOfMe` preference is off, in which case no reference
+   * image is sent to the classifier at all. A false here therefore means "not
+   * known to contain them", not "confirmed absent" — which is why it is only
+   * ever read when the preference says to.
+   */
+  containsPublisher: boolean;
+  /** Model confidence in {@link containsPublisher}, 0..1. Zero when unasked. */
+  publisherConfidence: number;
 }

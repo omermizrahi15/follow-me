@@ -322,3 +322,75 @@ describe('GeminiPhotoClassifier — daily quota (issue #81)', () => {
     expect(reportedQuota).not.toHaveBeenCalled();
   });
 });
+
+describe('GeminiPhotoClassifier — face reference (issue #137)', () => {
+  /** Every request answers with the face fields set, as the function does with a reference. */
+  function respondWithMatch(contains: boolean, confidence: number): void {
+    mockFetch.mockImplementation((_url: string, init: { body: string }) => {
+      const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            classifications: [
+              {
+                id,
+                category: 'food',
+                confidence: 0.9,
+                quality: 0.8,
+                caption: '',
+                scene: 's',
+                contains_reference_person: contains,
+                reference_confidence: confidence,
+              },
+            ],
+          }),
+      });
+    });
+  }
+
+  function sentBody(): Record<string, unknown> {
+    const [, init] = mockFetch.mock.calls[0] as [string, { body: string }];
+    return JSON.parse(init.body) as Record<string, unknown>;
+  }
+
+  it('sends no reference when none is given, so the question is never asked', async () => {
+    respondWithDelay(() => 0);
+
+    await makeSut().classify([candidate('p1')]);
+
+    expect(sentBody()).not.toHaveProperty('reference');
+  });
+
+  it('sends the profile photo as a URL, never as uploaded bytes', async () => {
+    respondWithMatch(true, 0.92);
+
+    await makeSut().classify([candidate('p1')], undefined, undefined, {
+      url: 'https://cdn.test/avatar.jpg',
+    });
+
+    expect(sentBody().reference).toEqual({ url: 'https://cdn.test/avatar.jpg' });
+  });
+
+  it("carries the model's verdict onto the classification", async () => {
+    respondWithMatch(true, 0.92);
+
+    const [result] = await makeSut().classify([candidate('p1')], undefined, undefined, {
+      url: 'https://cdn.test/avatar.jpg',
+    });
+
+    expect(result?.containsPublisher).toBe(true);
+    expect(result?.publisherConfidence).toBe(0.92);
+  });
+
+  it('reads a response without the face fields as not containing the publisher', async () => {
+    // An older deployment of classify-photos, or any request that carried no
+    // reference. Absent must not become a confident `true`.
+    respondWithDelay(() => 0);
+
+    const [result] = await makeSut().classify([candidate('p1')]);
+
+    expect(result?.containsPublisher).toBe(false);
+    expect(result?.publisherConfidence).toBe(0);
+  });
+});

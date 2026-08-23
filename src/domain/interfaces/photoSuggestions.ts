@@ -3,6 +3,24 @@ import type { PhotoCandidate } from '../entities/PhotoCandidate';
 import type { PhotoClassification } from '../entities/PhotoClassification';
 import type { Coordinate } from './location';
 
+/**
+ * The face the classifier should look for in every photo of a run — the
+ * publisher's own, taken from their profile photo (issue #137).
+ *
+ * There is no enrollment step and no second source: the profile photo is the
+ * only picture of themselves the publisher has already chosen to be identified
+ * by, and the "photos of me" control is hidden outright when there isn't one.
+ *
+ * Null means the question is not asked at all — either the preference is off or
+ * no avatar is set — and every classification comes back `containsPublisher:
+ * false`. Nothing about the face is stored anywhere; the URL is handed to the
+ * classifier per run and the only thing kept is one boolean per photo.
+ */
+export interface FaceReference {
+  /** Public URL of the publisher's profile photo. */
+  url: string;
+}
+
 /** Classifies candidate photos into rule categories with confidence/quality. */
 export interface IPhotoClassifier {
   /**
@@ -10,11 +28,14 @@ export interface IPhotoClassifier {
    *                   total is the full candidate count).
    * @param shouldStop When provided, called after each result. If it returns
    *                   true, classification stops early (batch quota reached).
+   * @param reference  Face to additionally look for in each photo, or null to
+   *                   not ask. See {@link FaceReference}.
    */
   classify(
     candidates: PhotoCandidate[],
     onEach?: (result: PhotoClassification, index: number, total: number) => void,
     shouldStop?: () => boolean,
+    reference?: FaceReference | null,
   ): Promise<PhotoClassification[]>;
   /**
    * Whether the *most recent* classify() call was cut short because the day's
