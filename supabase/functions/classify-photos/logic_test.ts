@@ -7,6 +7,7 @@ import {
   parseClassification,
   CLASSIFY_IMAGE_WIDTH,
   downscaledUrl,
+  isDailyQuotaError,
   pairBatchResults,
   parseRetryDelaySeconds,
 } from './logic.ts';
@@ -249,4 +250,60 @@ Deno.test('CLASSIFY_IMAGE_WIDTH — wide enough to still see blur', () => {
   assert(CLASSIFY_IMAGE_WIDTH >= 768);
   // Twelve of these must stay well inside the inline-payload budget.
   assert(CLASSIFY_IMAGE_WIDTH <= 1024);
+});
+
+// The exact body staging returned while a scan sat on "Scanning your library".
+const PER_DAY_429 = JSON.stringify({
+  error: {
+    code: 429,
+    message: 'You exceeded your current quota. Please retry in 53.996815314s.',
+    status: 'RESOURCE_EXHAUSTED',
+    details: [
+      { '@type': 'type.googleapis.com/google.rpc.Help', links: [] },
+      {
+        '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+        violations: [{
+          quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests',
+          quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier',
+          quotaValue: '20',
+        }],
+      },
+      { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '53s' },
+    ],
+  },
+});
+
+const PER_MINUTE_429 = JSON.stringify({
+  error: {
+    code: 429,
+    status: 'RESOURCE_EXHAUSTED',
+    details: [
+      {
+        '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+        violations: [{ quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier' }],
+      },
+      { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '28s' },
+    ],
+  },
+});
+
+Deno.test('isDailyQuotaError — recognises the per-day cap behind a short retry delay', () => {
+  // The delay says 53 seconds; the quota does not clear for hours. Honouring
+  // the delay is what retried a spent budget until the scan gave up.
+  assert(isDailyQuotaError(PER_DAY_429));
+  // Structured RetryInfo wins over the prose, so 53 rather than ceil(53.99).
+  assertEquals(parseRetryDelaySeconds(PER_DAY_429), 53);
+});
+
+Deno.test('isDailyQuotaError — leaves the per-minute cap alone', () => {
+  // This one really does clear on its own, and must keep being waited out.
+  assertEquals(isDailyQuotaError(PER_MINUTE_429), false);
+});
+
+Deno.test('isDailyQuotaError — anything unrecognised stays per-minute', () => {
+  // Waiting a minute on a daily wall costs one retry; calling a recoverable
+  // minute a dead day retires a scan that would have succeeded.
+  assertEquals(isDailyQuotaError('{}'), false);
+  assertEquals(isDailyQuotaError('not json'), false);
+  assertEquals(isDailyQuotaError(JSON.stringify({ error: { details: [{ violations: [] }] } })), false);
 });

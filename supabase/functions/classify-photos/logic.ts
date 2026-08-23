@@ -48,10 +48,18 @@ export function classifyCaller(
  *
  * - `daily_quota` — OUR per-user ceiling (increment_classify_quota). Real until
  *   tomorrow; nothing the user does today will help.
- * - `rate_limited` — Gemini's requests-per-minute cap on the API key. The free
- *   tier allows 5/minute per model, and the app classifies 4 photos at a time,
- *   so a scan trips this within seconds of starting and recovers on its own
- *   seconds later. Carries `retry_after_seconds` from Gemini's own RetryInfo.
+ * - `rate_limited` — Gemini's requests-per-MINUTE cap on the API key. A scan
+ *   trips this within seconds of starting and recovers on its own seconds
+ *   later. Carries `retry_after_seconds` from Gemini's own RetryInfo.
+ *
+ * Gemini has a THIRD wall that also arrives as a 429 and used to be reported as
+ * the second one: a requests-per-DAY cap (20/day per model on the free tier).
+ * Google attaches a RetryInfo of under a minute to it anyway, so honouring that
+ * delay means retrying a quota that cannot recover for hours — every retry
+ * spending another request from a budget that is already gone. That is how a
+ * scan sat on "Scanning your library" indefinitely. Told apart by quotaId, and
+ * reported as `daily_quota`, because from the app's side it means exactly what
+ * our own ceiling means: nothing today will help.
  */
 export type RefusalReason = 'daily_quota' | 'rate_limited';
 
@@ -64,6 +72,36 @@ export type RefusalReason = 'daily_quota' | 'rate_limited';
  * prose, because guessing a delay is what turned a 28-second pause into "come
  * back tomorrow".
  */
+/**
+ * True when a Gemini 429 is the per-DAY request cap rather than the per-minute one.
+ *
+ * Read from `quotaId` (e.g. "GenerateRequestsPerDayPerProjectPerModel-FreeTier")
+ * rather than from the limit value, because the numbers move between tiers and
+ * models while the period in the id does not. Anything we cannot positively
+ * identify as per-day stays per-minute: waiting a minute on a daily wall costs
+ * one pointless retry, but treating a recoverable minute as a dead day retires
+ * a scan that would have succeeded on its own.
+ */
+export function isDailyQuotaError(body: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return false;
+  }
+  const details = (parsed as { error?: { details?: unknown[] } })?.error?.details;
+  if (!Array.isArray(details)) return false;
+  for (const detail of details) {
+    const violations = (detail as { violations?: unknown[] })?.violations;
+    if (!Array.isArray(violations)) continue;
+    for (const violation of violations) {
+      const id = (violation as { quotaId?: unknown })?.quotaId;
+      if (typeof id === 'string' && /PerDay/i.test(id)) return true;
+    }
+  }
+  return false;
+}
+
 export function parseRetryDelaySeconds(body: string): number | null {
   let parsed: unknown;
   try {
