@@ -174,12 +174,20 @@ export function parseClassification(id: string, parsed: Record<string, unknown>)
 /**
  * Longest edge, in pixels, of the image actually sent to the model.
  *
- * Measured on a real candidate: 1.5MB at full size, 64KB at 512px — 23x fewer
- * bytes for a judgement about what the photo is *of*. The saving is not the
- * point on its own; it is what lets a dozen images share one request without
- * approaching the inline-payload limit.
+ * Measured on a real candidate: 1.5MB at full size, 123KB at 768px, 64KB at
+ * 512px. Twelve full-size images would be ~17MB, essentially the whole inline
+ * payload budget — so downscaling is not a saving bolted onto batching, it is
+ * what makes batching possible at all.
+ *
+ * 768 rather than 512 because `quality` grades sharpness, and sharpness is
+ * precisely what a downscale destroys: at 512 a blurry photo is indistinguishable
+ * from a sharp one (verified by eye against a night shot from the staging set),
+ * which would quietly inflate quality scores and let blurry photos through the
+ * publisher's minQuality floor. Category, scene and caption survive 512 easily;
+ * this width is chosen for the one attribute that does not. Twelve of these is
+ * ~1.4MB a request, still far inside the limit.
  */
-export const CLASSIFY_IMAGE_WIDTH = 512;
+export const CLASSIFY_IMAGE_WIDTH = 768;
 
 /**
  * Rewrites a Cloudinary delivery URL to fetch a downscaled, re-encoded copy.

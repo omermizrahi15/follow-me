@@ -5,6 +5,7 @@ import {
   clamp01,
   classifyCaller,
   parseClassification,
+  CLASSIFY_IMAGE_WIDTH,
   downscaledUrl,
   pairBatchResults,
   parseRetryDelaySeconds,
@@ -232,4 +233,13 @@ Deno.test('pairBatchResults — an empty answer leaves every photo ungraded', ()
   const { paired, missing } = pairBatchResults(['a', 'b'], []);
   assertEquals(paired, []);
   assertEquals(missing, ['a', 'b']);
+});
+
+Deno.test('CLASSIFY_IMAGE_WIDTH — wide enough to still see blur', () => {
+  // Category and scene survive far smaller, but `quality` grades sharpness and
+  // a heavy downscale makes every photo look sharp. Guards against someone
+  // shrinking this for payload reasons without weighing that.
+  assert(CLASSIFY_IMAGE_WIDTH >= 768);
+  // Twelve of these must stay well inside the inline-payload budget.
+  assert(CLASSIFY_IMAGE_WIDTH <= 1024);
 });
