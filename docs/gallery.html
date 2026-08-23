@@ -16,6 +16,10 @@
   button (and the phone's back gesture) reaches the feed without a reload. The
   feed cards mirror the app's PostCard: wide cover, place over date, count chip.
 
+  The story's top-right control is labelled with where it goes ("Omer's posts")
+  rather than being a bare ✕: a follower arriving from WhatsApp has no reason to
+  guess that closing one post reveals every other one (issue #160).
+
   Reads Supabase REST with the anon key (public by design; posts and
   publisher_profile have anon SELECT policies). Hosted here because Supabase
   serves Edge Function & Storage HTML as text/plain (anti-phishing), so it
@@ -143,18 +147,24 @@
       color: rgba(255,255,255,0.75); font-size: 11px; font-weight: 600;
       letter-spacing: 1.1px; text-transform: uppercase; margin-top: 2px;
     }
-    .story-close {
+    /* Leaving the story lands on the publisher's feed, not on nothing — a bare
+       ✕ read as "dismiss" and hid that (issue #160), so the control names where
+       it goes: grid icon, "<name>'s posts", and a chevron for "this navigates". */
+    .story-exit {
       pointer-events: auto;
-      flex: none;
-      background: rgba(0,0,0,0.35); color: #fff;
-      border: 0; border-radius: 999px;
-      width: 36px; height: 36px;
-      font-size: 18px; line-height: 1;
+      flex: none; max-width: 55%;
+      background: rgba(0,0,0,0.45); color: #fff;
+      border: 1px solid rgba(255,255,255,0.28); border-radius: 999px;
+      height: 36px; padding: 0 10px 0 12px;
+      font: inherit; font-size: 13px; font-weight: 600; letter-spacing: -0.1px;
       cursor: pointer;
-      display: flex; align-items: center; justify-content: center;
+      display: flex; align-items: center; gap: 6px;
       -webkit-tap-highlight-color: transparent;
     }
-    .story-close:hover { background: rgba(255,255,255,0.22); }
+    .story-exit-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .story-exit-icon { flex: none; width: 15px; height: 15px; fill: currentColor; }
+    .story-exit-chevron { flex: none; opacity: 0.7; font-size: 15px; line-height: 1; }
+    .story-exit:hover { background: rgba(255,255,255,0.28); }
   </style>
 </head>
 <body>
@@ -194,7 +204,18 @@
           <div class="story-place" id="storyPlace"></div>
           <div class="story-meta" id="storyMeta"></div>
         </div>
-        <button class="story-close" id="storyClose" aria-label="Close">✕</button>
+        <!-- The visible text is the accessible name on purpose: a follower
+             saying "tap all posts" to voice control has to hit this button. -->
+        <button class="story-exit" id="storyExit">
+          <svg class="story-exit-icon" viewBox="0 0 24 24" aria-hidden="true" focusable="false">
+            <rect x="2.5" y="2.5" width="8.5" height="8.5" rx="2.5"></rect>
+            <rect x="13" y="2.5" width="8.5" height="8.5" rx="2.5"></rect>
+            <rect x="2.5" y="13" width="8.5" height="8.5" rx="2.5"></rect>
+            <rect x="13" y="13" width="8.5" height="8.5" rx="2.5"></rect>
+          </svg>
+          <span class="story-exit-label" id="storyExitLabel">All posts</span>
+          <span class="story-exit-chevron" aria-hidden="true">›</span>
+        </button>
       </div>
     </div>
   </div>
@@ -369,10 +390,22 @@
       showPhoto(storyIndex);
     });
 
-    document.getElementById('storyClose').addEventListener('click', e => {
+    document.getElementById('storyExit').addEventListener('click', e => {
       e.stopPropagation();
       closeStory();
     });
+
+    /**
+     * Names the story's exit after where it lands — "Omer's posts" rather than
+     * a bare ✕ (issue #160). First name only, so the pill stays a pill; the
+     * generic "All posts" stands until a display name is actually known.
+     */
+    function setExitLabel() {
+      const first = publisherName.trim().split(/\s+/)[0];
+      if (!first) return;
+      const owned = first + (/s$/i.test(first) ? "'" : "'s");
+      document.getElementById('storyExitLabel').textContent = owned + ' posts';
+    }
 
     // Tap zones — left 30% goes back, the rest advances (mirrors the app).
     story.addEventListener('click', e => {
@@ -559,8 +592,9 @@
     }
 
     /**
-     * Leave the story for the feed by unwinding history, so ✕, Escape, and
-     * tapping past the last photo all agree with the browser's back button.
+     * Leave the story for the feed by unwinding history, so the exit button,
+     * Escape, and tapping past the last photo all agree with the browser's
+     * back button.
      */
     function closeStory() {
       if (history.state != null && history.state.v === 'story') history.back();
@@ -585,6 +619,7 @@
         const profile = profiles[0];
         if (profile == null || !profile.display_name) return;
         publisherName = profile.display_name;
+        setExitLabel();
         const avatar = document.getElementById('feedAvatar');
         if (profile.avatar_url) {
           const img = document.createElement('img');
