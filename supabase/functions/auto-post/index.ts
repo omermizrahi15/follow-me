@@ -166,7 +166,7 @@ interface CandidateRow {
   created_at: string;
   latitude: number | null;
   longitude: number | null;
-  // Cached grade (migration 20240035). `graded_at == null` means "not yet
+  // Cached grade (migration 20240036). `graded_at == null` means "not yet
   // classified" — the work queue this job drains a slice of per tick.
   category: string | null;
   confidence: number | null;
@@ -272,7 +272,7 @@ const CLASSIFY_PHOTOS_PER_REQUEST = 12;
  * upstream rate limit was always the binding constraint, and parallelism only
  * decided how fast we reached it. Worse, it decided how much work was in flight
  * when the wall was hit, and everything in flight was lost. Progress now comes
- * from the grade cache (migration 20240035) instead of from firing more
+ * from the grade cache (migration 20240036) instead of from firing more
  * requests at a closed door.
  */
 const CLASSIFY_CONCURRENCY = 1;

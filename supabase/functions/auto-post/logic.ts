@@ -179,7 +179,7 @@ export function syncGraceDecision(input: SyncGraceInput): SyncGraceDecision {
 // of the run, past the reminder fallback and past the schedule stamp. The
 // publisher got silence, and the same thing happened again every day.
 //
-// The fix has two halves. Grades are now cached (migration 20240035), so work
+// The fix has two halves. Grades are now cached (migration 20240036), so work
 // done on one tick is never bought twice; and each tick grades a bounded slice
 // and then decides whether the slot can be settled or should stay open. A rate
 // limit stops being an error and becomes what it actually is: backpressure.
