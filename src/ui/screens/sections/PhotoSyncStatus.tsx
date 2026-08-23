@@ -16,19 +16,21 @@ import { colors, radius, spacing, typography } from '../../theme/theme';
  * What genuinely needs saying is the opposite state. A publisher whose upload
  * is off has no way to discover it — photos simply never arrive, and days later
  * the server pushes "couldn't prepare your post" (issue #97). So this renders
- * nothing while sync is healthy or running, and appears with the one action
- * that fixes it when it isn't. The strings live in
- * `domain/services/photoSyncCopy` where they are unit-tested.
+ * nothing while sync is healthy or running, and appears when it isn't. The
+ * strings live in `domain/services/photoSyncCopy` where they are unit-tested.
+ *
+ * Reporting only: the switch-off state is reported, never offered. Upload is on
+ * by default and the toggle lives in Settings → Privacy, so this row no longer
+ * carries an enable button in the middle of the auto-posting flow. A failure is
+ * different — retrying is not a preference, it is this row's own business.
  */
 
 interface Props {
-  /** Turn sync on (prompting for consent if needed) and start a run. */
-  onEnable: () => void;
   /** Re-run a sync after a failure. */
   onRetry: () => void;
 }
 
-export function PhotoSyncStatus({ onEnable, onRetry }: Props): React.ReactElement | null {
+export function PhotoSyncStatus({ onRetry }: Props): React.ReactElement | null {
   const status = useSyncStatus();
   const { title, hint, action, needsAttention } = syncStatusCopy(status, Date.now());
   if (!needsAttention) return null;
@@ -47,11 +49,7 @@ export function PhotoSyncStatus({ onEnable, onRetry }: Props): React.ReactElemen
           {title}
         </Text>
         {action != null && (
-          <TouchableOpacity
-            testID="photo-sync-status-action"
-            onPress={failed ? onRetry : onEnable}
-            hitSlop={8}
-          >
+          <TouchableOpacity testID="photo-sync-status-action" onPress={onRetry} hitSlop={8}>
             <Text style={styles.action}>{action}</Text>
           </TouchableOpacity>
         )}

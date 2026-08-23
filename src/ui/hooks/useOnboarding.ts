@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-
-const ONBOARDING_KEY = '@followme/onboarding-completed';
+import { hasCompletedOnboarding, markOnboardingCompleted } from '../data/onboardingFlag';
+import { defaultPhotoSyncOn } from '../data/photoSyncConsent';
 
 interface OnboardingState {
   /** Whether the first-launch onboarding has already been completed/skipped. */
@@ -17,15 +16,18 @@ export function useOnboarding(): OnboardingState {
   const [completed, setCompleted] = useState<boolean | null>(null);
 
   useEffect(() => {
-    void AsyncStorage.getItem(ONBOARDING_KEY)
-      .then(value => setCompleted(value === 'true'))
-      // If storage is unreadable, fail open and show onboarding rather than crash.
-      .catch(() => setCompleted(false));
+    void hasCompletedOnboarding().then(setCompleted);
   }, []);
 
   const complete = useCallback(async (): Promise<void> => {
     setCompleted(true);
-    await AsyncStorage.setItem(ONBOARDING_KEY, 'true');
+    // Photo sync is on by default, and this is where the default lands: the
+    // auto-posting step records its own "on" when it is reached, but skipping
+    // onboarding must not leave the app unable to prepare a post. Before the
+    // flag, so nothing observes a finished onboarding with no preference behind
+    // it. No-op if the step (or the upgrade migration) already answered.
+    await defaultPhotoSyncOn();
+    await markOnboardingCompleted();
   }, []);
 
   return { completed: completed === true, loading: completed === null, complete };

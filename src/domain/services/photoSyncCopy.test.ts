@@ -37,12 +37,15 @@ describe('syncStatusCopy', () => {
     expect(title).toBe('Checking for new photos…');
   });
 
-  it('offers the fix when upload is switched off', () => {
+  it('names where to undo it when upload is switched off', () => {
     // The bug: sync that was off was indistinguishable from working sync, and
     // the way to undo it was pressing Save — which nothing told the user to do.
+    // Saying so is still the fix; the control itself now lives in Settings, so
+    // the copy points there instead of carrying a second switch of its own.
     const copy = syncStatusCopy(status({ phase: 'no-consent' }), NOW);
     expect(copy.title).toBe('Photo upload is off');
-    expect(copy.action).toBe('Turn on');
+    expect(copy.hint).toContain('Settings → Privacy');
+    expect(copy.action).toBeNull();
   });
 
   it('surfaces the failure message and a retry', () => {
