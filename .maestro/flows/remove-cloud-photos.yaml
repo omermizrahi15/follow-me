@@ -21,6 +21,11 @@ tags:
 - tapOn:
     id: "home-settings-button"
 - assertVisible: "Privacy"
+# Upload is on by default (issue #142) and its switch sits in this section,
+# directly above the wipe. Two separate things on purpose: this one stops,
+# the one below stops AND deletes.
+- assertVisible:
+    id: "settings-photo-sync-toggle"
 - tapOn:
     id: "settings-remove-cloud-photos"
 # Native confirm alert ("?" is a regex char in Maestro text matchers — use .*).
@@ -33,7 +38,9 @@ tags:
     timeout: 20000
 - assertVisible: ".*Photo upload is now off.*"
 - tapOn: "OK"
-# And the auto-posting section now says so, with the one action that undoes it.
+# And the auto-posting section says so, naming where to undo it. It reports the
+# state rather than offering a second switch for it — the switch is the one in
+# Settings this flow just walked past.
 - tapOn:
     id: "section-nav-auto"
 - extendedWaitUntil:
@@ -41,5 +48,6 @@ tags:
       id: "photo-sync-status-title"
     timeout: 15000
 - assertVisible: "Photo upload is off"
+- assertVisible: ".*Settings . Privacy.*"
 - tapOn:
     id: "section-nav-me"
