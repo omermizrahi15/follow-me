@@ -36,6 +36,12 @@ const DEFAULT_GROQ_MODEL = 'qwen/qwen3.6-27b';
 /**
  * Documented ceiling for this model. The reference portrait counts towards it,
  * which is why the caller subtracts it rather than assuming five photos fit.
+ *
+ * Note that images per call is NOT what bounds this provider in practice.
+ * Measured free-tier limits for qwen3.6-27b are 30 requests/minute and 1000/day
+ * — generous — against 8k tokens/minute and 200k/day, which an image eats about
+ * a thousand of. Tokens are the ceiling; the per-call image count only decides
+ * how lumpily they are spent. See the usage logging in classify().
  */
 const MAX_IMAGES_PER_CALL = 5;
 
@@ -153,7 +159,23 @@ export function groqProvider(apiKey: string): VisionProvider {
       try {
         const payload = JSON.parse(text) as {
           choices?: { message?: { content?: unknown } }[];
+          usage?: { prompt_tokens?: number; total_tokens?: number };
         };
+
+        // Logged because tokens, not requests, are what actually bounds this
+        // provider: 8k a minute and 200k a day against ~1k for a single image.
+        // The cost per photo decides the image width and the batch size, and
+        // guessing at it is how the last provider's ceiling went unnoticed —
+        // so the number comes from the API rather than from arithmetic.
+        const total = payload.usage?.total_tokens;
+        if (typeof total === 'number' && images.length > 0) {
+          console.log(
+            `groq usage: ${total} tokens for ${images.length} image(s)` +
+              `${reference == null ? '' : ' + reference'}` +
+              ` (~${Math.round(total / images.length)}/image)`,
+          );
+        }
+
         const raw = payload.choices?.[0]?.message?.content;
         if (typeof raw !== 'string') {
           return {
