@@ -18,7 +18,10 @@ function candidate(id: string, createdAt: string): PhotoCandidate {
 }
 
 function classification(c: PhotoCandidate): PhotoClassification {
-  return { candidate: c, category: 'nature', confidence: 0.9, quality: 0.8, caption: 'a photo', scene: '' };
+  return {
+    candidate: c, category: 'nature', confidence: 0.9, quality: 0.8, caption: 'a photo', scene: '',
+    containsPublisher: false, publisherConfidence: 0,
+  };
 }
 
 function config(): PublisherConfig {

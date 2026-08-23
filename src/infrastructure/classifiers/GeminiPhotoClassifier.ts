@@ -1,6 +1,6 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
-import type { IPhotoClassifier } from '../../domain/interfaces';
+import type { FaceReference, IPhotoClassifier } from '../../domain/interfaces';
 import { slowFetch } from '../http/appFetch';
 import { sleep } from '../timers';
 
@@ -87,6 +87,13 @@ interface RawClassification {
   caption: string;
   /** May be omitted by older deployments of the classify function. */
   scene?: string;
+  /**
+   * Both omitted by any deployment that predates issue #137, and by every
+   * request that carried no reference. Absent reads as "not known to contain
+   * the publisher", which is the same thing the selection rules do with false.
+   */
+  contains_reference_person?: boolean;
+  reference_confidence?: number;
 }
 
 /**
@@ -214,6 +221,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     candidates: PhotoCandidate[],
     onEach?: (result: PhotoClassification, index: number, total: number) => void,
     shouldStop?: () => boolean,
+    reference?: FaceReference | null,
   ): Promise<PhotoClassification[]> {
     this.hitQuota = false;
     this.hitRateLimit = false;
@@ -269,7 +277,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
             continue;
           }
 
-          void this.classifyOne(candidate).then(result => {
+          void this.classifyOne(candidate, reference ?? null).then(result => {
             completed++;
             if (settled) return;
 
@@ -301,7 +309,10 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
    * throws: a classifier that is answering with errors must not be smoothed
    * over into "this photo isn't very good".
    */
-  private async classifyOne(c: PhotoCandidate): Promise<PhotoClassification | null> {
+  private async classifyOne(
+    c: PhotoCandidate,
+    reference: FaceReference | null,
+  ): Promise<PhotoClassification | null> {
     let payload: PhotoPayload | null = null;
     try {
       payload = await this.resolve(c);
@@ -311,7 +322,13 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     }
     if (payload == null) return null;
 
-    const body = JSON.stringify({ photos: [payload] });
+    // The reference travels as a URL, never as bytes: the profile photo is
+    // already hosted (it is what followers see on the gallery), so there is
+    // nothing to upload and nothing extra leaves the device.
+    const body = JSON.stringify({
+      photos: [payload],
+      ...(reference != null ? { reference: { url: reference.url } } : {}),
+    });
     const userToken = (await this.getAccessToken?.().catch(() => null)) ?? null;
     const bearer = userToken ?? this.authKey;
 
@@ -416,6 +433,8 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         quality: raw.quality,
         caption: raw.caption,
         scene: raw.scene ?? '',
+        containsPublisher: raw.contains_reference_person === true,
+        publisherConfidence: raw.reference_confidence ?? 0,
       };
     }
 

@@ -6,6 +6,7 @@ import {
   rankAll,
   selectBatch as selectPhotoBatch,
   type PhotoFacts,
+  type SelectionRules,
 } from './photoSelection';
 
 /**
@@ -24,8 +25,16 @@ import {
  * `other` is offerable now and simply carries a low weight, so it sorts below
  * every real photo and is reached only once those run out. Ranking last is the
  * honest version of what excluding it was trying to do.
+ *
+ * `photosOfMe: 'only'` is the one other exclusion, and it is here for the same
+ * reason the category gate is: `selectBatch` will not put a photo without the
+ * publisher in a post, so offering one as "another photo from those days" hands
+ * back a "+" slot and a swap chip that produce a batch the publisher was told
+ * they'd never get. `prefer` excludes nothing — it is a tilt, and the pool is
+ * ordered by that tilt already.
  */
 export function isSuggestablePhoto(c: PhotoClassification, config: PublisherConfig): boolean {
+  if (config.photosOfMe === 'only' && !c.containsPublisher) return false;
   return categoryWeight(c.category, config.enabledCategories) > 0;
 }
 
@@ -37,6 +46,7 @@ function classificationFacts(c: PhotoClassification): PhotoFacts {
     quality: c.quality,
     createdAt: c.candidate.createdAt.getTime(),
     scene: c.scene,
+    containsPublisher: c.containsPublisher,
   };
 }
 
@@ -143,15 +153,12 @@ export class PhotoSelectionService {
     return rankAll(classifications, classificationFacts, this.rules(config), alreadySentIds);
   }
 
-  private rules(config: PublisherConfig): {
-    enabledCategories: string[];
-    photosPerPost: number;
-    minQuality: number;
-  } {
+  private rules(config: PublisherConfig): SelectionRules {
     return {
       enabledCategories: config.enabledCategories,
       photosPerPost: config.photosPerPost,
       minQuality: config.minQuality,
+      photosOfMe: config.photosOfMe,
     };
   }
 }

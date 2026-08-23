@@ -19,7 +19,11 @@
  *      TWILIO_STATUS_CALLBACK_URL (delivery tracking via twilio-status).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { selectBatch, type PhotoFacts } from '../../../src/domain/services/photoSelection.ts';
+import {
+  selectBatch,
+  type PhotoFacts,
+  type PhotosOfMeMode,
+} from '../../../src/domain/services/photoSelection.ts';
 import { isAutoPostDue } from '../../../src/domain/services/autoPostSchedule.ts';
 import { credsFromEnv } from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { postingIdFor, publishBatch } from '../_shared/publishBatch.ts';
@@ -59,6 +63,8 @@ interface ConfigRow {
   min_quality: number;
   timezone: string;
   expo_push_token: string | null;
+  /** "photos of me" preference — see PublisherConfig.photosOfMe (issue #137). */
+  photos_of_me: string | null;
   last_auto_post_at: string | null;
   // Sync grace window (issue #97) — see migration 20240026.
   post_pending_since: string | null;
@@ -71,6 +77,44 @@ interface ConfigRow {
 /** Narrow the free-text column to the states the decision logic knows about. */
 function parseSyncState(value: string | null): 'active' | 'paused' | 'no-consent' | null {
   return value === 'active' || value === 'paused' || value === 'no-consent' ? value : null;
+}
+
+/** Same narrowing for the face preference; anything unrecognised is 'off'. */
+function parsePhotosOfMe(value: string | null): PhotosOfMeMode {
+  return value === 'prefer' || value === 'only' ? value : 'off';
+}
+
+/**
+ * The publisher's profile photo, when their preference asks for it (issue #137).
+ *
+ * Read per due publisher rather than joined into the config query: this runs on
+ * a cron tick over everyone due, and only publishers who turned the preference
+ * on cost a lookup. Null — no avatar, or the preference off — means classify is
+ * never shown a face, exactly as on the device.
+ */
+async function faceReference(config: ConfigRow): Promise<{ url: string } | null> {
+  if (parsePhotosOfMe(config.photos_of_me) === 'off') return null;
+  const { data } = await supabase
+    .from('publisher_profile')
+    .select('avatar_url')
+    .eq('publisher_id', config.publisher_id)
+    .maybeSingle();
+  const url = (data as { avatar_url?: string | null } | null)?.avatar_url ?? null;
+  return url != null && url !== '' ? { url } : null;
+}
+
+/**
+ * The face preference the selection rules should actually run under.
+ *
+ * `off` whenever no reference was resolved, even though the column says
+ * otherwise. Without a face every photo reads "not known to contain the
+ * publisher", so `only` would filter the entire window away — and on this path
+ * that is not a short post the publisher can see and fix, it is an autonomous
+ * posting slot silently spent on a "nothing to post" reminder. Mirrors
+ * SuggestPhotosUseCase.selectionConfig on the device.
+ */
+function effectivePhotosOfMe(config: ConfigRow, reference: { url: string } | null): PhotosOfMeMode {
+  return reference == null ? 'off' : parsePhotosOfMe(config.photos_of_me);
 }
 
 function parseDate(value: string | null): Date | null {
@@ -141,6 +185,8 @@ interface RawClassification {
   quality: number;
   caption: string;
   scene: string;
+  /** Absent unless the request carried a reference face — see issue #137. */
+  contains_reference_person?: boolean;
 }
 
 /** A candidate row joined to its classification — what a batch is made of. */
@@ -153,6 +199,7 @@ interface ClassifiedCandidate {
   /** epoch ms */
   createdAt: number;
   scene: string;
+  containsPublisher: boolean;
 }
 
 /** How this shape answers the selection rules' questions (see photoSelection). */
@@ -162,6 +209,7 @@ const selectionFacts = (c: ClassifiedCandidate): PhotoFacts => ({
   quality: c.quality,
   createdAt: c.createdAt,
   scene: c.scene,
+  containsPublisher: c.containsPublisher,
 });
 
 /** Joins classify-photos' verdicts back onto the candidate rows they came from. */
@@ -182,6 +230,7 @@ function classifiedCandidates(
       quality: c.quality,
       createdAt: Date.parse(cand.created_at),
       scene: c.scene ?? '',
+      containsPublisher: c.contains_reference_person === true,
     });
   }
   return joined;
@@ -205,6 +254,7 @@ const CLASSIFY_CONCURRENCY = 3;
 async function classifyChunk(
   publisherId: string,
   photos: { id: string; url: string }[],
+  reference: { url: string } | null,
 ): Promise<RawClassification[]> {
   const res = await fetch(CLASSIFY_URL, {
     method: 'POST',
@@ -216,7 +266,7 @@ async function classifyChunk(
       // authenticatedUserId comment.
       'x-publisher-id': publisherId,
     },
-    body: JSON.stringify({ photos }),
+    body: JSON.stringify(reference == null ? { photos } : { photos, reference }),
   });
   if (!res.ok) throw new Error(`classify-photos failed (${res.status})`);
   const body = (await res.json()) as { classifications?: RawClassification[] };
@@ -226,12 +276,15 @@ async function classifyChunk(
 async function classify(
   publisherId: string,
   photos: { id: string; url: string }[],
+  reference: { url: string } | null,
 ): Promise<RawClassification[]> {
   const chunks = chunk(photos, CLASSIFY_PHOTOS_PER_REQUEST);
   const all: RawClassification[] = [];
   for (let i = 0; i < chunks.length; i += CLASSIFY_CONCURRENCY) {
     const wave = await Promise.all(
-      chunks.slice(i, i + CLASSIFY_CONCURRENCY).map(group => classifyChunk(publisherId, group)),
+      chunks
+        .slice(i, i + CLASSIFY_CONCURRENCY)
+        .map(group => classifyChunk(publisherId, group, reference)),
     );
     for (const part of wave) all.push(...part);
   }
@@ -434,9 +487,11 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
     .eq('owner_id', config.publisher_id);
   const alreadySent = new Set((sentRows ?? []).map((r: { id: string }) => r.id));
 
+  const reference = await faceReference(config);
   const classified = await classify(
     config.publisher_id,
     rows.map(r => ({ id: r.asset_id, url: r.url })),
+    reference,
   );
   const classifiedRows = classifiedCandidates(classified, rows);
 
@@ -450,6 +505,7 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
       // and the one they'd have built by hand agree — the column has existed
       // all along and neither runtime was reading it.
       minQuality: config.min_quality,
+      photosOfMe: effectivePhotosOfMe(config, reference),
     },
     alreadySent,
   );
@@ -543,9 +599,11 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     .eq('owner_id', config.publisher_id);
   const alreadySent = new Set((sentRows ?? []).map((r: { id: string }) => r.id));
 
+  const reference = await faceReference(config);
   const classified = await classify(
     config.publisher_id,
     rows.map(r => ({ id: r.asset_id, url: r.url })),
+    reference,
   );
 
   const batch = selectBatch(
@@ -558,6 +616,7 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
       // and the one they'd have built by hand agree — the column has existed
       // all along and neither runtime was reading it.
       minQuality: config.min_quality,
+      photosOfMe: effectivePhotosOfMe(config, reference),
     },
     alreadySent,
   );
@@ -621,7 +680,7 @@ Deno.serve(async (req: Request) => {
   const { data: configs, error } = await supabase
     .from('publisher_config')
     .select(
-      'publisher_id, require_approval, photos_per_post, notify_day_of_week, notify_time, enabled_categories, lookback_days, min_quality, timezone, expo_push_token, last_auto_post_at, post_pending_since, last_wake_push_at, last_candidate_sync_at, photo_sync_state',
+      'publisher_id, require_approval, photos_per_post, notify_day_of_week, notify_time, enabled_categories, lookback_days, min_quality, timezone, expo_push_token, photos_of_me, last_auto_post_at, post_pending_since, last_wake_push_at, last_candidate_sync_at, photo_sync_state',
     );
   if (error != null) return json({ error: error.message }, 500);
 

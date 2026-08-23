@@ -2,6 +2,7 @@ import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type {
+  FaceReference,
   IClassificationStore,
   IMediaLibrary,
   IPhotoClassifier,
@@ -187,7 +188,53 @@ export class SuggestPhotosUseCase {
      */
     private readonly grades?: IClassificationStore,
     private readonly maxPerScan: number = SuggestPhotosUseCase.MAX_PER_SCAN,
+    /**
+     * Supplies the publisher's profile photo, which is the face "photos of me"
+     * matches against (issue #137). Injected rather than reached for directly
+     * so this use case keeps knowing nothing about profiles; absent — as in
+     * tests and any caller that doesn't care — simply means the question is
+     * never asked.
+     */
+    private readonly avatarUrl?: (publisherId: string) => Promise<string | null>,
   ) {}
+
+  /**
+   * The face to look for during a run, or null to not look.
+   *
+   * Null whenever the preference is off, which is what keeps the profile photo
+   * out of every classify request a publisher who didn't ask for this makes. A
+   * publisher with the preference on but no avatar also lands here — the UI
+   * hides the control in that case, so it means a photo was removed after the
+   * setting was saved, and the ranking degrades to plain quality rather than
+   * declaring every photo publisher-free.
+   */
+  private async faceReference(config: PublisherConfig): Promise<FaceReference | null> {
+    if (config.photosOfMe === 'off') return null;
+    const url = await this.avatarUrl?.(config.publisherId).catch(() => null);
+    return url != null && url !== '' ? { url } : null;
+  }
+
+  /** The cache key for a run's face — see IClassificationStore.load. */
+  private static referenceKey(reference: FaceReference | null): string {
+    return reference?.url ?? '';
+  }
+
+  /**
+   * The config the selection rules should actually run under.
+   *
+   * Identical to the stored one except when the preference is on and no face
+   * could be resolved — no avatar, or a profile fetch that simply failed. Every
+   * photo then reads `containsPublisher: false`, and `only` would filter the
+   * whole window away and hand back an empty post with nothing to explain it.
+   * Downgrading to `off` for the run degrades to plain quality ranking instead,
+   * and the next run picks the preference back up once the profile loads.
+   */
+  private static selectionConfig(
+    config: PublisherConfig,
+    reference: FaceReference | null,
+  ): PublisherConfig {
+    return reference == null ? config.withPhotosOfMe('off') : config;
+  }
 
   /**
    * The stretch a live suggestion draws from: everything since the last post,
@@ -254,10 +301,16 @@ export class SuggestPhotosUseCase {
     const prioritised = this.selection.gradingOrder(candidates);
     progress?.onScanned(candidates.length, this.selection.distinctMoments(candidates));
 
+    const reference = await this.faceReference(config);
+    const referenceKey = SuggestPhotosUseCase.referenceKey(reference);
+    const rules = SuggestPhotosUseCase.selectionConfig(config, reference);
+
     // Grades already bought for these photos — free, and the reason the whole
-    // window is affordable at all.
+    // window is affordable at all. Only grades bought while looking for the
+    // same face count: switching "photos of me" on buys the window again, once,
+    // because no earlier grade knows who is in the picture.
     const remembered =
-      (await this.grades?.load(prioritised.map(c => c.id))) ??
+      (await this.grades?.load(prioritised.map(c => c.id), referenceKey)) ??
       new Map<string, PhotoClassification>();
     // The backfill reconstructs one post per past interval and never swaps, so
     // it keeps the old shallow grading — grading every window in full would
@@ -280,22 +333,27 @@ export class SuggestPhotosUseCase {
     const announceIfReady = (): void => {
       if (announced || accumulated.length < readyAt) return;
       announced = true;
-      progress?.onBatchReady?.(...this.split(accumulated, config, alreadySent));
+      progress?.onBatchReady?.(...this.split(accumulated, rules, alreadySent));
     };
     announceIfReady();
 
     const freshlyGraded: PhotoClassification[] = [];
     try {
-      await this.classifier.classify(ungraded, (result, index, total) => {
-        accumulated.push(result);
-        freshlyGraded.push(result);
-        progress?.onClassifying(
-          index,
-          total,
-          this.selection.selectBatch(accumulated, config, alreadySent),
-        );
-        announceIfReady();
-      });
+      await this.classifier.classify(
+        ungraded,
+        (result, index, total) => {
+          accumulated.push(result);
+          freshlyGraded.push(result);
+          progress?.onClassifying(
+            index,
+            total,
+            this.selection.selectBatch(accumulated, rules, alreadySent),
+          );
+          announceIfReady();
+        },
+        undefined,
+        reference,
+      );
     } finally {
       // Written once at the end rather than per photo: a scan is hundreds of
       // grades, and re-serialising the whole blob each time would cost more
@@ -306,10 +364,10 @@ export class SuggestPhotosUseCase {
       // retry pay for them a second time. What must never be written is a
       // *guess*: the classifier throws rather than inventing a grade, so
       // nothing in here is a placeholder.
-      if (freshlyGraded.length > 0) await this.grades?.save(freshlyGraded);
+      if (freshlyGraded.length > 0) await this.grades?.save(freshlyGraded, referenceKey);
     }
 
-    const [batch, pool] = this.split(accumulated, config, alreadySent);
+    const [batch, pool] = this.split(accumulated, rules, alreadySent);
     const quotaExhausted = this.classifier.quotaExhausted?.() === true;
     const rateLimited = this.classifier.rateLimited?.() === true;
     return {
@@ -421,23 +479,31 @@ export class SuggestPhotosUseCase {
     let quotaExhausted = false;
     let rateLimited = false;
 
+    // Resolved once for the whole top-up, not per wave: it is the same face
+    // throughout, and the lookup can be a network round trip.
+    const reference = await this.faceReference(config);
+    const referenceKey = SuggestPhotosUseCase.referenceKey(reference);
+    const rules = SuggestPhotosUseCase.selectionConfig(config, reference);
+
     while (consumed < candidates.length && suggestions.length < want && waves < maxWaves) {
       waves++;
       const wave = candidates.slice(consumed, consumed + SuggestPhotosUseCase.TOP_UP_WAVE);
       // A wave the scan already graded (cap reached, or the photo arrived after
       // it) is answered from memory — no call, no quota.
       const remembered =
-        (await this.grades?.load(wave.map(c => c.id))) ?? new Map<string, PhotoClassification>();
+        (await this.grades?.load(wave.map(c => c.id), referenceKey)) ??
+        new Map<string, PhotoClassification>();
       const fresh = wave.filter(c => !remembered.has(c.id));
-      const graded = fresh.length > 0 ? await this.classifier.classify(fresh) : [];
-      if (graded.length > 0) await this.grades?.save(graded);
+      const graded =
+        fresh.length > 0 ? await this.classifier.classify(fresh, undefined, undefined, reference) : [];
+      if (graded.length > 0) await this.grades?.save(graded, referenceKey);
       const results = [
         ...wave.map(c => remembered.get(c.id)).filter((c): c is PhotoClassification => c != null),
         ...graded,
       ];
       consumed += wave.length;
       classified.push(...results);
-      suggestions.push(...results.filter(c => isSuggestablePhoto(c, config)));
+      suggestions.push(...results.filter(c => isSuggestablePhoto(c, rules)));
       // A spent daily budget fails every remaining photo identically. Walking
       // the rest of the window would burn a wave per press and still come back
       // empty, so stop and let the caller say why (issue #81's lesson).
