@@ -394,3 +394,71 @@ describe('GeminiPhotoClassifier — face reference (issue #137)', () => {
     expect(result?.publisherConfidence).toBe(0);
   });
 });
+
+describe('GeminiPhotoClassifier — session token', () => {
+  const withToken = (token: () => Promise<string | null>): GeminiPhotoClassifier =>
+    new GeminiPhotoClassifier(
+      'https://fn.test/classify', 'anon-key', undefined, token, reportedQuota,
+    );
+
+  it('never sends the anon key in place of a missing session token', async () => {
+    // classify-photos rejects the anon key outright, so substituting it is a
+    // guaranteed 401 — and 401 is fatal, so it took the whole scan with it.
+    let token: string | null = null;
+    const seen: string[] = [];
+    mockFetch.mockImplementation((_url: string, init: { body: string; headers: Record<string, string> }) => {
+      seen.push(String(init.headers.Authorization));
+      return Promise.resolve(okResponse(requestedIds(init.body)));
+    });
+
+    const classifier = withToken(() => Promise.resolve(token));
+    const run = classifier.classify([candidate('p0')]);
+    // The refresh lands while the first attempt is waiting it out.
+    token = 'fresh-jwt';
+    await run;
+
+    expect(seen).not.toContain('Bearer anon-key');
+    expect(seen).toContain('Bearer fresh-jwt');
+  });
+
+  it('re-reads the session for every attempt, so a long scan survives expiry', async () => {
+    // A scan runs for minutes and the access token does not. A bearer captured
+    // once before the retry loop is stale by the time a retry uses it.
+    const tokens = ['expired-jwt', 'refreshed-jwt'];
+    let next = 0;
+    const seen: string[] = [];
+    mockFetch.mockImplementation((_url: string, init: { body: string; headers: Record<string, string> }) => {
+      seen.push(String(init.headers.Authorization));
+      if (String(init.headers.Authorization) === 'Bearer expired-jwt') {
+        return Promise.resolve({ ok: false, status: 401, text: () => Promise.resolve('unauthorized') });
+      }
+      return Promise.resolve(okResponse(requestedIds(init.body)));
+    });
+
+    const classifier = withToken(() => Promise.resolve(tokens[Math.min(next++, 1)]!));
+    const results = await classifier.classify([candidate('p0')]);
+
+    expect(seen).toEqual(['Bearer expired-jwt', 'Bearer refreshed-jwt']);
+    expect(results).toHaveLength(1);
+  });
+
+  it('gives up with a clear error when the session never arrives', async () => {
+    // Bounded, so a genuinely signed-out user surfaces instead of looping.
+    mockFetch.mockImplementation((_url: string, init: { body: string }) =>
+      Promise.resolve(okResponse(requestedIds(init.body))));
+    await expect(withToken(() => Promise.resolve(null)).classify([candidate('p0')]))
+      .rejects.toThrow(/not signed in/);
+  });
+
+  it('still uses the anon key when no session provider was configured at all', async () => {
+    // A caller with no session concept is a different case from a signed-in
+    // user mid-refresh, and must keep working as it did.
+    const seen: string[] = [];
+    mockFetch.mockImplementation((_url: string, init: { body: string; headers: Record<string, string> }) => {
+      seen.push(String(init.headers.Authorization));
+      return Promise.resolve(okResponse(requestedIds(init.body)));
+    });
+    await makeSut().classify([candidate('p0')]);
+    expect(seen).toEqual(['Bearer anon-key']);
+  });
+});
