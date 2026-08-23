@@ -5,6 +5,8 @@ import {
   clamp01,
   classifyCaller,
   parseClassification,
+  downscaledUrl,
+  pairBatchResults,
   parseRetryDelaySeconds,
 } from './logic.ts';
 
@@ -161,4 +163,73 @@ Deno.test('classifyCaller — an unconfigured service key never matches', () => 
     token: 'anything',
   });
   assertEquals(classifyCaller('Bearer ', 'pub-1', ''), { kind: 'rejected' });
+});
+
+// --- downscaledUrl ----------------------------------------------------------
+
+Deno.test('downscaledUrl — inserts a width-limited transformation', () => {
+  assertEquals(
+    downscaledUrl('https://res.cloudinary.com/x/image/upload/v123/staging/abc.jpg', 512),
+    'https://res.cloudinary.com/x/image/upload/w_512,c_limit,q_auto/v123/staging/abc.jpg',
+  );
+});
+
+Deno.test('downscaledUrl — leaves an existing transformation alone', () => {
+  // The caller asked for a specific rendition; stacking ours on top would
+  // silently override a deliberate choice.
+  const already = 'https://res.cloudinary.com/x/image/upload/w_200,c_fill/v1/a.jpg';
+  assertEquals(downscaledUrl(already), already);
+});
+
+Deno.test('downscaledUrl — passes through a non-Cloudinary URL untouched', () => {
+  // Guessing at an unknown URL shape would break the fetch outright.
+  const other = 'https://example.com/photos/a.jpg';
+  assertEquals(downscaledUrl(other), other);
+  assertEquals(downscaledUrl(''), '');
+});
+
+// --- pairBatchResults -------------------------------------------------------
+
+const entry = (index: number, caption: string) => ({ index, caption });
+
+Deno.test('pairBatchResults — pairs each entry to the id at its index', () => {
+  const { paired, missing } = pairBatchResults(
+    ['a', 'b', 'c'],
+    [entry(0, 'first'), entry(1, 'second'), entry(2, 'third')],
+  );
+  assertEquals(paired.map(p => p.id), ['a', 'b', 'c']);
+  assertEquals(paired[0]?.parsed.caption, 'first');
+  assertEquals(missing, []);
+});
+
+Deno.test('pairBatchResults — respects index, not arrival order', () => {
+  // The whole reason the schema carries an index: a reordered array must not
+  // attach one photo's grade to another.
+  const { paired } = pairBatchResults(['a', 'b'], [entry(1, 'for-b'), entry(0, 'for-a')]);
+  assertEquals(paired.find(p => p.id === 'a')?.parsed.caption, 'for-a');
+  assertEquals(paired.find(p => p.id === 'b')?.parsed.caption, 'for-b');
+});
+
+Deno.test('pairBatchResults — reports a skipped photo as missing, never as a guess', () => {
+  const { paired, missing } = pairBatchResults(['a', 'b', 'c'], [entry(0, 'x'), entry(2, 'z')]);
+  assertEquals(paired.map(p => p.id), ['a', 'c']);
+  assertEquals(missing, ['b']);
+});
+
+Deno.test('pairBatchResults — drops out-of-range and duplicate indices', () => {
+  // A model that lost track of the ordering must not have its confusion
+  // written into the cache as a real grade.
+  const { paired, missing } = pairBatchResults(
+    ['a', 'b'],
+    [entry(0, 'first'), entry(0, 'duplicate'), entry(7, 'nowhere'), entry(-1, 'negative')],
+  );
+  assertEquals(paired.map(p => p.id), ['a']);
+  assertEquals(paired[0]?.parsed.caption, 'first');
+  assertEquals(missing, ['b']);
+});
+
+Deno.test('pairBatchResults — an empty answer leaves every photo ungraded', () => {
+  const { paired, missing } = pairBatchResults(['a', 'b'], []);
+  assertEquals(paired, []);
+  assertEquals(missing, ['a', 'b']);
 });

@@ -31,6 +31,8 @@ import {
   CATEGORIES,
   type Classification,
   classifyCaller,
+  downscaledUrl,
+  pairBatchResults,
   parseClassification,
   parseRetryDelaySeconds,
   type RefusalReason,
@@ -50,8 +52,22 @@ const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
-/** Guards against runaway clients: request size cap + per-user daily quota. */
-const MAX_PHOTOS_PER_REQUEST = 3;
+/**
+ * Photos per request — and, now, per Gemini call.
+ *
+ * This was 3, and each of the three was its own Gemini call made in sequence,
+ * so the number only ever decided how long one request ran. Every photo cost a
+ * slot from a free tier that allows 5 requests per MINUTE, which made a
+ * 150-photo window roughly half an hour of grading.
+ *
+ * The images now travel together in a single call, so this is a genuine divisor
+ * on the rate limit rather than a batch size in name only: twelve photos cost
+ * one slot instead of twelve. Twelve downscaled images is well under a megabyte
+ * (see CLASSIFY_IMAGE_WIDTH) and leaves ample headroom under Gemini's inline
+ * payload limit; the ceiling on raising it further is the model's attention
+ * across many images in one context, not the transport.
+ */
+const MAX_PHOTOS_PER_REQUEST = 12;
 /**
  * Per-user photos per day. This is *our* ceiling, not Google's — Google's real
  * limit is per-account and only visible on the AI Studio rate-limit dashboard,
@@ -88,7 +104,14 @@ async function authenticatedUserId(req: Request): Promise<string | null> {
   }
 }
 
-const PROMPT = `You classify a single photo for a social "share my travels" app.
+const PROMPT = `You classify photos for a social "share my travels" app.
+
+You are given N images in order. Grade EVERY image independently and return one
+JSON entry per image, each carrying the 0-based "index" of the image it grades.
+Return exactly N entries. Never merge, skip, or reorder them — an entry whose
+index does not match the image it describes corrupts the publisher's library.
+
+For each image:
 
 Choose exactly one category:
 - selfie_with_view: one or more people in frame with a scenic/landscape background — selfie, posed, or candid alike.
@@ -112,16 +135,26 @@ Also rate:
 
 Respond with JSON only.`;
 
+/**
+ * One entry per image, tagged with the index of the image it grades.
+ *
+ * `index` is required and load-bearing: see pairBatchResults for why a bare
+ * ordered array is not safe enough to attach a grade to a photo.
+ */
 const RESPONSE_SCHEMA = {
-  type: 'OBJECT',
-  properties: {
-    category: { type: 'STRING', enum: [...CATEGORIES] },
-    confidence: { type: 'NUMBER' },
-    quality: { type: 'NUMBER' },
-    caption: { type: 'STRING' },
-    scene: { type: 'STRING' },
+  type: 'ARRAY',
+  items: {
+    type: 'OBJECT',
+    properties: {
+      index: { type: 'INTEGER' },
+      category: { type: 'STRING', enum: [...CATEGORIES] },
+      confidence: { type: 'NUMBER' },
+      quality: { type: 'NUMBER' },
+      caption: { type: 'STRING' },
+      scene: { type: 'STRING' },
+    },
+    required: ['index', 'category', 'confidence', 'quality', 'caption', 'scene'],
   },
-  required: ['category', 'confidence', 'quality', 'caption', 'scene'],
 };
 
 const cors: Record<string, string> = {
@@ -149,7 +182,10 @@ async function resolveImage(photo: PhotoInput): Promise<{ data: string; mimeType
     return { data: photo.base64, mimeType: photo.mimeType ?? 'image/jpeg' };
   }
   if (photo.url) {
-    const res = await fetch(photo.url);
+    // Ask the CDN for a thumbnail rather than the original. Classification does
+    // not need the pixels a post needs, and the smaller body is what makes a
+    // batched request fit.
+    const res = await fetch(downscaledUrl(photo.url));
     if (!res.ok) throw new Error(`fetch image failed (${res.status})`);
     const mimeType = res.headers.get('content-type')?.split(';')[0] ?? 'image/jpeg';
     const bytes = new Uint8Array(await res.arrayBuffer());
@@ -250,12 +286,35 @@ class ClassifyError extends Error {
   }
 }
 
-async function classifyOne(photo: PhotoInput): Promise<Classification> {
-  const { data, mimeType } = await resolveImage(photo);
+/**
+ * Grades a whole set of photos in ONE Gemini call.
+ *
+ * The images ride together in a single `contents` part list, in the order given,
+ * and the model answers with one indexed entry each. That ordering is the only
+ * thing tying a grade to a photo, so pairBatchResults verifies it rather than
+ * trusting it — a grade attached to the wrong photo would be cached for months
+ * and look exactly like a correct one.
+ *
+ * A photo the model skipped comes back in `missing` rather than as a guess.
+ * That is the same principle the single-photo version established: a grade we
+ * did not receive is never invented, because a fabricated `other`/quality-0
+ * verdict silently retires a photo forever.
+ */
+async function classifyBatch(
+  photos: PhotoInput[],
+): Promise<{ classifications: Classification[]; missing: string[] }> {
+  const images = await Promise.all(photos.map(resolveImage));
 
   const result = await callGemini(
     JSON.stringify({
-      contents: [{ parts: [{ text: PROMPT }, { inlineData: { mimeType, data } }] }],
+      contents: [
+        {
+          parts: [
+            { text: PROMPT },
+            ...images.map(({ data, mimeType }) => ({ inlineData: { mimeType, data } })),
+          ],
+        },
+      ],
       generationConfig: {
         responseMimeType: 'application/json',
         responseSchema: RESPONSE_SCHEMA,
@@ -264,9 +323,17 @@ async function classifyOne(photo: PhotoInput): Promise<Classification> {
     }),
   );
 
+  // The whole batch shares one call, so a refusal refuses all of it. The first
+  // photo's id names the failure only so the error keeps its shape; the caller
+  // reports the request, not the photo.
   if (!result.ok) {
     const { status, body, retryAfterSeconds } = result.failure;
-    throw new ClassifyError(photo.id, `Gemini error (${status}): ${body}`, status, retryAfterSeconds);
+    throw new ClassifyError(
+      photos[0]?.id ?? '',
+      `Gemini error (${status}): ${body}`,
+      status,
+      retryAfterSeconds,
+    );
   }
 
   const payload = result.payload as
@@ -276,9 +343,17 @@ async function classifyOne(photo: PhotoInput): Promise<Classification> {
   if (typeof text !== 'string') {
     // Log the shape so an API format change is diagnosable from function logs.
     console.error('Gemini returned no content; payload shape:', JSON.stringify(payload)?.slice(0, 500));
-    throw new ClassifyError(photo.id, 'Gemini returned no content');
+    throw new ClassifyError(photos[0]?.id ?? '', 'Gemini returned no content');
   }
-  return parseClassification(photo.id, JSON.parse(text));
+
+  const parsed = JSON.parse(text);
+  const entries = Array.isArray(parsed) ? (parsed as Record<string, unknown>[]) : [];
+  const { paired, missing } = pairBatchResults(photos.map(p => p.id), entries);
+
+  return {
+    classifications: paired.map(({ id, parsed: entry }) => parseClassification(id, entry)),
+    missing,
+  };
 }
 
 Deno.serve(async (req: Request) => {
@@ -325,19 +400,26 @@ Deno.serve(async (req: Request) => {
   // the publisher those photos forever, with nothing anywhere saying why.
   // Failing the request is the honest answer: the client surfaces it and
   // remembers nothing.
-  const classifications: Classification[] = [];
+  let classifications: Classification[] = [];
   try {
-    for (const photo of photos) {
-      classifications.push(await classifyOne(photo));
+    // One call for the whole request. `missing` is photos the model did not
+    // answer for; they are simply absent from the response, so the caller
+    // re-queues them rather than caching a grade nobody produced.
+    const graded = await classifyBatch(photos);
+    classifications = graded.classifications;
+    if (graded.missing.length > 0) {
+      console.warn(
+        `classify: ${graded.missing.length}/${photos.length} photos ungraded in batch`,
+      );
     }
   } catch (err) {
     const failure = err instanceof ClassifyError ? err : null;
     console.error('classify failed:', err);
 
     // An upstream 429 is Gemini's per-minute cap, NOT the day's budget — the
-    // free tier allows 5 requests/minute per model and the app grades four
-    // photos at a time, so a scan trips this within seconds of starting and is
-    // usually fine again half a minute later. It is reported as its own reason,
+    // free tier allows 5 requests/minute per model, and although a request now
+    // carries up to MAX_PHOTOS_PER_REQUEST photos for one slot, a big enough
+    // scan still reaches it. It clears in about a minute. It is reported as its own reason,
     // with the wait attached, so the app can pause and resume instead of
     // declaring the day over on the user's first attempt.
     if (failure?.upstreamStatus === 429) {

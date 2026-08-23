@@ -20,23 +20,35 @@ function candidate(id: string): PhotoCandidate {
   return { id, uri: `https://cdn.test/${id}.jpg`, createdAt: new Date(0) };
 }
 
-function okResponse(id: string): { ok: true; json: () => Promise<unknown> } {
+/**
+ * A grade for every photo the request asked about.
+ *
+ * The classifier batches photos into one request, so a fake that answers with a
+ * single grade regardless of what was asked models a server that no longer
+ * exists — and would let a real regression in the id-mapping pass unnoticed.
+ */
+function okResponse(ids: string[]): { ok: true; json: () => Promise<unknown> } {
   return {
     ok: true,
     json: () =>
       Promise.resolve({
-        classifications: [
-          { id, category: 'food', confidence: 0.9, quality: 0.8, caption: '', scene: 's' },
-        ],
+        classifications: ids.map(id => ({
+          id, category: 'food', confidence: 0.9, quality: 0.8, caption: '', scene: 's',
+        })),
       }),
   };
 }
 
-/** Responds after `delayMs`, reading the photo id from the request body. */
+/** Every photo id carried by a request body. */
+function requestedIds(body: string): string[] {
+  return (JSON.parse(body) as { photos: Array<{ id: string }> }).photos.map(p => p.id);
+}
+
+/** Responds after `delayMs`, keyed on the first photo id in the request body. */
 function respondWithDelay(delayMs: (id: string) => number): void {
   mockFetch.mockImplementation((_url: string, init: { body: string }) => {
-    const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
-    return new Promise(resolve => setTimeout(() => resolve(okResponse(id)), delayMs(id)));
+    const ids = requestedIds(init.body);
+    return new Promise(resolve => setTimeout(() => resolve(okResponse(ids)), delayMs(ids[0]!)));
   });
 }
 
@@ -108,9 +120,9 @@ describe('GeminiPhotoClassifier.classify — settles', () => {
     // A half-graded window presented as a finished post is indistinguishable
     // from a real one, so the run aborts instead of quietly shrinking.
     mockFetch.mockImplementation((_url: string, init: { body: string }) => {
-      const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
-      if (id === 'p1' || id === 'p3') return Promise.reject(new Error('boom'));
-      return Promise.resolve(okResponse(id));
+      const ids = requestedIds(init.body);
+      if (ids.includes('p1')) return Promise.reject(new Error('boom'));
+      return Promise.resolve(okResponse(ids));
     });
     await expect(
       makeSut().classify([candidate('p0'), candidate('p1'), candidate('p2'), candidate('p3')]),
@@ -119,18 +131,18 @@ describe('GeminiPhotoClassifier.classify — settles', () => {
 
   it('reports the results it did obtain before the failure, via onEach', async () => {
     // The grades bought before the abort are real; the use case persists them
-    // from `onEach` so a retry does not pay for them twice.
+    // from `onEach` so a retry does not pay for them twice. Photos travel in
+    // groups now, so the boundary this protects is a whole chunk: enough
+    // candidates for two requests, with the second one failing.
+    const many = Array.from({ length: 24 }, (_, i) => candidate(`p${i}`));
     mockFetch.mockImplementation((_url: string, init: { body: string }) => {
-      const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
-      if (id === 'p3') return Promise.reject(new Error('boom'));
-      return Promise.resolve(okResponse(id));
+      const ids = requestedIds(init.body);
+      if (ids.includes('p12')) return Promise.reject(new Error('boom'));
+      return Promise.resolve(okResponse(ids));
     });
     const seen: string[] = [];
     await expect(
-      makeSut().classify(
-        [candidate('p0'), candidate('p1'), candidate('p2'), candidate('p3')],
-        r => { seen.push(r.candidate.id); },
-      ),
+      makeSut().classify(many, r => { seen.push(r.candidate.id); }),
     ).rejects.toThrow(ClassificationFailedError);
     expect(seen).toContain('p0');
   });
@@ -138,10 +150,8 @@ describe('GeminiPhotoClassifier.classify — settles', () => {
   it('skips an unreadable photo without failing the run', async () => {
     // A photo whose bytes never arrive (iCloud original still in the cloud) is
     // a property of that one photo — it costs a suggestion, not the scan.
-    mockFetch.mockImplementation((_url: string, init: { body: string }) => {
-      const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
-      return Promise.resolve(okResponse(id));
-    });
+    mockFetch.mockImplementation((_url: string, init: { body: string }) =>
+      Promise.resolve(okResponse(requestedIds(init.body))));
     const classifier = new GeminiPhotoClassifier(
       'https://fn.test/classify',
       'anon-key',

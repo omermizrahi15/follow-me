@@ -278,6 +278,10 @@ Deno.test('reminderPushContent — grading-failed blames the server, not the lib
   assertEquals(body.includes('could not sort them'), true);
 });
 
-Deno.test('GRADE_BUDGET_PER_TICK — bounded, so one publisher cannot own a tick', () => {
-  assertEquals(GRADE_BUDGET_PER_TICK > 0 && GRADE_BUDGET_PER_TICK <= 12, true);
+Deno.test('GRADE_BUDGET_PER_TICK — a whole number of full classify requests', () => {
+  // The budget is spent as batched requests, so a value that leaves a stub
+  // chunk would buy a rate-limit slot to grade one or two photos.
+  assertEquals(GRADE_BUDGET_PER_TICK % 12, 0);
+  // Still bounded: one publisher's backlog must not monopolise a shared tick.
+  assertEquals(GRADE_BUDGET_PER_TICK > 0 && GRADE_BUDGET_PER_TICK <= 60, true);
 });

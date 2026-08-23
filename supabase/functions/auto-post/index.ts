@@ -204,18 +204,15 @@ function classifiedCandidates(
 
 /**
  * Photos per classify-photos request. Must stay at or below that function's own
- * MAX_PHOTOS_PER_REQUEST — it classifies sequentially within a request, so a
- * bigger body is a longer-running worker, not a faster one, and over the cap it
- * answers 400.
+ * MAX_PHOTOS_PER_REQUEST, which answers 400 above it.
  *
- * One, because classify-photos answers all-or-nothing: a request whose third
- * photo trips Gemini's rate limit returns 429 for the whole body, discarding
- * the two grades it had already paid for. Under a rate limit — which is the
- * regime this job now assumes — that is the difference between banking every
- * grade bought and losing most of them. One photo per request means a refusal
- * costs exactly the call that was refused.
+ * Set to the function's own cap, because a request is now a single Gemini call
+ * carrying every photo in it. When each photo cost its own call this was 1, to
+ * make a rate-limited refusal cost only the photo it refused; batching inverts
+ * that reasoning entirely — asking for one photo at a time would spend twelve
+ * rate-limit slots to do one request's work.
  */
-const CLASSIFY_PHOTOS_PER_REQUEST = 1;
+const CLASSIFY_PHOTOS_PER_REQUEST = 12;
 
 /**
  * Requests in flight at once.

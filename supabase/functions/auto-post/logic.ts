@@ -185,12 +185,15 @@ export function syncGraceDecision(input: SyncGraceInput): SyncGraceDecision {
 // limit stops being an error and becomes what it actually is: backpressure.
 
 /**
- * Photos graded per tick. The ceiling is Gemini's 5/minute on the free tier, so
- * this is roughly a minute of work — enough to make real progress, short enough
- * that one publisher's backlog doesn't monopolise a tick shared with everyone
- * else's. Above the rate limit it is the run's wall clock that binds, not this.
+ * Photos graded per tick.
+ *
+ * This was 6, when a photo cost a whole request from a free tier allowing 5 per
+ * minute. A request now carries twelve photos for one slot, so the same handful
+ * of rate-limit slots buys 48 photos — four calls, comfortably inside both the
+ * per-minute cap and the function's wall clock, and still bounded so one
+ * publisher's backlog cannot monopolise a tick shared with everyone else's.
  */
-export const GRADE_BUDGET_PER_TICK = 6;
+export const GRADE_BUDGET_PER_TICK = 48;
 
 /**
  * How long a due posting waits for its candidates to finish grading.
