@@ -1,5 +1,6 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, Switch, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
+import Constants from 'expo-constants';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
@@ -132,7 +133,7 @@ export function SettingsScreen(): React.JSX.Element {
             </View>
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>Follow Me</Text>
-              <Text style={styles.rowValue}>Version 0.1.0</Text>
+              <Text style={styles.rowValue}>Version {Constants.expoConfig?.version ?? '1.0.0'}</Text>
             </View>
           </View>
           <View style={styles.divider} />

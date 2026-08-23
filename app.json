@@ -11,7 +11,6 @@
     "scheme": "followme",
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.followme.app",
       "appleTeamId": "458VBLF2C4",
       "entitlements": {
         "com.apple.developer.usernotifications.time-sensitive": true

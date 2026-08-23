@@ -28,9 +28,13 @@ npm run typecheck         # TypeScript errors
 npm run lint              # ESLint + architecture boundaries
 npm run validate          # all three in sequence — run this before pushing
 npm run test:integration  # requires env vars (see .env.example)
+deno task test            # Deno tests for Supabase Edge Functions
+deno task check           # deno check on every function entrypoint
 ```
 
 The pre-commit hook runs `npm run validate` automatically. If it fails, the commit is blocked. Fix the errors before committing.
+
+**Deno tests:** Supabase Edge Functions live under `supabase/functions/` and test themselves with Deno test files (`*_test.ts`). These are separate from the npm test suite and must pass before deploying any functions. Run both `deno task test` and `deno task check` before pushing changes to Edge Functions.
 
 ## Architecture boundaries
 
@@ -96,19 +100,9 @@ deno task test       # the Deno side
 deno task check      # deno check on every function entrypoint
 ```
 
-## Verifying the auth deep link manually
+## Signing in locally
 
-The magic-link redirect (`followme://auth#access_token=...`) can't be unit tested end-to-end — `subscribeToAuthDeepLinks` (`src/infrastructure/auth/deepLinkSubscription.ts`) has full unit coverage for the JS-side wiring, but whether iOS actually hands the URL to the app depends on native config that only a simulator/device can confirm.
-
-With the app running on a booted simulator (`npx expo run:ios`), fire a fake redirect at it:
-
-```bash
-xcrun simctl openurl booted "followme://auth#access_token=fake&refresh_token=fake&type=magiclink"
-```
-
-The app should come to the foreground without crashing (a fake token still gets rejected by Supabase, but the deep link itself must reach the JS layer). If nothing happens, check `ios/FollowMe/Info.plist` for `CFBundleURLSchemes` containing `followme` — `expo prebuild` regenerates this from `app.json`'s `scheme` field.
-
-If the *real* email magic link doesn't redirect into the app (but this manual check above passes), the cause is almost always the Supabase project's **Authentication → URL Configuration → Redirect URLs** allow-list missing `followme://auth` — Supabase silently falls back to the Site URL instead of erroring when the redirect target isn't allow-listed.
+The app uses phone OTP over WhatsApp for authentication. There's no manual verification needed — `SupabaseAuthService.ts` handles the auth flow, and `PhoneSignInScreen.tsx` collects the phone number. The E2E test suite (`e2e-ui` skill) uses a test OTP via `supabase start` (see [README → Getting started](README.md#getting-started) for the test account setup).
 
 ## The subscriber join flow (web page → DB)
 
@@ -166,8 +160,25 @@ the change merges.)
 
 - Apply the `subscribers` migration (`supabase/migrations/`) if you haven't.
 - If you fork/rename the repo, update `JOIN_BASE_URL` in
-  `src/ui/screens/SubscribersScreen.tsx` and `SUBSCRIBE_URL` in
+  `src/ui/hooks/useInviteLink.ts` and `SUBSCRIBE_URL` in
   `docs/join/index.html`.
+
+## CI workflows
+
+A required check on main that fails blocks all merges. Here's what runs and when:
+
+| Workflow | Trigger | Blocks merge? | Purpose |
+|---|---|---|---|
+| `ci.yml` (app) | app code, config, or package changes on main or any PR | Yes | Lint, typecheck, unit tests (`npm run validate`) |
+| `ci-services.yml` (functions) | Edge Function code changes on main or any PR | Yes | Deno tests for changed functions (`deno task test`) |
+| `integration.yml` | on main merge only | Yes | Hit the staging Supabase project with integration tests |
+| `native-build-check.yml` | any PR | No (informational) | Warns if you need a native rebuild (`eas build`) |
+| `deploy-app.yml` (OTA) | app merge to main | No (informational) | Ship JS bundle to staging EAS channel; promote to prod manually |
+| `deploy-db.yml` (migrations) | migration merge to main | Yes (staging only) | Apply pending migrations to staging; production requires manual workflow run |
+| `deploy-services.yml` (functions) | function merge to main | No (informational) | Deploy changed Edge Functions to staging; production requires manual run |
+| `e2e-ui.yml` | manual workflow run only | No | Build native iOS binary + run Maestro E2E suite |
+| `sentry-to-issue.yml` | runs every 6 hours | No | File GitHub bugs for critical Sentry crashes |
+| `web-e2e.yml` | web pages (docs/join/, docs/gallery.html) change | No | Playwright tests on the subscribe page and post gallery |
 
 ## Environment variables
 
