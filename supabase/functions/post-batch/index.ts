@@ -23,6 +23,7 @@
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { postingIdFor, publishBatch, twilioFromEnv, type PublishablePhoto } from '../_shared/publishBatch.ts';
 import { resolveBatchPlace } from '../_shared/geocode.ts';
+import { isTokenDead, sendExpoPush } from '../_shared/expoPush.ts';
 import type { Coordinate } from '../../../src/domain/services/postingLocation.ts';
 import { postedPushContent, postFailedPushContent, publishablePhotos } from './logic.ts';
 
@@ -64,19 +65,27 @@ async function pushTokenFor(publisherId: string): Promise<string> {
  * still be left without confirmation).
  */
 async function pushToPublisher(
+  publisherId: string,
   token: string,
   content: { title: string; body: string },
   data: Record<string, unknown>,
 ): Promise<void> {
   if (!token) return;
-  try {
-    await fetch('https://exp.host/--/api/v2/push/send', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ to: token, ...content, sound: 'default', data }),
-    });
-  } catch (err) {
-    console.error('post-batch confirmation push failed:', err);
+  // sendExpoPush reads the ticket, so "best-effort" now means we know when the
+  // effort failed. Expo reports a dead token inside an HTTP 200, which the bare
+  // fetch here could never have seen — see _shared/expoPush.ts.
+  const failure = await sendExpoPush({ to: token, ...content, sound: 'default', data });
+  if (failure == null) return;
+
+  console.error(
+    `post-batch confirmation push failed for ${publisherId}: ${failure.code ?? 'no code'} — ${failure.message}`,
+  );
+  if (isTokenDead(failure)) {
+    console.warn(`clearing dead push token for ${publisherId}`);
+    await admin
+      .from('publisher_config')
+      .update({ expo_push_token: null })
+      .eq('publisher_id', publisherId);
   }
 }
 
@@ -185,6 +194,7 @@ Deno.serve(async (req: Request) => {
     });
 
     await pushToPublisher(
+      userId,
       token,
       postedPushContent(result.photoCount, result.subscriberCount, place),
       { screen: 'Posting', postingId, publisherId: userId },
@@ -199,7 +209,11 @@ Deno.serve(async (req: Request) => {
       .update({ posted_at: null, posting_id: null })
       .eq('batch_id', batchId);
     console.error(`post-batch ${batchId} failed:`, err);
-    await pushToPublisher(token, postFailedPushContent(), { screen: 'ReviewSuggestion', publisherId: userId, batchId });
+    await pushToPublisher(userId, token, postFailedPushContent(), {
+      screen: 'ReviewSuggestion',
+      publisherId: userId,
+      batchId,
+    });
     return json({ error: err instanceof Error ? err.message : 'Publish failed' }, 500);
   }
 });

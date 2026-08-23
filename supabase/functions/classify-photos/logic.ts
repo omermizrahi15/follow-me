@@ -180,3 +180,86 @@ export function parseClassification(
     reference_confidence: askedForReference ? clamp01(parsed.reference_confidence) : 0,
   };
 }
+
+// --- Batched grading --------------------------------------------------------
+//
+// Grading was one Gemini call per photo, at full resolution. Against a free
+// tier of 5 requests per minute that made a 150-photo window a ~30-minute wait,
+// and it had nothing to do with the model: a classification only needs to know
+// "sunset or dinner plate", which a 512px thumbnail answers as well as a 1.5MB
+// original. Smaller images are what make batching possible, and batching is
+// what turns the per-minute cap from the binding constraint into a non-issue.
+
+/**
+ * Longest edge, in pixels, of the image actually sent to the model.
+ *
+ * Measured on a real candidate: 1.5MB at full size, 123KB at 768px, 64KB at
+ * 512px. Twelve full-size images would be ~17MB, essentially the whole inline
+ * payload budget — so downscaling is not a saving bolted onto batching, it is
+ * what makes batching possible at all.
+ *
+ * 768 rather than 512 because `quality` grades sharpness, and sharpness is
+ * precisely what a downscale destroys: at 512 a blurry photo is indistinguishable
+ * from a sharp one (verified by eye against a night shot from the staging set),
+ * which would quietly inflate quality scores and let blurry photos through the
+ * publisher's minQuality floor. Category, scene and caption survive 512 easily;
+ * this width is chosen for the one attribute that does not. Twelve of these is
+ * ~1.4MB a request, still far inside the limit.
+ */
+export const CLASSIFY_IMAGE_WIDTH = 768;
+
+/**
+ * Rewrites a Cloudinary delivery URL to fetch a downscaled, re-encoded copy.
+ *
+ * Returns the URL untouched when it isn't Cloudinary or already carries a
+ * transformation — guessing at an unknown URL shape would break the fetch, and
+ * a caller that already asked for a specific rendition meant it.
+ */
+export function downscaledUrl(url: string, width: number = CLASSIFY_IMAGE_WIDTH): string {
+  const marker = '/image/upload/';
+  const at = url.indexOf(marker);
+  if (at === -1) return url;
+
+  const rest = url.slice(at + marker.length);
+  // A transformation segment is the first path component when it carries
+  // Cloudinary's `key_value` shape; a bare `v123/folder/file.jpg` has none.
+  const firstSegment = rest.split('/')[0] ?? '';
+  if (/^[a-z]+_[^/]*$/.test(firstSegment)) return url;
+
+  return `${url.slice(0, at + marker.length)}w_${width},c_limit,q_auto/${rest}`;
+}
+
+/**
+ * Pairs each graded entry back to the photo id it describes.
+ *
+ * The model is asked for an explicit 0-based `index` per image rather than a
+ * bare ordered array, because a silently shortened or reordered array would
+ * attach one photo's grade to another — and a wrong grade is worse than a
+ * missing one: it is cached, it steers selection, and nothing about it looks
+ * like a failure. Entries whose index is missing, duplicated, or out of range
+ * are dropped, so the caller sees a photo it did not get an answer for instead
+ * of an answer that belongs to a different photo.
+ */
+export function pairBatchResults(
+  ids: readonly string[],
+  entries: readonly Record<string, unknown>[],
+): { paired: { id: string; parsed: Record<string, unknown> }[]; missing: string[] } {
+  const byIndex = new Map<number, Record<string, unknown>>();
+  for (const entry of entries) {
+    const raw = entry?.index;
+    const index = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isInteger(index) || index < 0 || index >= ids.length) continue;
+    // First answer for an index wins; a duplicate index means the model lost
+    // track of the ordering, and picking the later one is no more principled.
+    if (!byIndex.has(index)) byIndex.set(index, entry);
+  }
+
+  const paired: { id: string; parsed: Record<string, unknown> }[] = [];
+  const missing: string[] = [];
+  ids.forEach((id, i) => {
+    const entry = byIndex.get(i);
+    if (entry == null) missing.push(id);
+    else paired.push({ id, parsed: entry });
+  });
+  return { paired, missing };
+}
