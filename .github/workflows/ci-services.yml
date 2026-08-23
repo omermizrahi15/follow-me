@@ -6,8 +6,9 @@ name: CI · services
 #
 # src/** is a trigger because the functions import the app's dual-runtime
 # modules directly (issue #117) — editing photoSelection.ts IS editing every
-# service. changed-functions.sh decides which src changes actually matter, so
-# the common case (a UI edit) stops at the detect job.
+# service. changed-functions.sh decides which src changes actually matter; when
+# none do (the common case, a UI edit), the matrix falls back to a single
+# _shared job so this workflow always reports a result instead of skipping.
 on:
   pull_request:
     paths: ['supabase/functions/**', 'src/**', 'deno.json']
@@ -20,8 +21,13 @@ jobs:
     name: Detect changed services
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.detect.outputs.matrix }}
-      any: ${{ steps.detect.outputs.any }}
+      # No function changed? Fall back to a `_shared`-only job rather than an
+      # empty matrix. An empty matrix leaves an unexpandable, permanently
+      # "skipping" check on the PR (named after the raw `matrix.fn`
+      # expression, since there is no matrix to resolve it from); the fallback
+      # reports a real result, and _shared holds the tests for the
+      # dual-runtime src/ modules, so it is the right thing to run anyway.
+      matrix: ${{ steps.detect.outputs.any == 'true' && steps.detect.outputs.matrix || '{"fn":["_shared"]}' }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -36,11 +42,16 @@ jobs:
   test:
     name: ${{ matrix.fn }}
     needs: detect
-    if: needs.detect.outputs.any == 'true'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix: ${{ fromJson(needs.detect.outputs.matrix) }}
+    env:
+      # Every service is tested together with _shared; the _shared fallback job
+      # names it once.
+      DIRS: >-
+        supabase/functions/${{ matrix.fn }}/
+        ${{ matrix.fn != '_shared' && 'supabase/functions/_shared/' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: denoland/setup-deno@v2
@@ -51,8 +62,11 @@ jobs:
           # fails CI spuriously.
           cache: true
       - name: Lint
-        run: deno lint "supabase/functions/${{ matrix.fn }}/" supabase/functions/_shared/
+        run: deno lint $DIRS
       - name: Typecheck
+        # _shared is a library, not a service: no entrypoint to check. Its
+        # types are covered by the check of every service that imports it.
+        if: matrix.fn != '_shared'
         run: deno check "supabase/functions/${{ matrix.fn }}/index.ts"
       - name: Test (service + shared)
-        run: deno test "supabase/functions/${{ matrix.fn }}/" supabase/functions/_shared/
+        run: deno test $DIRS
