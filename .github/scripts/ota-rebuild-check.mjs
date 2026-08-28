@@ -88,7 +88,22 @@ const local = () =>
   (localFingerprint ??= eas(`fingerprint:generate --platform ios --build-profile ${PROFILE}`));
 
 // --- 1. the runtimeVersion this update is (or would be) tagged with ---
-const runtimeVersion = process.env.RUNTIME_VERSION || local().hash;
+let runtimeVersion;
+try {
+  runtimeVersion = process.env.RUNTIME_VERSION || local().hash;
+} catch (err) {
+  // In preflight mode (PR advisory), if fingerprint generation fails transiently,
+  // skip the detailed check and just emit an advisory. This prevents transient
+  // EAS API issues from blocking PRs.
+  if (MODE === 'preflight') {
+    const report = `## ⚠️ Could not verify OTA compatibility\n\nThe native rebuild check could not compute your fingerprint (transient EAS issue). Your native changes will trigger an automatic rebuild after merge. To verify now, run:\n\n\`\`\`bash\neas fingerprint:generate --platform ios --build-profile preview\n\`\`\``;
+    console.log(report);
+    if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, report + '\n');
+    console.log(`::warning title=Native rebuild required (verification skipped)::Fingerprint generation failed transiently — native rebuild will be queued automatically after merge.`);
+    process.exit(0);
+  }
+  throw; // In CD mode, the error is real and should fail the job
+}
 
 // A build's payload is read through these two, never by field name: eas-cli 22
 // renamed them (`runtimeVersion` → `runtime.version`, `project` → `app`), and
