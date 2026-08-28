@@ -20,8 +20,23 @@ const config = getSentryExpoConfig(__dirname);
 // a stub that renders null, so the real module is never reached and never
 // walked. Verify with:
 //   npx expo export --platform ios && grep -r picsum.photos dist/   # no hits
-const DEV_PANEL = path.join(__dirname, 'src/ui/dev/DevNotificationPanel.tsx');
-const DEV_PANEL_STUB = path.join(__dirname, 'src/ui/dev/DevNotificationPanel.prod.tsx');
+//
+// `src/ui/dev/AiUsageBar.tsx` is the same idea for the daily AI budget: a
+// read-out of how much of the classify quota is left, for whoever is testing
+// staging. It pulls in a hook and a quota request that a production build has
+// no caller for.
+//
+// Add a module here by adding its real path and its `.prod.tsx` stub to
+// DEV_ONLY_MODULES — and a case to src/devToolsBundling.test.ts, which is what
+// notices when a rename silently switches the rule off.
+const devOnly = name => [
+  path.join(__dirname, `src/ui/dev/${name}.tsx`),
+  path.join(__dirname, `src/ui/dev/${name}.prod.tsx`),
+];
+const DEV_ONLY_MODULES = new Map([
+  devOnly('DevNotificationPanel'),
+  devOnly('AiUsageBar'),
+]);
 
 // Staging keeps the tooling on purpose: QA triggers the rich approval push from
 // a real staging device. Everything else — `expo export`, an EAS production or
@@ -36,9 +51,9 @@ if (!includeDevTools) {
     ...config.resolver,
     resolveRequest: (context, moduleName, platform) => {
       const resolved = context.resolveRequest(context, moduleName, platform);
-      if (resolved.type === 'sourceFile' && resolved.filePath === DEV_PANEL) {
-        return { type: 'sourceFile', filePath: DEV_PANEL_STUB };
-      }
+      const stub =
+        resolved.type === 'sourceFile' ? DEV_ONLY_MODULES.get(resolved.filePath) : undefined;
+      if (stub !== undefined) return { type: 'sourceFile', filePath: stub };
       return resolved;
     },
   };

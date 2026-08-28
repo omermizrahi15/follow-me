@@ -5,6 +5,13 @@
  * Returns: { "classifications": [{ id, category, confidence, quality, caption, scene,
  *                                  contains_reference_person, reference_confidence }] }
  *
+ * Also: GET /classify-photos → { "used": number, "limit": number, "day": "YYYY-MM-DD" }
+ * — the caller's own spend against the day's ceiling, for the staging AI budget
+ * bar. Same auth as the POST. Both numbers are only knowable here (the count is
+ * in a service-role-only table, the ceiling is this function's env var), which
+ * is why it is a route rather than something the app works out. See
+ * usageResponse.
+ *
  * `reference` is the publisher's profile photo (issue #137). When it is present
  * each photo is additionally judged for whether that same person appears in it,
  * which is what the "photos of me" preference ranks and filters on. It is
@@ -53,6 +60,7 @@ import {
   downscaledUrl,
   pairBatchResults,
   parseClassification,
+  quotaSnapshot,
   type RefusalReason,
 } from './logic.ts';
 import { geminiProvider } from './gemini.ts';
@@ -222,7 +230,7 @@ function responseSchema(hasReference: boolean): Record<string, unknown> {
 
 const cors: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
-  'Access-Control-Allow-Methods': 'POST, OPTIONS',
+  'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
   'Access-Control-Allow-Headers': 'content-type, authorization, apikey',
 };
 
@@ -485,14 +493,46 @@ async function classifyBatch(
   return { classifications, missing: remaining.map(p => p.id) };
 }
 
+/**
+ * GET /classify-photos — how much of the caller's daily budget is gone.
+ *
+ * Both numbers live here and nowhere else: the count is in a table only the
+ * service role may read, and the ceiling is this function's own env var. Any
+ * client-side version of either would be a guess.
+ *
+ * Reads through increment_classify_quota with an increment of zero rather than
+ * selecting the row, so "today" is the database's `current_date` — the same
+ * definition the enforcing path uses. A client (or this worker) deciding what
+ * day it is could disagree with the DB by an hour and report a spent budget as
+ * fresh, or the reverse.
+ */
+async function usageResponse(userId: string): Promise<Response> {
+  const quota = await admin.rpc('increment_classify_quota', { p_user: userId, p_inc: 0 });
+  if (quota.error != null) {
+    console.error('classify usage read failed:', quota.error.message);
+    return json({ error: 'Usage unavailable' }, 503);
+  }
+  // The RPC returns the count, not the date it counted for; asking the DB for
+  // `current_date` separately would be a second round trip for a label. UTC is
+  // what a Supabase database's `current_date` resolves to.
+  const day = new Date().toISOString().slice(0, 10);
+  return json(quotaSnapshot(quota.data, DAILY_QUOTA, day));
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: cors });
-  if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
+  if (req.method !== 'POST' && req.method !== 'GET') {
+    return json({ error: 'Method not allowed' }, 405);
+  }
   if (!GEMINI_API_KEY) return json({ error: 'Server not configured' }, 500);
 
   // The anon key alone is not enough — a signed-in user must be behind the call.
   const userId = await authenticatedUserId(req);
   if (userId == null) return json({ error: 'Authentication required' }, 401);
+
+  // Reporting the budget, not spending it. Above the body parse on purpose: a
+  // GET has no body, and everything below this line is about photos.
+  if (req.method === 'GET') return usageResponse(userId);
 
   let body: { photos?: PhotoInput[]; reference?: ImageInput | null };
   try {
