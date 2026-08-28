@@ -60,6 +60,8 @@ export const colors = {
 
   /** Success / positive. */
   success: '#2BA84A',
+  /** Caution — a budget or an allowance running low, not yet a failure. */
+  warning: '#D98324',
   /** Error / destructive. */
   danger: '#E5484D',
 } as const;

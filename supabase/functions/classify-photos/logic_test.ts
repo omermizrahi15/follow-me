@@ -10,6 +10,7 @@ import {
   isDailyQuotaError,
   pairBatchResults,
   parseRetryDelaySeconds,
+  quotaSnapshot,
 } from './logic.ts';
 
 // The exact body staging logged when the AI photo suggestion reported "daily
@@ -306,4 +307,28 @@ Deno.test('isDailyQuotaError — anything unrecognised stays per-minute', () => 
   assertEquals(isDailyQuotaError('{}'), false);
   assertEquals(isDailyQuotaError('not json'), false);
   assertEquals(isDailyQuotaError(JSON.stringify({ error: { details: [{ violations: [] }] } })), false);
+});
+
+Deno.test('quotaSnapshot reports the count and the ceiling as they are', () => {
+  assertEquals(quotaSnapshot(137, 500, '2026-08-28'), { used: 137, limit: 500, day: '2026-08-28' });
+});
+
+Deno.test('quotaSnapshot keeps a count that overshot the ceiling', () => {
+  // The counter is incremented before a request is judged, so the last request
+  // of the day routinely lands above the limit. The app clamps it for display;
+  // flattening it here would hide how far past the wall a run went.
+  assertEquals(quotaSnapshot(507, 500, '2026-08-28').used, 507);
+});
+
+Deno.test('quotaSnapshot treats an unreadable count as nothing spent', () => {
+  // The RPC fails open (a broken counter must not take classification down),
+  // so `null` here means "we could not read it", and the request would be
+  // allowed. Reporting it as a spent budget would contradict what happens.
+  assertEquals(quotaSnapshot(null, 500, '2026-08-28').used, 0);
+  assertEquals(quotaSnapshot(undefined, 500, '2026-08-28').used, 0);
+  assertEquals(quotaSnapshot('137', 500, '2026-08-28').used, 0);
+});
+
+Deno.test('quotaSnapshot never reports a negative count', () => {
+  assertEquals(quotaSnapshot(-3, 500, '2026-08-28').used, 0);
 });

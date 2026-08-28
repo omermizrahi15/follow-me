@@ -10,7 +10,7 @@ public launch.
 | --- | --- | --- |
 | `EXPO_PUBLIC_SUPABASE_URL` / `EXPO_PUBLIC_SUPABASE_ANON_KEY` | app bundle (`EXPO_PUBLIC_`), `docs/gallery.html` | **Public by design** — safety comes from RLS, not secrecy |
 | `EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME` / `EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET` | app bundle | **Public** — unsigned upload preset; scope it to image-only + size caps in the Cloudinary console |
-| `EXPO_PUBLIC_CLASSIFY_FN_URL` | app bundle | **Public URL, protected endpoint** — classify-photos rejects the bare anon key: it requires a signed-in user's JWT, caps 3 photos/request, and enforces a 500/day per-user quota (`classify_quota` + `increment_classify_quota()`, migration 20240015) |
+| `EXPO_PUBLIC_CLASSIFY_FN_URL` | app bundle | **Public URL, protected endpoint** — classify-photos rejects the bare anon key: it requires a signed-in user's JWT, caps 3 photos/request, and enforces a 500/day per-user quota (`classify_quota` + `increment_classify_quota()`, migration 20240015, overridable with `CLASSIFY_DAILY_QUOTA`). `GET` on the same URL reports the caller's spend against that ceiling — what the staging build's AI budget bar shows |
 | `GEMINI_API_KEY`, `GEMINI_MODEL` | Edge Function secrets only | **Private** — never in the app |
 | `SUPABASE_SERVICE_ROLE_KEY` | auto-injected into Edge Functions | **Private** — never in the app or repo; verified absent from client env (`.env` carries only `EXPO_PUBLIC_*` Supabase keys) |
 | `TWILIO_ACCOUNT_SID` / `TWILIO_AUTH_TOKEN` / `TWILIO_WHATSAPP_FROM` | Edge Function secrets + local `.env` (integration tests only) | **Private** — WhatsApp sends happen exclusively server-side (`send-post`, `auto-post`); the app calls those functions with the anon key |

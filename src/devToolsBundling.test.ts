@@ -17,6 +17,8 @@ import path from 'path';
 const repoRoot = path.join(__dirname, '..');
 const DEV_PANEL = path.join(repoRoot, 'src/ui/dev/DevNotificationPanel.tsx');
 const DEV_PANEL_STUB = path.join(repoRoot, 'src/ui/dev/DevNotificationPanel.prod.tsx');
+const USAGE_BAR = path.join(repoRoot, 'src/ui/dev/AiUsageBar.tsx');
+const USAGE_BAR_STUB = path.join(repoRoot, 'src/ui/dev/AiUsageBar.prod.tsx');
 
 interface Resolution { type: string; filePath?: string }
 interface Resolver {
@@ -44,10 +46,14 @@ function contextFinding(filePath: string): { resolveRequest: Resolver } {
   return { resolveRequest: () => ({ type: 'sourceFile', filePath }) };
 }
 
-function resolve(resolver: Resolver | null, filePath: string): string | undefined {
+function resolve(
+  resolver: Resolver | null,
+  filePath: string,
+  moduleName = './DevNotificationPanel',
+): string | undefined {
   if (resolver == null) return filePath; // no swap installed — the default wins
   const context = contextFinding(filePath);
-  return resolver(context, './DevNotificationPanel', 'ios').filePath;
+  return resolver(context, moduleName, 'ios').filePath;
 }
 
 describe('dev notification tooling', () => {
@@ -84,12 +90,29 @@ describe('dev notification tooling', () => {
     expect(resolve(resolver, other)).toBe(other);
   });
 
+  it('swaps the staging AI budget bar in a production bundle', () => {
+    // The bar reads the daily classify quota and is an operational read-out for
+    // whoever is testing staging — a production build must not carry it, nor
+    // the quota GET behind it.
+    const resolver = resolverFor({ NODE_ENV: 'production', EXPO_PUBLIC_APP_VARIANT: 'production' });
+
+    expect(resolve(resolver, USAGE_BAR, './AiUsageBar')).toBe(USAGE_BAR_STUB);
+  });
+
+  it('keeps the AI budget bar on staging, which is the only place it shows', () => {
+    const resolver = resolverFor({ NODE_ENV: 'production', EXPO_PUBLIC_APP_VARIANT: 'staging' });
+
+    expect(resolve(resolver, USAGE_BAR, './AiUsageBar')).toBe(USAGE_BAR);
+  });
+
   it('swaps a module that actually exists — a renamed panel must fail loudly', () => {
     // The swap is keyed on an absolute path. Move or rename either file without
     // updating metro.config.js and the rule silently stops applying, which is
     // exactly the failure mode this whole test file exists for.
     expect(fs.existsSync(DEV_PANEL)).toBe(true);
     expect(fs.existsSync(DEV_PANEL_STUB)).toBe(true);
+    expect(fs.existsSync(USAGE_BAR)).toBe(true);
+    expect(fs.existsSync(USAGE_BAR_STUB)).toBe(true);
   });
 
   it('keeps the sample gallery confined to the module that gets swapped', () => {
