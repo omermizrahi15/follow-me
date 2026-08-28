@@ -115,21 +115,50 @@ Setup:
    console (Messaging → Senders → WhatsApp) and point
    `TWILIO_WHATSAPP_FROM` at the approved number — the sandbox number
    (`+14155238886`) is dev-only (72h joins, low caps).
-5. Message templates (required on a production sender): posts are business-
-   initiated and land outside WhatsApp's 24h session window, so they must go
-   out as **Meta-approved templates**, not free-form text. Two templates are
-   registered via the Content API (see below); set their ContentSids as
+5. Message templates (required on a production sender): posts and the welcome
+   are business-initiated and land outside WhatsApp's 24h session window, so
+   they must go out as **Meta-approved templates**, not free-form text. Three
+   templates are registered via the Content API; set their ContentSids as
    secrets and the send functions switch to the template path automatically:
    - `TWILIO_TEMPLATE_POST_LOCATION_SID` — with the "from {place}" clause
      (`follow_me_post_location`)
    - `TWILIO_TEMPLATE_POST_SID` — no place (`follow_me_post`), used by
      auto-post (candidate photos are location-less) and as the fallback
+   - `TWILIO_TEMPLATE_WELCOME_SID` — the new-follower welcome
+     (`follow_me_subscriber_welcome`, issue #164), read by `subscribe`
    `send-post` / `auto-post` send via the template only when these are set AND
    a collage + gallery link + publisher phone are present; otherwise they fall
    back to the free-form caption (fine in the sandbox / before approval). Do
    NOT set these secrets until the templates show `approved`, or sends fail
    with 63016. Template bodies mirror `composeAutoPostBody`; the variable order
    is asserted by `postTemplate.test.ts` — re-cut both together.
+   The **welcome** template is the one followers actually depend on: they
+   subscribe by typing a number on the join page and have never messaged our
+   sender, so *no* session window is ever open on that path and free-form is
+   rejected outright. One variable, no header/buttons, and submit it as
+   **UTILITY** — it confirms an action the follower just took, and utility
+   templates escape the per-user frequency caps the two post templates live
+   under (both were approved as MARKETING). Body:
+
+   ```
+   You're now following {{1}}.
+   You'll receive their photos here on WhatsApp.
+   Reply STOP at any time to unsubscribe.
+   ```
+
+   Saving a draft in the Content Template Builder does **not** submit it:
+   a saved-but-unsubmitted template reads `status: unsubmitted` and Meta never
+   sees it. Check with
+
+   ```bash
+   curl -s -u "$TWILIO_ACCOUNT_SID:$TWILIO_AUTH_TOKEN" \
+     https://content.twilio.com/v1/ContentAndApprovals
+   ```
+
+   It mirrors `composeWelcomeMessage` (`src/domain/services/optOutMessages.ts`),
+   pinned by `welcomeTemplate.test.ts` — change the copy and the template
+   together, and re-submit for approval. `join-webhook`'s welcome stays
+   free-form on purpose: an inbound JOIN opens the window.
    The reply link is a whole *variable* value (`{{5}}` / `{{6}}`), not part of
    the approved body text, so issue #143's switch to a pre-filled
    `wa.me/<phone>?text=Re%3A…` needs **no** re-approval — the templates are
@@ -183,8 +212,9 @@ One-time setup (until done, Sentry is silently off and CI skips the upload):
 5. RLS hardening above completed.
 6. Twilio: production WhatsApp sender approved (sandbox joins expire every
    72h and message caps are low — dev only); sender inbound webhook →
-   `join-webhook`; post templates `approved` and their ContentSids set as
-   `TWILIO_TEMPLATE_POST_SID` / `TWILIO_TEMPLATE_POST_LOCATION_SID`.
+   `join-webhook`; post and welcome templates `approved` and their ContentSids
+   set as `TWILIO_TEMPLATE_POST_SID` / `TWILIO_TEMPLATE_POST_LOCATION_SID` /
+   `TWILIO_TEMPLATE_WELCOME_SID` (the last on `subscribe`).
 7. Integration tests: `npm run test:integration` (env-gated; see the
    `*.integration.test.ts` headers for required vars).
 
