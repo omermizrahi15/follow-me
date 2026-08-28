@@ -141,10 +141,10 @@ Setup:
    under (both were approved as MARKETING). Two variables, body:
 
    ```
-   You're now following {{1}}.
-   You'll receive their photos here on WhatsApp.
-   All their posts in one place: {{2}}
-   Reply STOP at any time to unsubscribe.
+   You're following {{1}}.
+   New photos will arrive right here on WhatsApp.
+   See everything they've shared so far: {{2}}
+   Reply STOP to unsubscribe at any time.
    ```
 
    `{{2}}` is the publisher's gallery **feed** — `gallery.html?u=<publisherId>`,

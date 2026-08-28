@@ -25,10 +25,10 @@
  */
 export function composeWelcomeMessage(publisherName: string, galleryUrl: string): string {
   return (
-    `You're now following ${publisherName}.\n` +
-    "You'll receive their photos here on WhatsApp.\n" +
-    `All their posts in one place: ${galleryUrl}\n` +
-    'Reply STOP at any time to unsubscribe.'
+    `You're following ${publisherName}.\n` +
+    "New photos will arrive right here on WhatsApp.\n" +
+    `See everything they've shared so far: ${galleryUrl}\n` +
+    'Reply STOP to unsubscribe at any time.'
   );
 }
 

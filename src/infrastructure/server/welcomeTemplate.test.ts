@@ -23,10 +23,10 @@ const FEED = 'https://omermizrahi15.github.io/follow-me/gallery.html?u=pub-1';
 const INPUT = { publisherName: 'Uri Shiber', galleryUrl: FEED };
 
 const REGISTERED_BODY =
-  "You're now following {{1}}.\n" +
-  "You'll receive their photos here on WhatsApp.\n" +
-  'All their posts in one place: {{2}}\n' +
-  'Reply STOP at any time to unsubscribe.';
+  "You're following {{1}}.\n" +
+  "New photos will arrive right here on WhatsApp.\n" +
+  "See everything they've shared so far: {{2}}\n" +
+  'Reply STOP to unsubscribe at any time.';
 
 function render(body: string, variables: Record<string, string>): string {
   return body.replace(/\{\{(\d+)\}\}/g, (_match, index: string) => variables[index] ?? '');

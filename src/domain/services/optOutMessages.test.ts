@@ -35,10 +35,10 @@ describe('composeWelcomeMessage', () => {
 
   it('names the publisher, links their feed and mentions STOP', () => {
     expect(composeWelcomeMessage('Omer', FEED)).toBe(
-      "You're now following Omer.\n" +
-        "You'll receive their photos here on WhatsApp.\n" +
-        `All their posts in one place: ${FEED}\n` +
-        'Reply STOP at any time to unsubscribe.',
+      "You're following Omer.\n" +
+        "New photos will arrive right here on WhatsApp.\n" +
+        `See everything they've shared so far: ${FEED}\n` +
+        'Reply STOP to unsubscribe at any time.',
     );
   });
 
