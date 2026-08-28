@@ -35,7 +35,10 @@ jobs:
           fetch-depth: 0 # need base + head to diff the PR
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not 20: eas-cli pulls @oclif/plugin-autocomplete, which declares
+          # engines node >=22. On Node 20 yarn refuses to install it and the
+          # expo-github-action step below dies before eas-cli exists.
+          node-version: 22
           cache: npm
       - name: Analyze diff for native-affecting changes
         env:
