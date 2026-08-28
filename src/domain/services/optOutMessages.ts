@@ -15,7 +15,7 @@
  * they missed. Build it with `publisherGalleryUrl`; it is passed in rather than
  * derived here because this file must stay import-free (dual runtime).
  *
- * MIRRORED by the `follow_me_subscriber_welcome_v2` WhatsApp template (issue
+ * MIRRORED by the `follow_me_subscriber_welcome_2` WhatsApp template (issue
  * #164): on the production sender the follower has never messaged us — they
  * typed their number on the join page — so there is no 24h session window and
  * this text can only be delivered as a template. `welcomeTemplate.test.ts`

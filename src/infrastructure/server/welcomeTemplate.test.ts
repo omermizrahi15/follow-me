@@ -1,14 +1,14 @@
 /**
  * Tests for the new-follower welcome template used by `subscribe` (issue #164).
  *
- * REGISTERED_BODY below is the body of `follow_me_subscriber_welcome_v2` as it
- * is submitted to Twilio, copied verbatim. It is asserted against
+ * REGISTERED_BODY below is the body of `follow_me_subscriber_welcome_2`
+ * (Content `HX5ad3faf9…`) as submitted to Twilio, copied verbatim. It is asserted against
  * `composeWelcomeMessage` so the template and the free-form fallback can never
  * drift: a follower reads the same words whichever path delivered them.
  * Changing the copy means re-cutting the template and another round of Meta
  * approval — change both together.
  *
- * v2 adds {{2}}, the publisher's feed URL, so the welcome hands the follower
+ * It adds {{2}}, the publisher's feed URL, so the welcome hands the follower
  * every post and not just the promise of future ones. The link is a *variable*
  * rather than body text on purpose (it differs per publisher, and a later move
  * to a custom domain then costs no re-approval), and it deliberately sits on

@@ -6,7 +6,7 @@
 // template or Twilio rejects it with 63016. The variable ORDER here must stay
 // in lock-step with the template registered in Twilio:
 //
-//   follow_me_subscriber_welcome_v2:
+//   follow_me_subscriber_welcome_2:
 //     1 name · 2 galleryUrl
 //
 // {{2}} is the publisher's feed (every post so far), added so the welcome is
