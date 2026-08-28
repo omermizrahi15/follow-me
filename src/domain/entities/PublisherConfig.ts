@@ -5,6 +5,22 @@ export type Frequency = '3days' | 'weekly' | 'biweekly' | 'monthly';
 export type PhotoCount = 5 | 10 | 15;
 
 /**
+ * How much the publisher's own presence in a photo counts for (issue #137).
+ *
+ * - `off`   — it plays no part; no reference image is ever sent to the
+ *             classifier, so the question is not even asked.
+ * - `prefer` — photos they appear in outrank equivalent ones they don't, and a
+ *             short post is still filled from the rest.
+ * - `only`  — a photo has to contain them to be suggested at all.
+ *
+ * The reference is their profile photo and nothing else — there is no separate
+ * enrollment, and the control is hidden outright when no avatar is set.
+ */
+export type PhotosOfMe = 'off' | 'prefer' | 'only';
+
+export const PHOTOS_OF_ME_MODES: readonly PhotosOfMe[] = ['off', 'prefer', 'only'] as const;
+
+/**
  * Hard ceiling on how many photos one post may carry, whatever `photosPerPost`
  * says. The configured count is what the AI pre-selects; the publisher can keep
  * adding past it while reviewing, and this is where that stops.
@@ -42,6 +58,11 @@ export interface PublisherConfigProps {
   timezone?: string;
   /** Expo push token for server-sent reminders (autonomous mode). Default ''. */
   expoPushToken?: string;
+  /**
+   * How much "is the publisher in this photo?" counts for. Default 'off', so
+   * every row that predates issue #137 keeps behaving exactly as it did.
+   */
+  photosOfMe?: PhotosOfMe;
 }
 
 const DEFAULTS = {
@@ -51,6 +72,7 @@ const DEFAULTS = {
   minQuality: 0.15,
   timezone: 'UTC',
   expoPushToken: '',
+  photosOfMe: 'off' as PhotosOfMe,
 };
 
 const TIME_RE = /^([01]\d|2[0-3]):([0-5]\d)$/;
@@ -90,6 +112,11 @@ export class PublisherConfig {
 
     const expoPushToken = props.expoPushToken ?? DEFAULTS.expoPushToken;
 
+    const photosOfMe = props.photosOfMe ?? DEFAULTS.photosOfMe;
+    if (!PHOTOS_OF_ME_MODES.includes(photosOfMe)) {
+      throw new Error(`PublisherConfig photosOfMe must be one of ${PHOTOS_OF_ME_MODES.join(', ')}`);
+    }
+
     return new PublisherConfig({
       publisherId: props.publisherId,
       frequency: props.frequency,
@@ -101,6 +128,7 @@ export class PublisherConfig {
       minQuality,
       timezone,
       expoPushToken,
+      photosOfMe,
     });
   }
 
@@ -116,6 +144,22 @@ export class PublisherConfig {
   get minQuality(): number { return this.props.minQuality; }
   get timezone(): string { return this.props.timezone; }
   get expoPushToken(): string { return this.props.expoPushToken; }
+  get photosOfMe(): PhotosOfMe { return this.props.photosOfMe; }
+
+  /**
+   * The same config with a different "photos of me" mode.
+   *
+   * Exists for one case: the preference is on but there is no face to compare
+   * against — no avatar, or the profile simply didn't load. Under `only` that
+   * would filter out every photo and produce an empty post, so the caller that
+   * failed to resolve a reference downgrades to `off` for that run rather than
+   * silently posting nothing. Every other field is carried across untouched.
+   */
+  withPhotosOfMe(mode: PhotosOfMe): PublisherConfig {
+    return mode === this.props.photosOfMe
+      ? this
+      : new PublisherConfig({ ...this.props, photosOfMe: mode });
+  }
 
   /** Hour parsed from notifyTime. */
   get notifyHour(): number { return Number(this.props.notifyTime.slice(0, 2)); }

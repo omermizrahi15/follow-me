@@ -20,23 +20,35 @@ function candidate(id: string): PhotoCandidate {
   return { id, uri: `https://cdn.test/${id}.jpg`, createdAt: new Date(0) };
 }
 
-function okResponse(id: string): { ok: true; json: () => Promise<unknown> } {
+/**
+ * A grade for every photo the request asked about.
+ *
+ * The classifier batches photos into one request, so a fake that answers with a
+ * single grade regardless of what was asked models a server that no longer
+ * exists — and would let a real regression in the id-mapping pass unnoticed.
+ */
+function okResponse(ids: string[]): { ok: true; json: () => Promise<unknown> } {
   return {
     ok: true,
     json: () =>
       Promise.resolve({
-        classifications: [
-          { id, category: 'food', confidence: 0.9, quality: 0.8, caption: '', scene: 's' },
-        ],
+        classifications: ids.map(id => ({
+          id, category: 'food', confidence: 0.9, quality: 0.8, caption: '', scene: 's',
+        })),
       }),
   };
 }
 
-/** Responds after `delayMs`, reading the photo id from the request body. */
+/** Every photo id carried by a request body. */
+function requestedIds(body: string): string[] {
+  return (JSON.parse(body) as { photos: Array<{ id: string }> }).photos.map(p => p.id);
+}
+
+/** Responds after `delayMs`, keyed on the first photo id in the request body. */
 function respondWithDelay(delayMs: (id: string) => number): void {
   mockFetch.mockImplementation((_url: string, init: { body: string }) => {
-    const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
-    return new Promise(resolve => setTimeout(() => resolve(okResponse(id)), delayMs(id)));
+    const ids = requestedIds(init.body);
+    return new Promise(resolve => setTimeout(() => resolve(okResponse(ids)), delayMs(ids[0]!)));
   });
 }
 
@@ -108,9 +120,9 @@ describe('GeminiPhotoClassifier.classify — settles', () => {
     // A half-graded window presented as a finished post is indistinguishable
     // from a real one, so the run aborts instead of quietly shrinking.
     mockFetch.mockImplementation((_url: string, init: { body: string }) => {
-      const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
-      if (id === 'p1' || id === 'p3') return Promise.reject(new Error('boom'));
-      return Promise.resolve(okResponse(id));
+      const ids = requestedIds(init.body);
+      if (ids.includes('p1')) return Promise.reject(new Error('boom'));
+      return Promise.resolve(okResponse(ids));
     });
     await expect(
       makeSut().classify([candidate('p0'), candidate('p1'), candidate('p2'), candidate('p3')]),
@@ -119,18 +131,18 @@ describe('GeminiPhotoClassifier.classify — settles', () => {
 
   it('reports the results it did obtain before the failure, via onEach', async () => {
     // The grades bought before the abort are real; the use case persists them
-    // from `onEach` so a retry does not pay for them twice.
+    // from `onEach` so a retry does not pay for them twice. Photos travel in
+    // groups now, so the boundary this protects is a whole chunk: enough
+    // candidates for two requests, with the second one failing.
+    const many = Array.from({ length: 24 }, (_, i) => candidate(`p${i}`));
     mockFetch.mockImplementation((_url: string, init: { body: string }) => {
-      const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
-      if (id === 'p3') return Promise.reject(new Error('boom'));
-      return Promise.resolve(okResponse(id));
+      const ids = requestedIds(init.body);
+      if (ids.includes('p12')) return Promise.reject(new Error('boom'));
+      return Promise.resolve(okResponse(ids));
     });
     const seen: string[] = [];
     await expect(
-      makeSut().classify(
-        [candidate('p0'), candidate('p1'), candidate('p2'), candidate('p3')],
-        r => { seen.push(r.candidate.id); },
-      ),
+      makeSut().classify(many, r => { seen.push(r.candidate.id); }),
     ).rejects.toThrow(ClassificationFailedError);
     expect(seen).toContain('p0');
   });
@@ -138,10 +150,8 @@ describe('GeminiPhotoClassifier.classify — settles', () => {
   it('skips an unreadable photo without failing the run', async () => {
     // A photo whose bytes never arrive (iCloud original still in the cloud) is
     // a property of that one photo — it costs a suggestion, not the scan.
-    mockFetch.mockImplementation((_url: string, init: { body: string }) => {
-      const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
-      return Promise.resolve(okResponse(id));
-    });
+    mockFetch.mockImplementation((_url: string, init: { body: string }) =>
+      Promise.resolve(okResponse(requestedIds(init.body))));
     const classifier = new GeminiPhotoClassifier(
       'https://fn.test/classify',
       'anon-key',
@@ -310,5 +320,145 @@ describe('GeminiPhotoClassifier — daily quota (issue #81)', () => {
 
     expect(sut.quotaExhausted()).toBe(false);
     expect(reportedQuota).not.toHaveBeenCalled();
+  });
+});
+
+describe('GeminiPhotoClassifier — face reference (issue #137)', () => {
+  /** Every request answers with the face fields set, as the function does with a reference. */
+  function respondWithMatch(contains: boolean, confidence: number): void {
+    mockFetch.mockImplementation((_url: string, init: { body: string }) => {
+      const id = (JSON.parse(init.body) as { photos: Array<{ id: string }> }).photos[0]!.id;
+      return Promise.resolve({
+        ok: true,
+        json: () =>
+          Promise.resolve({
+            classifications: [
+              {
+                id,
+                category: 'food',
+                confidence: 0.9,
+                quality: 0.8,
+                caption: '',
+                scene: 's',
+                contains_reference_person: contains,
+                reference_confidence: confidence,
+              },
+            ],
+          }),
+      });
+    });
+  }
+
+  function sentBody(): Record<string, unknown> {
+    const [, init] = mockFetch.mock.calls[0] as [string, { body: string }];
+    return JSON.parse(init.body) as Record<string, unknown>;
+  }
+
+  it('sends no reference when none is given, so the question is never asked', async () => {
+    respondWithDelay(() => 0);
+
+    await makeSut().classify([candidate('p1')]);
+
+    expect(sentBody()).not.toHaveProperty('reference');
+  });
+
+  it('sends the profile photo as a URL, never as uploaded bytes', async () => {
+    respondWithMatch(true, 0.92);
+
+    await makeSut().classify([candidate('p1')], undefined, undefined, {
+      url: 'https://cdn.test/avatar.jpg',
+    });
+
+    expect(sentBody().reference).toEqual({ url: 'https://cdn.test/avatar.jpg' });
+  });
+
+  it("carries the model's verdict onto the classification", async () => {
+    respondWithMatch(true, 0.92);
+
+    const [result] = await makeSut().classify([candidate('p1')], undefined, undefined, {
+      url: 'https://cdn.test/avatar.jpg',
+    });
+
+    expect(result?.containsPublisher).toBe(true);
+    expect(result?.publisherConfidence).toBe(0.92);
+  });
+
+  it('reads a response without the face fields as not containing the publisher', async () => {
+    // An older deployment of classify-photos, or any request that carried no
+    // reference. Absent must not become a confident `true`.
+    respondWithDelay(() => 0);
+
+    const [result] = await makeSut().classify([candidate('p1')]);
+
+    expect(result?.containsPublisher).toBe(false);
+    expect(result?.publisherConfidence).toBe(0);
+  });
+});
+
+describe('GeminiPhotoClassifier — session token', () => {
+  const withToken = (token: () => Promise<string | null>): GeminiPhotoClassifier =>
+    new GeminiPhotoClassifier(
+      'https://fn.test/classify', 'anon-key', undefined, token, reportedQuota,
+    );
+
+  it('never sends the anon key in place of a missing session token', async () => {
+    // classify-photos rejects the anon key outright, so substituting it is a
+    // guaranteed 401 — and 401 is fatal, so it took the whole scan with it.
+    let token: string | null = null;
+    const seen: string[] = [];
+    mockFetch.mockImplementation((_url: string, init: { body: string; headers: Record<string, string> }) => {
+      seen.push(String(init.headers.Authorization));
+      return Promise.resolve(okResponse(requestedIds(init.body)));
+    });
+
+    const classifier = withToken(() => Promise.resolve(token));
+    const run = classifier.classify([candidate('p0')]);
+    // The refresh lands while the first attempt is waiting it out.
+    token = 'fresh-jwt';
+    await run;
+
+    expect(seen).not.toContain('Bearer anon-key');
+    expect(seen).toContain('Bearer fresh-jwt');
+  });
+
+  it('re-reads the session for every attempt, so a long scan survives expiry', async () => {
+    // A scan runs for minutes and the access token does not. A bearer captured
+    // once before the retry loop is stale by the time a retry uses it.
+    const tokens = ['expired-jwt', 'refreshed-jwt'];
+    let next = 0;
+    const seen: string[] = [];
+    mockFetch.mockImplementation((_url: string, init: { body: string; headers: Record<string, string> }) => {
+      seen.push(String(init.headers.Authorization));
+      if (String(init.headers.Authorization) === 'Bearer expired-jwt') {
+        return Promise.resolve({ ok: false, status: 401, text: () => Promise.resolve('unauthorized') });
+      }
+      return Promise.resolve(okResponse(requestedIds(init.body)));
+    });
+
+    const classifier = withToken(() => Promise.resolve(tokens[Math.min(next++, 1)]!));
+    const results = await classifier.classify([candidate('p0')]);
+
+    expect(seen).toEqual(['Bearer expired-jwt', 'Bearer refreshed-jwt']);
+    expect(results).toHaveLength(1);
+  });
+
+  it('gives up with a clear error when the session never arrives', async () => {
+    // Bounded, so a genuinely signed-out user surfaces instead of looping.
+    mockFetch.mockImplementation((_url: string, init: { body: string }) =>
+      Promise.resolve(okResponse(requestedIds(init.body))));
+    await expect(withToken(() => Promise.resolve(null)).classify([candidate('p0')]))
+      .rejects.toThrow(/not signed in/);
+  });
+
+  it('still uses the anon key when no session provider was configured at all', async () => {
+    // A caller with no session concept is a different case from a signed-in
+    // user mid-refresh, and must keep working as it did.
+    const seen: string[] = [];
+    mockFetch.mockImplementation((_url: string, init: { body: string; headers: Record<string, string> }) => {
+      seen.push(String(init.headers.Authorization));
+      return Promise.resolve(okResponse(requestedIds(init.body)));
+    });
+    await makeSut().classify([candidate('p0')]);
+    expect(seen).toEqual(['Bearer anon-key']);
   });
 });

@@ -15,8 +15,24 @@ import type { PhotoClassification } from '../entities/PhotoClassification';
  * than an error worth surfacing.
  */
 export interface IClassificationStore {
-  /** Grades already held for `assetIds`, keyed by asset id. Missing ids are simply absent. */
-  load(assetIds: readonly string[]): Promise<Map<string, PhotoClassification>>;
-  /** Records freshly bought grades. Overwrites any existing entry for the same asset. */
-  save(classifications: readonly PhotoClassification[]): Promise<void>;
+  /**
+   * Grades already held for `assetIds`, keyed by asset id. Missing ids are
+   * simply absent.
+   *
+   * `referenceKey` identifies the face the caller needs answered (issue #137) —
+   * in practice the publisher's profile photo URL, or '' when the "photos of
+   * me" preference is off and the question isn't being asked. A grade recorded
+   * under a *different* key is not a hit: it was bought without that face being
+   * looked for, so its `containsPublisher` is "nobody asked", and serving it
+   * would rank photos of the publisher as though they weren't in them. An empty
+   * key matches everything, because a caller who doesn't care about the face
+   * can use any grade regardless of how it was bought.
+   */
+  load(assetIds: readonly string[], referenceKey?: string): Promise<Map<string, PhotoClassification>>;
+  /**
+   * Records freshly bought grades. Overwrites any existing entry for the same
+   * asset. `referenceKey` is the face these grades were bought under, and is
+   * what a later `load` matches against.
+   */
+  save(classifications: readonly PhotoClassification[], referenceKey?: string): Promise<void>;
 }

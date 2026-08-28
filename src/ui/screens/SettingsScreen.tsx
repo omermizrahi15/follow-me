@@ -1,22 +1,25 @@
 import React from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
+import { View, Text, TouchableOpacity, Switch, StyleSheet, SafeAreaView, ScrollView } from 'react-native';
+import Constants from 'expo-constants';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
 import { ScreenHeader } from '../components/ScreenHeader';
-import { useAuth } from '../context/AuthContext';
+import { useAuth, usePublisherId } from '../context/AuthContext';
+import { usePhotoSyncSetting } from '../hooks/usePhotoSyncSetting';
 import { confirmCloudPhotoWipe } from '../data/cloudPhotoWipe';
 import { openLegalDocument, PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../legal';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /**
  * App settings, opened from the Me-page gear. Currently: profile editing,
- * account info, the deleted-posts trash, the cloud-photo wipe, the hosted
- * privacy policy and terms + sign out.
+ * account info, the deleted-posts trash, the photo-sync switch, the cloud-photo
+ * wipe, the hosted privacy policy and terms + sign out.
  */
 export function SettingsScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
   const { publisherPhone, signOut } = useAuth();
+  const photoSync = usePhotoSyncSetting(usePublisherId());
 
   return (
     <SafeAreaView style={styles.container}>
@@ -72,10 +75,41 @@ export function SettingsScreen(): React.JSX.Element {
 
         <Text style={styles.sectionLabel}>Privacy</Text>
         <View style={styles.card}>
+          {/* The off-switch for photo upload, which is on by default. It lives
+              here rather than in the auto-posting flow it powers: there it was
+              a step in setting posting up, easy to hit by accident, and the
+              only way to undo it was the cloud wipe — which deletes as well as
+              stops. This one just stops. */}
+          <View style={styles.row}>
+            <View style={styles.iconWrap}>
+              <Ionicons name="cloud-upload-outline" size={20} color={colors.accent} />
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Sync recent photos</Text>
+              <Text style={styles.rowValue}>
+                Uploads private copies of photos from your posting window, so posts
+                can be prepared while the app is closed
+              </Text>
+            </View>
+            <Switch
+              testID="settings-photo-sync-toggle"
+              value={photoSync.enabled === true}
+              // Until storage has answered, the switch has nothing to show and
+              // flipping it would write over a preference not yet read.
+              disabled={photoSync.enabled == null}
+              onValueChange={photoSync.setEnabled}
+              trackColor={{ false: colors.border, true: colors.success }}
+              thumbColor={colors.surface}
+              ios_backgroundColor={colors.border}
+            />
+          </View>
+          <View style={styles.divider} />
           <TouchableOpacity
             testID="settings-remove-cloud-photos"
             style={styles.row}
-            onPress={() => confirmCloudPhotoWipe()}
+            // The wipe switches upload off too, so the toggle above has to be
+            // told — it is the same state, shown twice on one screen.
+            onPress={() => confirmCloudPhotoWipe(photoSync.refresh)}
             activeOpacity={0.7}
           >
             <View style={styles.iconWrap}>
@@ -99,7 +133,7 @@ export function SettingsScreen(): React.JSX.Element {
             </View>
             <View style={styles.rowText}>
               <Text style={styles.rowTitle}>Follow Me</Text>
-              <Text style={styles.rowValue}>Version 0.1.0</Text>
+              <Text style={styles.rowValue}>Version {Constants.expoConfig?.version ?? '1.0.0'}</Text>
             </View>
           </View>
           <View style={styles.divider} />

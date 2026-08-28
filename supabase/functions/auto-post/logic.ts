@@ -46,7 +46,12 @@ export function approvalPushContent(
 }
 
 /** Why the pipeline fell back to a pick-manually reminder instead of a photo batch. */
-export type ReminderReason = 'no-candidates' | 'empty-batch' | 'stale-client' | 'sync-off';
+export type ReminderReason =
+  | 'no-candidates'
+  | 'empty-batch'
+  | 'stale-client'
+  | 'sync-off'
+  | 'grading-failed';
 
 /**
  * Title/body for the fallback reminder push. The failure modes need different
@@ -79,6 +84,15 @@ export function reminderPushContent(reason: ReminderReason): { title: string; bo
       return {
         title: 'Nothing new to post yet',
         body: 'No new photos since your last post — take a few, or open the app to pick older ones.',
+      };
+    case 'grading-failed':
+      // We have photos and the phone did its part — our own AI grading never
+      // got through (upstream rate limit / outage), for long enough that the
+      // slot has to be spent. Don't blame the user's library or their filters
+      // for a server-side problem; point them at the one thing that still works.
+      return {
+        title: "Couldn't prepare your post",
+        body: 'Your photos are here but we could not sort them in time — tap to pick some yourself.',
       };
     case 'empty-batch':
       return {
@@ -154,4 +168,83 @@ export function syncGraceDecision(input: SyncGraceInput): SyncGraceDecision {
   const nudge =
     lastWakePushAt == null || now.getTime() - lastWakePushAt.getTime() >= WAKE_PUSH_INTERVAL_MS;
   return { kind: 'wait', nudge };
+}
+
+// --- Grading backpressure ---------------------------------------------------
+//
+// Selecting a batch needs every candidate in the lookback window graded, and a
+// grade is a Gemini call. The free tier allows 5 requests per MINUTE, so a
+// window of any real size cannot be graded inside one cron tick — on staging,
+// 175 candidates met that wall on the first wave and the 429 threw straight out
+// of the run, past the reminder fallback and past the schedule stamp. The
+// publisher got silence, and the same thing happened again every day.
+//
+// The fix has two halves. Grades are now cached (migration 20240036), so work
+// done on one tick is never bought twice; and each tick grades a bounded slice
+// and then decides whether the slot can be settled or should stay open. A rate
+// limit stops being an error and becomes what it actually is: backpressure.
+
+/**
+ * Photos graded per tick.
+ *
+ * This was 6, when a photo cost a whole request from a free tier allowing 5 per
+ * minute. A request now carries twelve photos for one slot, so the same handful
+ * of rate-limit slots buys 48 photos — four calls, comfortably inside both the
+ * per-minute cap and the function's wall clock, and still bounded so one
+ * publisher's backlog cannot monopolise a tick shared with everyone else's.
+ */
+export const GRADE_BUDGET_PER_TICK = 48;
+
+/**
+ * How long a due posting waits for its candidates to finish grading.
+ *
+ * Deliberately far longer than SYNC_GRACE_MS. That window is short because it
+ * is waiting on a phone that may never check in, and the user can act on the
+ * reminder. This one is waiting on our own backlog draining at a known rate, no
+ * user action would help, and giving up early spends the slot on a reminder
+ * while the answer was minutes away. 20 hours drains a large backlog at
+ * free-tier pace and still lands well inside the shortest posting cadence.
+ */
+export const GRADE_GRACE_MS = 20 * 60 * 60 * 1000;
+
+export interface GradingInput {
+  /** Candidates in the window that now carry a grade (cached + bought this tick). */
+  gradedCount: number;
+  /** Candidates in the window still ungraded. */
+  ungradedCount: number;
+  /** When this posting slot was first held open, or null on first sight. */
+  pendingSince: Date | null;
+  now: Date;
+}
+
+export type GradingDecision =
+  /** Enough is graded — build the batch from what we have. */
+  | { kind: 'select' }
+  /** Grading is still catching up; hold the slot and re-check next tick. */
+  | { kind: 'wait' }
+  /** Out of time with nothing graded at all — spend the slot on a reminder. */
+  | { kind: 'give-up'; reason: ReminderReason };
+
+/**
+ * Whether a due posting can be built now, should wait for grading, or has run
+ * out of time.
+ *
+ * The give-up branch is narrow on purpose: it needs BOTH an expired window and
+ * zero grades. A partially graded window still yields a real post — a batch
+ * picked from 40 of 175 photos is worse than one picked from all 175, but it is
+ * a post with photos in it, which beats "tap to pick some yourself" by a wide
+ * margin. Only a window where grading achieved literally nothing has no batch
+ * to offer.
+ */
+export function gradingDecision(input: GradingInput): GradingDecision {
+  const { gradedCount, ungradedCount, pendingSince, now } = input;
+
+  // Fully graded — the common case once the cache is warm, and the only one
+  // that gets to pick from the whole window.
+  if (ungradedCount === 0) return { kind: 'select' };
+
+  const elapsed = pendingSince != null ? now.getTime() - pendingSince.getTime() : 0;
+  if (elapsed < GRADE_GRACE_MS) return { kind: 'wait' };
+
+  return gradedCount > 0 ? { kind: 'select' } : { kind: 'give-up', reason: 'grading-failed' };
 }

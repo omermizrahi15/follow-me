@@ -48,10 +48,18 @@ export function classifyCaller(
  *
  * - `daily_quota` — OUR per-user ceiling (increment_classify_quota). Real until
  *   tomorrow; nothing the user does today will help.
- * - `rate_limited` — Gemini's requests-per-minute cap on the API key. The free
- *   tier allows 5/minute per model, and the app classifies 4 photos at a time,
- *   so a scan trips this within seconds of starting and recovers on its own
- *   seconds later. Carries `retry_after_seconds` from Gemini's own RetryInfo.
+ * - `rate_limited` — Gemini's requests-per-MINUTE cap on the API key. A scan
+ *   trips this within seconds of starting and recovers on its own seconds
+ *   later. Carries `retry_after_seconds` from Gemini's own RetryInfo.
+ *
+ * Gemini has a THIRD wall that also arrives as a 429 and used to be reported as
+ * the second one: a requests-per-DAY cap (20/day per model on the free tier).
+ * Google attaches a RetryInfo of under a minute to it anyway, so honouring that
+ * delay means retrying a quota that cannot recover for hours — every retry
+ * spending another request from a budget that is already gone. That is how a
+ * scan sat on "Scanning your library" indefinitely. Told apart by quotaId, and
+ * reported as `daily_quota`, because from the app's side it means exactly what
+ * our own ceiling means: nothing today will help.
  */
 export type RefusalReason = 'daily_quota' | 'rate_limited';
 
@@ -64,6 +72,36 @@ export type RefusalReason = 'daily_quota' | 'rate_limited';
  * prose, because guessing a delay is what turned a 28-second pause into "come
  * back tomorrow".
  */
+/**
+ * True when a Gemini 429 is the per-DAY request cap rather than the per-minute one.
+ *
+ * Read from `quotaId` (e.g. "GenerateRequestsPerDayPerProjectPerModel-FreeTier")
+ * rather than from the limit value, because the numbers move between tiers and
+ * models while the period in the id does not. Anything we cannot positively
+ * identify as per-day stays per-minute: waiting a minute on a daily wall costs
+ * one pointless retry, but treating a recoverable minute as a dead day retires
+ * a scan that would have succeeded on its own.
+ */
+export function isDailyQuotaError(body: string): boolean {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return false;
+  }
+  const details = (parsed as { error?: { details?: unknown[] } })?.error?.details;
+  if (!Array.isArray(details)) return false;
+  for (const detail of details) {
+    const violations = (detail as { violations?: unknown[] })?.violations;
+    if (!Array.isArray(violations)) continue;
+    for (const violation of violations) {
+      const id = (violation as { quotaId?: unknown })?.quotaId;
+      if (typeof id === 'string' && /PerDay/i.test(id)) return true;
+    }
+  }
+  return false;
+}
+
 export function parseRetryDelaySeconds(body: string): number | null {
   let parsed: unknown;
   try {
@@ -110,6 +148,14 @@ export interface Classification {
   quality: number;
   caption: string;
   scene: string;
+  /**
+   * Whether the person in the request's reference image appears in this photo
+   * (issue #137). Always false when the request carried no reference — the
+   * question is not put to the model at all in that case.
+   */
+  contains_reference_person: boolean;
+  /** Model confidence in the above, 0..1. Zero when unasked. */
+  reference_confidence: number;
 }
 
 /** btoa over arbitrary bytes, chunked to avoid the argument-count limit on large images. */
@@ -144,8 +190,17 @@ export function asCategory(c: unknown): Category | null {
  * malformed response let a broken model contract reach the device disguised as
  * a confident grade. Since `other` is excluded from the swap pool and grades
  * are remembered for months, that quietly retired the photo for good.
+ *
+ * `askedForReference` says whether a reference image went out with the request.
+ * When it didn't, the face fields are forced to false/0 no matter what the model
+ * volunteered — the honest answer to a question nobody asked, and the one the
+ * selection rules are written to read (see PhotoFacts.containsPublisher).
  */
-export function parseClassification(id: string, parsed: Record<string, unknown>): Classification {
+export function parseClassification(
+  id: string,
+  parsed: Record<string, unknown>,
+  askedForReference = false,
+): Classification {
   const category = asCategory(parsed.category);
   if (category == null) {
     throw new Error(
@@ -159,5 +214,90 @@ export function parseClassification(id: string, parsed: Record<string, unknown>)
     quality: clamp01(parsed.quality),
     caption: typeof parsed.caption === 'string' ? parsed.caption : '',
     scene: typeof parsed.scene === 'string' ? parsed.scene.toLowerCase().trim() : '',
+    contains_reference_person: askedForReference && parsed.contains_reference_person === true,
+    reference_confidence: askedForReference ? clamp01(parsed.reference_confidence) : 0,
   };
+}
+
+// --- Batched grading --------------------------------------------------------
+//
+// Grading was one Gemini call per photo, at full resolution. Against a free
+// tier of 5 requests per minute that made a 150-photo window a ~30-minute wait,
+// and it had nothing to do with the model: a classification only needs to know
+// "sunset or dinner plate", which a 512px thumbnail answers as well as a 1.5MB
+// original. Smaller images are what make batching possible, and batching is
+// what turns the per-minute cap from the binding constraint into a non-issue.
+
+/**
+ * Longest edge, in pixels, of the image actually sent to the model.
+ *
+ * Measured on a real candidate: 1.5MB at full size, 123KB at 768px, 64KB at
+ * 512px. Twelve full-size images would be ~17MB, essentially the whole inline
+ * payload budget — so downscaling is not a saving bolted onto batching, it is
+ * what makes batching possible at all.
+ *
+ * 768 rather than 512 because `quality` grades sharpness, and sharpness is
+ * precisely what a downscale destroys: at 512 a blurry photo is indistinguishable
+ * from a sharp one (verified by eye against a night shot from the staging set),
+ * which would quietly inflate quality scores and let blurry photos through the
+ * publisher's minQuality floor. Category, scene and caption survive 512 easily;
+ * this width is chosen for the one attribute that does not. Twelve of these is
+ * ~1.4MB a request, still far inside the limit.
+ */
+export const CLASSIFY_IMAGE_WIDTH = 768;
+
+/**
+ * Rewrites a Cloudinary delivery URL to fetch a downscaled, re-encoded copy.
+ *
+ * Returns the URL untouched when it isn't Cloudinary or already carries a
+ * transformation — guessing at an unknown URL shape would break the fetch, and
+ * a caller that already asked for a specific rendition meant it.
+ */
+export function downscaledUrl(url: string, width: number = CLASSIFY_IMAGE_WIDTH): string {
+  const marker = '/image/upload/';
+  const at = url.indexOf(marker);
+  if (at === -1) return url;
+
+  const rest = url.slice(at + marker.length);
+  // A transformation segment is the first path component when it carries
+  // Cloudinary's `key_value` shape; a bare `v123/folder/file.jpg` has none.
+  const firstSegment = rest.split('/')[0] ?? '';
+  if (/^[a-z]+_[^/]*$/.test(firstSegment)) return url;
+
+  return `${url.slice(0, at + marker.length)}w_${width},c_limit,q_auto/${rest}`;
+}
+
+/**
+ * Pairs each graded entry back to the photo id it describes.
+ *
+ * The model is asked for an explicit 0-based `index` per image rather than a
+ * bare ordered array, because a silently shortened or reordered array would
+ * attach one photo's grade to another — and a wrong grade is worse than a
+ * missing one: it is cached, it steers selection, and nothing about it looks
+ * like a failure. Entries whose index is missing, duplicated, or out of range
+ * are dropped, so the caller sees a photo it did not get an answer for instead
+ * of an answer that belongs to a different photo.
+ */
+export function pairBatchResults(
+  ids: readonly string[],
+  entries: readonly Record<string, unknown>[],
+): { paired: { id: string; parsed: Record<string, unknown> }[]; missing: string[] } {
+  const byIndex = new Map<number, Record<string, unknown>>();
+  for (const entry of entries) {
+    const raw = entry?.index;
+    const index = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isInteger(index) || index < 0 || index >= ids.length) continue;
+    // First answer for an index wins; a duplicate index means the model lost
+    // track of the ordering, and picking the later one is no more principled.
+    if (!byIndex.has(index)) byIndex.set(index, entry);
+  }
+
+  const paired: { id: string; parsed: Record<string, unknown> }[] = [];
+  const missing: string[] = [];
+  ids.forEach((id, i) => {
+    const entry = byIndex.get(i);
+    if (entry == null) missing.push(id);
+    else paired.push({ id, parsed: entry });
+  });
+  return { paired, missing };
 }

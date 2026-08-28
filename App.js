@@ -8,6 +8,7 @@ import { handlePostNowResponse } from './src/ui/notifications/postNow';
 import { registerBackgroundSyncTask } from './src/ui/notifications/backgroundSync';
 import { registerPeriodicSync } from './src/ui/data/periodicSync';
 import { restoreLastSyncedAt } from './src/ui/data/syncStatus';
+import { migratePhotoSyncPreference } from './src/ui/data/photoSyncConsent';
 
 // Crash reporting first, before the root component mounts — everything that
 // fails past this line (JS exceptions, native crashes) is captured. No-op in
@@ -44,6 +45,13 @@ registerPeriodicSync();
 // "Last synced" is shown in the settings UI and outlives the process that wrote
 // it, so it is read back from storage before anything can render.
 void restoreLastSyncedAt();
+
+// Photo upload is on by default (issue #142) — but an install that predates
+// that build already answered the old opt-in prompt, and a "no" has to survive
+// the upgrade. Carrying that answer over happens here, at module scope, so it
+// lands before the sync task iOS may have launched us to run. Fresh installs
+// are settled at the end of onboarding instead. See resolvePhotoSyncPreference.
+void migratePhotoSyncPreference();
 
 // When a server push arrives (foreground), resolve the batch into the cache
 // (by batchId — see issue #71) so the review screen can skip scanning when the

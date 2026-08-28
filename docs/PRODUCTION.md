@@ -220,13 +220,16 @@ One-time setup (until done, Sentry is silently off and CI skips the upload):
 
 ## Privacy — photo upload consent, retention & deletion
 
-Saving auto-posting settings uploads recent library photos (downscaled to
-≤2048px JPEG on-device) so the server can compose and send posts. Controls in
-place:
+The app uploads recent library photos (downscaled to ≤2048px JPEG on-device) so
+the server can compose and send posts. Controls in place:
 
-- **Consent**: the save flow asks for explicit confirmation before the first
-  upload (stored flag; declining skips the sync).
-- **Deletion**: "Delete my uploaded photos" in the Auto-posting section calls
+- **Consent**: uploading is on by default (issue #142). What is uploaded is
+  stated in the onboarding step that sets posting up, above the button that
+  accepts it — not in a modal. The switch is _Settings → Privacy → Sync recent
+  photos_; turning it off stops new uploads and leaves existing copies to age
+  out. Installs that predate this and had declined the old opt-in prompt stay
+  off across the upgrade — see `domain/services/photoSyncPreference.ts`.
+- **Deletion**: "Remove my photos from the cloud" in Settings → Privacy calls
   the `delete-candidates` Edge Function — wipes the caller's
   `candidate_photos` rows and best-effort deletes the Cloudinary assets.
   Cloudinary cleanup requires the optional function secrets

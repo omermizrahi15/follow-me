@@ -1,8 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AppSupabaseClient } from '../supabase/types';
 import type { IPublisherConfigRepository, PhotoSyncState } from '../../domain/interfaces';
-import { PublisherConfig } from '../../domain/entities/PublisherConfig';
-import type { Frequency, PhotoCount } from '../../domain/entities/PublisherConfig';
+import { PHOTOS_OF_ME_MODES, PublisherConfig } from '../../domain/entities/PublisherConfig';
+import type { Frequency, PhotoCount, PhotosOfMe } from '../../domain/entities/PublisherConfig';
 import type { PhotoCategory } from '../../domain/entities/PhotoClassification';
 import { SELECTABLE_CATEGORIES } from '../../domain/entities/PhotoClassification';
 
@@ -18,6 +18,8 @@ type ConfigColumns = {
   min_quality: number;
   timezone: string;
   expo_push_token: string | null;
+  /** "photos of me" preference — see migration 20240035. */
+  photos_of_me: string | null;
   last_auto_post_at: string | null;
   /** Device heartbeat for the auto-post grace window — see migration 20240026. */
   last_candidate_sync_at: string | null;
@@ -68,6 +70,11 @@ function sanitizeCategories(raw: unknown): PhotoCategory[] {
   return kept.length > 0 ? kept : [...SELECTABLE_CATEGORIES];
 }
 
+/** The stored preference, or 'off' for null / anything unrecognised. */
+function asPhotosOfMe(raw: unknown): PhotosOfMe {
+  return PHOTOS_OF_ME_MODES.includes(raw as PhotosOfMe) ? (raw as PhotosOfMe) : 'off';
+}
+
 function rowToConfig(row: ConfigRow): PublisherConfig {
   return PublisherConfig.create({
     publisherId: row.publisher_id,
@@ -85,6 +92,10 @@ function rowToConfig(row: ConfigRow): PublisherConfig {
     minQuality: row.min_quality,
     timezone: row.timezone,
     expoPushToken: row.expo_push_token ?? '',
+    // Narrowed rather than trusted: PublisherConfig rejects an unknown value,
+    // and a row written by a newer app version (or edited by hand) must not
+    // make the whole config unloadable over one optional preference.
+    photosOfMe: asPhotosOfMe(row.photos_of_me),
   });
 }
 
@@ -110,6 +121,7 @@ export class SupabasePublisherConfigRepository implements IPublisherConfigReposi
       min_quality: config.minQuality,
       timezone: config.timezone,
       expo_push_token: config.expoPushToken === '' ? null : config.expoPushToken,
+      photos_of_me: config.photosOfMe,
     });
     if (error != null) throw new Error(error.message);
   }

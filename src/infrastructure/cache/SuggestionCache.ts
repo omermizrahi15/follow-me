@@ -11,6 +11,14 @@ export interface CachedPhoto {
   quality: number;
   scene: string;
   createdAt: number; // epoch ms
+  /**
+   * Whether the publisher is in the photo (issue #137). Optional because this
+   * cache is also filled from the approval push payload, which older server
+   * deployments send without it — and because a suggestion cached before #137
+   * must still load. Absent reads as false, the same "nobody asked" the
+   * selection rules treat it as.
+   */
+  containsPublisher?: boolean;
 }
 
 export interface CachedSuggestion {
@@ -36,6 +44,11 @@ export function cachedPhotoToClassification(p: CachedPhoto): PhotoClassification
     quality: p.quality,
     caption: p.caption,
     scene: p.scene,
+    containsPublisher: p.containsPublisher ?? false,
+    // The match confidence is deliberately not cached: nothing reads it back,
+    // and a cached suggestion is already a decided batch rather than something
+    // that gets re-ranked.
+    publisherConfidence: 0,
   };
 }
 
@@ -49,6 +62,7 @@ export function classificationToCachedPhoto(c: PhotoClassification): CachedPhoto
     quality: c.quality,
     scene: c.scene,
     createdAt: c.candidate.createdAt.getTime(),
+    containsPublisher: c.containsPublisher,
   };
 }
 

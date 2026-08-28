@@ -1,6 +1,6 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
-import type { IPhotoClassifier } from '../../domain/interfaces';
+import type { FaceReference, IPhotoClassifier } from '../../domain/interfaces';
 import { slowFetch } from '../http/appFetch';
 import { sleep } from '../timers';
 
@@ -87,6 +87,13 @@ interface RawClassification {
   caption: string;
   /** May be omitted by older deployments of the classify function. */
   scene?: string;
+  /**
+   * Both omitted by any deployment that predates issue #137, and by every
+   * request that carried no reference. Absent reads as "not known to contain
+   * the publisher", which is the same thing the selection rules do with false.
+   */
+  contains_reference_person?: boolean;
+  reference_confidence?: number;
 }
 
 /**
@@ -107,6 +114,28 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
    * uploads saturate a phone connection ("Network request failed").
    */
   private static readonly CONCURRENCY = 4;
+
+  /**
+   * Photos per request — and per Gemini call, since classify-photos now grades
+   * a whole request in one.
+   *
+   * Grading used to send one photo per request, which meant a 237-photo library
+   * spent 237 slots from a free tier that allows five per MINUTE: about forty
+   * minutes of waiting before the publisher saw a suggestion. Twelve photos to
+   * a call divides that by twelve. Must not exceed classify-photos'
+   * MAX_PHOTOS_PER_REQUEST, which answers 400 above it.
+   */
+  private static readonly CHUNK_SIZE = 12;
+
+  /**
+   * How many times a chunk waits for a usable session token before giving up.
+   *
+   * Covers both "no token yet" and "the token we sent was rejected", because
+   * they are the same situation seen from either side of the request: a refresh
+   * in flight. A scan runs for minutes and the access token does not, so this
+   * has to be survivable rather than fatal.
+   */
+  private static readonly MAX_AUTH_WAITS = 3;
 
   /** Attempts per photo — transient network drops get one retry. */
   private static readonly MAX_ATTEMPTS = 2;
@@ -214,6 +243,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     candidates: PhotoCandidate[],
     onEach?: (result: PhotoClassification, index: number, total: number) => void,
     shouldStop?: () => boolean,
+    reference?: FaceReference | null,
   ): Promise<PhotoClassification[]> {
     this.hitQuota = false;
     this.hitRateLimit = false;
@@ -224,11 +254,17 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
 
     const total = candidates.length;
     const results: PhotoClassification[] = [];
+    // Photos travel to the model in groups, so the unit of work here is a chunk
+    // rather than a photo — see CHUNK_SIZE.
+    const chunks: PhotoCandidate[][] = [];
+    for (let i = 0; i < candidates.length; i += GeminiPhotoClassifier.CHUNK_SIZE) {
+      chunks.push(candidates.slice(i, i + GeminiPhotoClassifier.CHUNK_SIZE));
+    }
 
     return new Promise<PhotoClassification[]>((resolve, reject) => {
       let nextIdx = 0;
-      // Every candidate ends in exactly one `completed++`, so the promise
-      // provably settles when completed reaches total (or on early stop).
+      // Every chunk ends in exactly one `completed++`, so the promise provably
+      // settles when completed reaches the chunk count (or on early stop).
       let completed = 0;
       let settled = false;
 
@@ -260,25 +296,25 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           // round trip that answers 429 — stop feeding the queue.
           !this.stopped() &&
           inFlight() < GeminiPhotoClassifier.CONCURRENCY &&
-          nextIdx < total
+          nextIdx < chunks.length
         ) {
-          const candidate = candidates[nextIdx++];
-          if (candidate == null) {
+          const chunk = chunks[nextIdx++];
+          if (chunk == null) {
             // Impossible for a dense array, but keeps the completed invariant.
             completed++;
             continue;
           }
 
-          void this.classifyOne(candidate).then(result => {
+          void this.classifyChunk(chunk, reference ?? null).then(graded => {
             completed++;
             if (settled) return;
 
-            if (result != null) {
+            for (const result of graded) {
               results.push(result);
               onEach?.(result, results.length, total);
             }
 
-            if ((shouldStop?.() ?? false) || completed >= total || this.stopped()) {
+            if ((shouldStop?.() ?? false) || completed >= chunks.length || this.stopped()) {
               finish();
             } else {
               launch();
@@ -286,7 +322,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           }, fail);
         }
 
-        if (!settled && completed >= total) finish();
+        if (!settled && completed >= chunks.length) finish();
       };
 
       launch();
@@ -301,29 +337,68 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
    * throws: a classifier that is answering with errors must not be smoothed
    * over into "this photo isn't very good".
    */
-  private async classifyOne(c: PhotoCandidate): Promise<PhotoClassification | null> {
-    let payload: PhotoPayload | null = null;
-    try {
-      payload = await this.resolve(c);
-    } catch {
-      // Unreadable, not a classifier failure — the caller counts it and moves on.
-      return null;
+  private async classifyChunk(
+    chunk: PhotoCandidate[],
+    reference: FaceReference | null,
+  ): Promise<PhotoClassification[]> {
+    // Unreadable photos are dropped here, not failed: they are a device problem
+    // (an asset that won't decode), and the rest of the group is still gradable.
+    const readable: { candidate: PhotoCandidate; payload: PhotoPayload }[] = [];
+    for (const candidate of chunk) {
+      try {
+        const payload = await this.resolve(candidate);
+        if (payload != null) readable.push({ candidate, payload });
+      } catch {
+        // Counted by the caller via the missing result, and moved past.
+      }
     }
-    if (payload == null) return null;
+    const first = readable[0];
+    if (first == null) return [];
 
-    const body = JSON.stringify({ photos: [payload] });
-    const userToken = (await this.getAccessToken?.().catch(() => null)) ?? null;
-    const bearer = userToken ?? this.authKey;
-
+    // `c` names the group in error messages; one call covers all of them.
+    const c = first.candidate;
+    // The reference travels as a URL, never as bytes: the profile photo is
+    // already hosted (it is what followers see on the gallery), so there is
+    // nothing to upload and nothing extra leaves the device. One reference
+    // serves the whole group — it is the same portrait for every photo in it.
+    const body = JSON.stringify({
+      photos: readable.map(r => r.payload),
+      ...(reference != null ? { reference: { url: reference.url } } : {}),
+    });
     let lastNetworkError: unknown;
     let networkAttempts = 0;
     let rateLimitWaits = 0;
+    let authWaits = 0;
 
     while (networkAttempts < GeminiPhotoClassifier.MAX_ATTEMPTS) {
       // Every worker sits out a rate-limit window, not only the one that hit it:
       // with four photos in flight against a five-per-minute ceiling, letting
       // the others keep firing just spends the next window before it opens.
       await this.awaitRateLimitWindow();
+
+      // Read the session on EVERY attempt, not once before the loop. A scan is
+      // minutes of work, so it routinely outlives the access token it started
+      // with; a bearer captured up front is stale by the time a retry uses it.
+      //
+      // No provider at all is a caller with no session concept, which keeps the
+      // old anon-key behaviour. A provider that answers null is the case that
+      // matters: a signed-in user mid-refresh.
+      const sessionToken = await this.getAccessToken?.().catch(() => null);
+      const bearer = this.getAccessToken == null ? this.authKey : sessionToken ?? null;
+
+      // The endpoint requires a signed-in user's JWT and rejects the anon key
+      // outright, so sending the anon key when the session is briefly missing —
+      // which this used to do — is a guaranteed 401 dressed up as an attempt.
+      // 401 is fatal, so that one substitution killed the whole scan. Waiting
+      // for the refresh to land is what the situation actually calls for.
+      if (bearer == null) {
+        if (authWaits >= GeminiPhotoClassifier.MAX_AUTH_WAITS) {
+          throw new ClassificationFailedError(c.id, 'not signed in — cannot classify photos');
+        }
+        authWaits++;
+        await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS, this.runOver.signal);
+        continue;
+      }
 
       networkAttempts++;
       let res: Response;
@@ -344,6 +419,19 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         if (networkAttempts < GeminiPhotoClassifier.MAX_ATTEMPTS) {
           await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS, this.runOver.signal);
         }
+        continue;
+      }
+
+      // An expired token, mid-scan. The next pass reads the session again, by
+      // which time the client's own refresh has usually landed — so this is a
+      // pause, not the end of the run. Bounded by MAX_AUTH_WAITS so a genuinely
+      // signed-out user still surfaces instead of looping.
+      if (res.status === 401 && authWaits < GeminiPhotoClassifier.MAX_AUTH_WAITS) {
+        authWaits++;
+        // A rejected token never reached the model, so it must not spend one of
+        // the attempts reserved for genuine network trouble.
+        networkAttempts--;
+        await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS, this.runOver.signal);
         continue;
       }
 
@@ -370,7 +458,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         if (refusal.reason === 'rate_limited') {
           this.hitRateLimit = true;
           console.warn(`classify-photos still rate limited for ${c.id} after ${rateLimitWaits} waits`);
-          return null;
+          return [];
         }
 
         // The daily quota: our own per-user ceiling. The grades already in hand
@@ -385,7 +473,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           this.onQuotaExhausted?.(this.runSize);
         }
         console.warn(`classify-photos quota reached for ${c.id}`);
-        return null;
+        return [];
       }
 
       if (!res.ok) {
@@ -404,19 +492,32 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         throw new ClassificationFailedError(c.id, 'classify-photos returned an unreadable body', err);
       }
 
-      const raw = parsed.classifications?.[0];
-      if (!raw || raw.id !== c.id) {
-        throw new ClassificationFailedError(c.id, 'classify-photos returned no grade for this photo');
+      // Map grades back by id rather than by position: the server drops any
+      // entry it could not tie to a photo, so the response may be shorter than
+      // the request and in any order. A photo with no grade is simply absent —
+      // it stays ungraded and is retried, which is the honest outcome. Never
+      // pair by index here; that would attach one photo's grade to another.
+      const byId = new Map((parsed.classifications ?? []).map(r => [r.id, r]));
+      const graded: PhotoClassification[] = [];
+      for (const { candidate } of readable) {
+        const raw = byId.get(candidate.id);
+        if (raw == null) continue;
+        graded.push({
+          candidate,
+          category: raw.category,
+          confidence: raw.confidence,
+          quality: raw.quality,
+          caption: raw.caption,
+          scene: raw.scene ?? '',
+          containsPublisher: raw.contains_reference_person === true,
+          publisherConfidence: raw.reference_confidence ?? 0,
+        });
       }
 
-      return {
-        candidate: c,
-        category: raw.category,
-        confidence: raw.confidence,
-        quality: raw.quality,
-        caption: raw.caption,
-        scene: raw.scene ?? '',
-      };
+      if (graded.length === 0) {
+        throw new ClassificationFailedError(c.id, 'classify-photos returned no grades for this batch');
+      }
+      return graded;
     }
 
     throw new ClassificationFailedError(

@@ -13,9 +13,9 @@
  *
  * Selection is ONE ranking, not a sequence of passes:
  *
- *     score = quality × categoryWeight(category)
+ *     score = quality × categoryWeight(category) × publisherWeight(containsPublisher)
  *
- * Quality dominates and category priority tilts. That ordering is deliberate:
+ * Quality dominates and the two preferences tilt. That ordering is deliberate:
  * a top-quality photo in the publisher's *last* category still outranks a
  * merely-good one in their first, so priority settles near-ties instead of
  * overruling the grade (see LAST_WEIGHT for why the spread is narrow).
@@ -44,7 +44,19 @@ export interface PhotoFacts {
    * classifier didn't produce one, which opts the photo out of scene capping.
    */
   scene: string;
+  /**
+   * Whether the publisher themselves is in the photo (issue #137).
+   *
+   * Only meaningful when the rules ask for it: it is false both for "they are
+   * not in this one" and for "nobody asked", because the classifier is only
+   * sent a reference image when the preference is on. Read exclusively under a
+   * non-`off` {@link SelectionRules.photosOfMe}, where the two cases coincide.
+   */
+  containsPublisher?: boolean;
 }
+
+/** See PhotosOfMe on PublisherConfig — restated here to keep this module import-free. */
+export type PhotosOfMeMode = 'off' | 'prefer' | 'only';
 
 export interface SelectionRules {
   /** Categories to draw from, in priority order (earlier = weighted higher). */
@@ -62,6 +74,11 @@ export interface SelectionRules {
   minQuality?: number;
   /** Most photos allowed to share one scene slug. Default {@link DEFAULT_MAX_PER_SCENE}. */
   maxPerScene?: number;
+  /**
+   * How much the publisher's own presence counts for. Default `off`, which is
+   * exactly the behaviour every caller had before issue #137.
+   */
+  photosOfMe?: PhotosOfMeMode;
 }
 
 /**
@@ -112,6 +129,35 @@ const FALLBACK_WEIGHT = 0.15;
 export const DEFAULT_MAX_PER_SCENE = 2;
 
 /**
+ * Weight of a photo the publisher is NOT in, under `prefer` (issue #137).
+ *
+ * Sized by the same reasoning as LAST_WEIGHT, and deliberately a wider spread.
+ * At 0.7 the ratio is 1.43: a photo of the publisher at 0.6 quality beats
+ * anything below 0.857 without them, so the preference decides every near-tie
+ * and most modest gaps — which is the point, since "am I in it?" is a stronger
+ * signal about what belongs in a post than which category it landed in. It is
+ * still short of a filter: a genuinely excellent shot of the coastline (0.9)
+ * out-scores a mediocre one with the publisher in it (0.6), so `prefer` cannot
+ * quietly become `only`. A publisher who wants the filter has `only`.
+ *
+ * Applied only under `prefer`. Under `off` nothing is asked and every photo
+ * weighs 1; under `only` the fact is a filter, not a tilt.
+ */
+const PUBLISHER_ABSENT_WEIGHT = 0.7;
+
+/**
+ * How much the publisher's presence (or absence) counts for, 0..1.
+ *
+ * Not exported, unlike `categoryWeight`: nothing outside asks "how much is this
+ * photo's face worth" on its own. The `only` gate that `isSuggestablePhoto`
+ * needs is a boolean, not a weight, and it reads `containsPublisher` directly.
+ */
+function publisherWeight(facts: PhotoFacts, mode: PhotosOfMeMode | undefined): number {
+  if (mode !== 'prefer') return TOP_WEIGHT;
+  return facts.containsPublisher === true ? TOP_WEIGHT : PUBLISHER_ABSENT_WEIGHT;
+}
+
+/**
  * How much a category counts for, 0..1.
  *
  * Zero means "the publisher switched this off": those photos are never put in a
@@ -127,8 +173,12 @@ export function categoryWeight(category: string, enabledCategories: readonly str
 }
 
 /** The single number every ordering in the app is based on. */
-export function scoreOf(facts: PhotoFacts, enabledCategories: readonly string[]): number {
-  return facts.quality * categoryWeight(facts.category, enabledCategories);
+export function scoreOf(facts: PhotoFacts, rules: SelectionRules): number {
+  return (
+    facts.quality *
+    categoryWeight(facts.category, rules.enabledCategories) *
+    publisherWeight(facts, rules.photosOfMe)
+  );
 }
 
 interface Entry<T> {
@@ -175,7 +225,7 @@ function entriesFor<T>(
     // Projected once — `facts` may be doing real work per photo.
     const f = facts(item);
     if (alreadySent.has(f.id)) continue;
-    entries.push({ item, facts: f, score: scoreOf(f, rules.enabledCategories) });
+    entries.push({ item, facts: f, score: scoreOf(f, rules) });
   }
   return entries.sort(byScore);
 }
@@ -191,11 +241,23 @@ export function selectBatch<T>(
   const minQuality = rules.minQuality ?? 0;
   const maxPerScene = rules.maxPerScene ?? DEFAULT_MAX_PER_SCENE;
 
-  // A post may only draw from categories the publisher left on, and only from
-  // photos above their quality floor. Both are explicit settings, so neither is
-  // relaxed below — a short post is the honest answer.
+  // A post may only draw from categories the publisher left on, from photos
+  // above their quality floor, and — under `only` — from photos they are
+  // actually in. All three are explicit settings, so none is relaxed below: a
+  // short post is the honest answer, and the review screen says so.
+  //
+  // `only` is deliberately a hard filter rather than the "never leave a post
+  // empty" fallback issue #137 sketched. There is no such fallback left to
+  // reuse: the three fallback passes were removed with the round-robin (see the
+  // module comment), and every filter that survived — categories, minQuality —
+  // is strict. More to the point, quietly relaxing this one produces exactly
+  // the post the issue was filed about: a batch of waiters, crowds and other
+  // people's children, sent under a setting that says only photos of me.
   const eligible = entriesFor(classifications, facts, rules, alreadySent).filter(
-    e => e.score > 0 && e.facts.quality >= minQuality,
+    e =>
+      e.score > 0 &&
+      e.facts.quality >= minQuality &&
+      (rules.photosOfMe !== 'only' || e.facts.containsPublisher === true),
   );
 
   const selected: Entry<T>[] = [];

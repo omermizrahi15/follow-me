@@ -15,6 +15,8 @@ interface Opts {
   confidence?: number;
   quality?: number;
   createdAt?: Date;
+  scene?: string;
+  containsPublisher?: boolean;
 }
 
 function make(opts: Opts = {}): PhotoClassification {
@@ -31,7 +33,9 @@ function make(opts: Opts = {}): PhotoClassification {
     confidence: opts.confidence ?? 0.9,
     quality: opts.quality ?? 0.8,
     caption: 'a photo',
-    scene: '',
+    scene: opts.scene ?? '',
+    containsPublisher: opts.containsPublisher ?? false,
+    publisherConfidence: opts.containsPublisher === true ? 0.9 : 0,
   };
 }
 
@@ -354,5 +358,94 @@ describe('isSuggestablePhoto', () => {
     const onlyFood = config({ enabledCategories: ['food'] });
     expect(isSuggestablePhoto(make({ category: 'nature' }), onlyFood)).toBe(false);
     expect(isSuggestablePhoto(make({ category: 'food' }), onlyFood)).toBe(true);
+  });
+
+  it("under photosOfMe 'only', rejects photos the publisher isn't in", () => {
+    // The "+" and the swap chip draw from this. Offering a photo the batch
+    // rules would never accept hands back an empty-looking gesture — the same
+    // reason the category gate is here.
+    const onlyMe = config({ photosOfMe: 'only' });
+    expect(isSuggestablePhoto(make({ containsPublisher: false }), onlyMe)).toBe(false);
+    expect(isSuggestablePhoto(make({ containsPublisher: true }), onlyMe)).toBe(true);
+  });
+
+  it("under photosOfMe 'prefer', offers everything — it is a tilt, not a filter", () => {
+    const preferMe = config({ photosOfMe: 'prefer' });
+    expect(isSuggestablePhoto(make({ containsPublisher: false }), preferMe)).toBe(true);
+  });
+});
+
+describe('PhotoSelectionService — photos of me (issue #137)', () => {
+  /** The batch is returned best-first, so the head is what the preference moved. */
+  const best = (batch: PhotoClassification[]): string | undefined => ids(batch)[0];
+
+  it("'off' ignores the fact entirely: quality alone decides", () => {
+    const batch = service.selectBatch(
+      [
+        make({ id: 'better-without-me', quality: 0.9, containsPublisher: false }),
+        make({ id: 'worse-with-me', quality: 0.5, containsPublisher: true }),
+      ],
+      config(),
+    );
+    expect(best(batch)).toBe('better-without-me');
+  });
+
+  it("'prefer' settles a near-tie in favour of the photo the publisher is in", () => {
+    const batch = service.selectBatch(
+      [
+        make({ id: 'slightly-better', quality: 0.85, containsPublisher: false }),
+        make({ id: 'with-me', quality: 0.8, containsPublisher: true }),
+      ],
+      config({ photosOfMe: 'prefer' }),
+    );
+    expect(best(batch)).toBe('with-me');
+  });
+
+  it("'prefer' still loses to a clearly better photo — it must not become 'only'", () => {
+    // 0.5 with the publisher scores 0.5; 0.95 without scores 0.95 × 0.7 = 0.665.
+    // A wide enough gap has to survive the tilt, or `prefer` is just `only`.
+    const batch = service.selectBatch(
+      [
+        make({ id: 'excellent-without-me', quality: 0.95, containsPublisher: false }),
+        make({ id: 'mediocre-with-me', quality: 0.5, containsPublisher: true }),
+      ],
+      config({ photosOfMe: 'prefer' }),
+    );
+    expect(best(batch)).toBe('excellent-without-me');
+  });
+
+  it("'prefer' fills the rest of the post from photos without the publisher", () => {
+    const batch = service.selectBatch(
+      [
+        make({ id: 'me', quality: 0.8, containsPublisher: true, scene: 'a' }),
+        make({ id: 'other-1', quality: 0.7, containsPublisher: false, scene: 'b' }),
+        make({ id: 'other-2', quality: 0.6, containsPublisher: false, scene: 'c' }),
+      ],
+      config({ photosOfMe: 'prefer' }),
+    );
+    expect(ids(batch)).toEqual(['me', 'other-1', 'other-2']);
+  });
+
+  it("'only' excludes photos without the publisher, however good they are", () => {
+    const batch = service.selectBatch(
+      [
+        make({ id: 'excellent-without-me', quality: 1, containsPublisher: false }),
+        make({ id: 'with-me', quality: 0.3, containsPublisher: true }),
+      ],
+      config({ photosOfMe: 'only' }),
+    );
+    expect(ids(batch)).toEqual(['with-me']);
+  });
+
+  it("'only' returns an empty batch rather than padding with strangers", () => {
+    // Deliberately strict, like the category and quality filters beside it. The
+    // alternative — quietly relaxing to fill the post — produces exactly the
+    // batch of waiters and crowds that issue #137 was filed about, under a
+    // setting that says the opposite.
+    const batch = service.selectBatch(
+      [make({ id: 'a', quality: 0.9 }), make({ id: 'b', quality: 0.8 })],
+      config({ photosOfMe: 'only' }),
+    );
+    expect(batch).toEqual([]);
   });
 });
