@@ -38,7 +38,10 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          # 22, not 20: eas-cli pulls @oclif/plugin-autocomplete, which declares
+          # engines node >=22. On Node 20 yarn refuses to install it and the
+          # expo-github-action step below dies before eas-cli exists.
+          node-version: 22
           cache: npm
       - run: npm ci
       - uses: expo/expo-github-action@v8
