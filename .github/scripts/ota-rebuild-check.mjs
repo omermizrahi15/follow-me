@@ -301,7 +301,8 @@ if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMM
 
 if (!reachable.length && process.env.GITHUB_ACTIONS) {
   const msg = `runtimeVersion ${runtimeVersion} has no installed ${CHANNEL} build — this OTA reaches no device until the rebuild is installed.`;
-  console.log(failed ? `::error title=Native rebuild required::${msg}` : `::warning title=Install the rebuild::${msg}`);
+  const level = (failed && MODE === 'cd') ? 'error' : 'warning';
+  console.log(`::${level} title=Native rebuild required::${msg}`);
 }
 
 // Red means the run needs you: no build could be started, or the one that was
