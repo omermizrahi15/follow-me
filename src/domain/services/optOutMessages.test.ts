@@ -1,4 +1,5 @@
 import {
+  composeWelcomeMessage,
   composeUnsubscribeConfirmation,
   composeResubscribeConfirmation,
 } from './optOutMessages';
@@ -26,5 +27,27 @@ describe('composeResubscribeConfirmation', () => {
 
   it('mentions STOP so the user still knows how to opt out', () => {
     expect(composeResubscribeConfirmation('Dana')).toContain('STOP');
+  });
+});
+
+describe('composeWelcomeMessage', () => {
+  const FEED = 'https://omermizrahi15.github.io/follow-me/gallery.html?u=pub-1';
+
+  it('names the publisher, links their feed and mentions STOP', () => {
+    expect(composeWelcomeMessage('Omer', FEED)).toBe(
+      "You're now following Omer.\n" +
+        "You'll receive their photos here on WhatsApp.\n" +
+        `All their posts in one place: ${FEED}\n` +
+        'Reply STOP at any time to unsubscribe.',
+    );
+  });
+
+  it('lays the copy out on four lines, as the template does', () => {
+    expect(composeWelcomeMessage('Omer', FEED).split('\n')).toHaveLength(4);
+  });
+
+  it('keeps the link off the last line — WhatsApp rejects a body ending in a variable', () => {
+    const lines = composeWelcomeMessage('Omer', FEED).split('\n');
+    expect(lines.at(-1)).not.toContain(FEED);
   });
 });

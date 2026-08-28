@@ -125,7 +125,7 @@ Setup:
    - `TWILIO_TEMPLATE_POST_SID` — no place (`follow_me_post`), used by
      auto-post (candidate photos are location-less) and as the fallback
    - `TWILIO_TEMPLATE_WELCOME_SID` — the new-follower welcome
-     (`follow_me_subscriber_welcome`, issue #164), read by `subscribe`
+     (`follow_me_subscriber_welcome_v2`, issue #164), read by `subscribe`
    `send-post` / `auto-post` send via the template only when these are set AND
    a collage + gallery link + publisher phone are present; otherwise they fall
    back to the free-form caption (fine in the sandbox / before approval). Do
@@ -135,16 +135,37 @@ Setup:
    The **welcome** template is the one followers actually depend on: they
    subscribe by typing a number on the join page and have never messaged our
    sender, so *no* session window is ever open on that path and free-form is
-   rejected outright. One variable, no header/buttons, and submit it as
+   rejected outright. No header/buttons, and submit it as
    **UTILITY** — it confirms an action the follower just took, and utility
    templates escape the per-user frequency caps the two post templates live
-   under (both were approved as MARKETING). Body:
+   under (both were approved as MARKETING). Two variables, body:
 
    ```
    You're now following {{1}}.
    You'll receive their photos here on WhatsApp.
+   All their posts in one place: {{2}}
    Reply STOP at any time to unsubscribe.
    ```
+
+   `{{2}}` is the publisher's gallery **feed** — `gallery.html?u=<publisherId>`,
+   every post as a card, newest first — built by `publisherGalleryUrl`
+   (`_shared/postGallery.ts`), not the `?id=<postId>` story link the post
+   templates carry. It exists so the welcome is worth opening before the first
+   new post arrives: a follower who joins today can still see everything
+   already shared.
+
+   The link is a **variable**, never body text: it differs per publisher, and
+   keeping it in a variable means a later move to a custom domain (or a
+   `GALLERY_BASE_URL` change) costs no re-approval. It also sits on the
+   second-to-last line on purpose — Meta rejects a body whose final token is a
+   parameter, so `Reply STOP…` has to stay last.
+
+   Adding `{{2}}` **is** a body change, so it needs its own approval round and
+   yields a NEW ContentSid. Sequencing: ship the code first with the old
+   (v1) SID still set — Twilio ignores a variable the content does not
+   reference, so followers keep getting the previous three-line copy — then
+   swap `TWILIO_TEMPLATE_WELCOME_SID` in **both** Supabase projects once the v2
+   template reads `approved`.
 
    Saving a draft in the Content Template Builder does **not** submit it:
    a saved-but-unsubmitted template reads `status: unsubmitted` and Meta never
