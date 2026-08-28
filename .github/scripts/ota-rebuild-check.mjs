@@ -102,7 +102,7 @@ try {
     console.log(`::warning title=Native rebuild required (verification skipped)::Fingerprint generation failed transiently — native rebuild will be queued automatically after merge.`);
     process.exit(0);
   }
-  throw; // In CD mode, the error is real and should fail the job
+  throw err; // In CD mode, the error is real and should fail the job
 }
 
 // A build's payload is read through these two, never by field name: eas-cli 22
