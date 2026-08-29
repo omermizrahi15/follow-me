@@ -15,6 +15,9 @@
  * send with 63016. Free-form remains the fallback for the sandbox, where the
  * "join <code>" opt-in does open a window.
  *
+ * Both paths link the publisher's gallery feed, so a follower who joins today
+ * can see everything already posted rather than waiting for the next one.
+ *
  * Either way the send is BEST-EFFORT: a failure is logged but the subscribe is
  * still reported as successful, since the DB row is what actually matters.
  *
@@ -31,6 +34,7 @@ import {
   sendWhatsAppTemplate,
 } from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { logAcceptedSend } from '../_shared/messageLog.ts';
+import { publisherGalleryUrl } from '../_shared/postGallery.ts';
 import { publisherDisplayName } from '../_shared/publisher.ts';
 import { buildWelcomeTemplate } from '../_shared/welcomeTemplate.ts';
 import { normalizeWhatsApp } from './logic.ts';
@@ -64,11 +68,15 @@ async function sendWelcome(publisherId: string, contactHandle: string, publisher
     console.warn('Twilio not configured — skipping subscribe confirmation');
     return;
   }
-  const template = buildWelcomeTemplate({ welcomeSid: TWILIO.templateWelcomeSid }, { publisherName });
+  const galleryUrl = publisherGalleryUrl(publisherId);
+  const template = buildWelcomeTemplate(
+    { welcomeSid: TWILIO.templateWelcomeSid },
+    { publisherName, galleryUrl },
+  );
   try {
     const { sid } = template != null
       ? await sendWhatsAppTemplate(TWILIO, contactHandle, template.contentSid, template.variables)
-      : await sendWhatsApp(TWILIO, contactHandle, composeWelcomeMessage(publisherName));
+      : await sendWhatsApp(TWILIO, contactHandle, composeWelcomeMessage(publisherName, galleryUrl));
     if (sid != null) await logAcceptedSend(supabase, { sid, publisherId, contactHandle });
   } catch (err) {
     console.error('Subscribe confirmation send failed:', err);

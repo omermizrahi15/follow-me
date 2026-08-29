@@ -1,5 +1,5 @@
 import { assert, assertEquals } from '@std/assert';
-import { savePostGallery } from './postGallery.ts';
+import { publisherGalleryUrl, savePostGallery } from './postGallery.ts';
 
 interface Upsert { row: Record<string, unknown> }
 
@@ -71,4 +71,23 @@ Deno.test('savePostGallery — returns null rather than blocking the send when t
   const { client } = fakeSupabase(() => true);
 
   assertEquals(await savePostGallery(client, 'pub-1', ['https://a'], null, 'posting-abc'), null);
+});
+
+Deno.test('publisherGalleryUrl — points at the feed view, not a single post', () => {
+  const url = publisherGalleryUrl('pub-1');
+
+  assert(url.endsWith('?u=pub-1'));
+  assert(url.startsWith('https://'));
+});
+
+Deno.test('publisherGalleryUrl — escapes the publisher id it puts in the query', () => {
+  assert(publisherGalleryUrl('a b&c').endsWith('?u=a%20b%26c'));
+});
+
+Deno.test('publisherGalleryUrl — shares its base with the per-post links', async () => {
+  const { client } = fakeSupabase();
+  const postUrl = await savePostGallery(client, 'pub-1', ['https://a']);
+
+  const base = (u: string) => u.split('?')[0];
+  assertEquals(base(publisherGalleryUrl('pub-1')), base(postUrl ?? ''));
 });
