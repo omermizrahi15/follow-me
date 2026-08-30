@@ -35,7 +35,7 @@ import {
 } from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { logAcceptedSend } from '../_shared/messageLog.ts';
 import { publisherGalleryUrl } from '../_shared/postGallery.ts';
-import { publisherDisplayName } from '../_shared/publisher.ts';
+import { resolvePublisherName } from '../_shared/publisher.ts';
 import { buildWelcomeTemplate } from '../_shared/welcomeTemplate.ts';
 import { normalizeWhatsApp } from './logic.ts';
 
@@ -47,15 +47,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
-// Resolve the publisher's display name for the confirmation copy.
+// Resolve the publisher's display name for the confirmation copy. Reads the
+// profile the publisher set in the app first — auth alone yields the generic
+// label for phone signups, which have neither an email nor a metadata name.
 async function lookupPublisherName(publisherId: string): Promise<string> {
-  try {
-    const { data } = await supabase.auth.admin.getUserById(publisherId);
-    if (!data.user) return 'your publisher';
-    return publisherDisplayName(data.user.user_metadata as Record<string, string>, data.user.email);
-  } catch {
-    return 'your publisher';
-  }
+  return (await resolvePublisherName(supabase, publisherId)) ?? 'your publisher';
 }
 
 // Best-effort WhatsApp send; never throws (the caller must not fail on it).

@@ -28,7 +28,7 @@ import {
 } from '../../../src/domain/services/optOutMessages.ts';
 import { verifyTwilioSignature } from '../../../src/infrastructure/notifiers/twilioSignature.ts';
 import { publisherGalleryUrl } from '../_shared/postGallery.ts';
-import { publisherDisplayName } from '../_shared/publisher.ts';
+import { resolvePublisherName } from '../_shared/publisher.ts';
 import { contactHandleFromWhatsApp, twiml } from './logic.ts';
 
 const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID') ?? '';
@@ -42,14 +42,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
+// The profile name (what the publisher set in the app) is what followers should
+// see; auth metadata and the email local-part are only fallbacks.
 async function lookupPublisher(publisherId: string): Promise<{ name: string } | null> {
-  try {
-    const { data } = await supabase.auth.admin.getUserById(publisherId);
-    if (!data.user) return null;
-    return { name: publisherDisplayName(data.user.user_metadata as Record<string, string>, data.user.email) };
-  } catch {
-    return null;
-  }
+  const name = await resolvePublisherName(supabase, publisherId);
+  return name != null ? { name } : null;
 }
 
 async function sendWhatsApp(to: string, body: string): Promise<void> {
