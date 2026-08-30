@@ -15,8 +15,14 @@
  * send with 63016. Free-form remains the fallback for the sandbox, where the
  * "join <code>" opt-in does open a window.
  *
+ * Both paths link the publisher's gallery feed, so a follower who joins today
+ * can see everything already posted rather than waiting for the next one.
+ *
  * Either way the send is BEST-EFFORT: a failure is logged but the subscribe is
  * still reported as successful, since the DB row is what actually matters.
+ *
+ * A follower who is already active gets `{ ok: true, alreadySubscribed: true }`
+ * — no write, no repeat welcome — so the page can just tell them they're in.
  *
  * Env (injected automatically by Supabase): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  * Env (Twilio): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM,
@@ -31,9 +37,10 @@ import {
   sendWhatsAppTemplate,
 } from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { logAcceptedSend } from '../_shared/messageLog.ts';
-import { publisherDisplayName } from '../_shared/publisher.ts';
+import { publisherGalleryUrl } from '../_shared/postGallery.ts';
+import { resolvePublisherName } from '../_shared/publisher.ts';
 import { buildWelcomeTemplate } from '../_shared/welcomeTemplate.ts';
-import { normalizeWhatsApp } from './logic.ts';
+import { normalizeWhatsApp, subscribeAction } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -43,15 +50,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
-// Resolve the publisher's display name for the confirmation copy.
+// Resolve the publisher's display name for the confirmation copy. Reads the
+// profile the publisher set in the app first — auth alone yields the generic
+// label for phone signups, which have neither an email nor a metadata name.
 async function lookupPublisherName(publisherId: string): Promise<string> {
-  try {
-    const { data } = await supabase.auth.admin.getUserById(publisherId);
-    if (!data.user) return 'your publisher';
-    return publisherDisplayName(data.user.user_metadata as Record<string, string>, data.user.email);
-  } catch {
-    return 'your publisher';
-  }
+  return (await resolvePublisherName(supabase, publisherId)) ?? 'your publisher';
 }
 
 // Best-effort WhatsApp send; never throws (the caller must not fail on it).
@@ -64,11 +67,15 @@ async function sendWelcome(publisherId: string, contactHandle: string, publisher
     console.warn('Twilio not configured — skipping subscribe confirmation');
     return;
   }
-  const template = buildWelcomeTemplate({ welcomeSid: TWILIO.templateWelcomeSid }, { publisherName });
+  const galleryUrl = publisherGalleryUrl(publisherId);
+  const template = buildWelcomeTemplate(
+    { welcomeSid: TWILIO.templateWelcomeSid },
+    { publisherName, galleryUrl },
+  );
   try {
     const { sid } = template != null
       ? await sendWhatsAppTemplate(TWILIO, contactHandle, template.contentSid, template.variables)
-      : await sendWhatsApp(TWILIO, contactHandle, composeWelcomeMessage(publisherName));
+      : await sendWhatsApp(TWILIO, contactHandle, composeWelcomeMessage(publisherName, galleryUrl));
     if (sid != null) await logAcceptedSend(supabase, { sid, publisherId, contactHandle });
   } catch (err) {
     console.error('Subscribe confirmation send failed:', err);
@@ -130,14 +137,21 @@ Deno.serve(async (req: Request) => {
   // upsert) so it doesn't depend on a unique constraint or an id default.
   const { data: existing, error: selErr } = await supabase
     .from('subscribers')
-    .select('id')
+    .select('id, status')
     .eq('publisher_id', publisherId)
     .eq('contact_handle', contactHandle)
     .maybeSingle();
   if (selErr) return json({ ok: false, error: 'Something went wrong. Please try again.' }, 500);
 
-  const write = existing
-    ? supabase.from('subscribers').update({ status: 'active' }).eq('id', existing.id)
+  const action = subscribeAction(existing);
+
+  // Already on the list: nothing to write, and no second welcome. Reported as a
+  // success so the page can reassure them they're subscribed rather than show
+  // an error for something they did nothing wrong to hit.
+  if (action === 'already-active') return json({ ok: true, alreadySubscribed: true });
+
+  const write = action === 'reactivate'
+    ? supabase.from('subscribers').update({ status: 'active' }).eq('id', existing!.id)
     : supabase.from('subscribers').insert({
         id: crypto.randomUUID(),
         publisher_id: publisherId,
@@ -151,5 +165,5 @@ Deno.serve(async (req: Request) => {
   const publisherName = await lookupPublisherName(publisherId);
   await sendWelcome(publisherId, contactHandle, publisherName);
 
-  return json({ ok: true });
+  return json({ ok: true, alreadySubscribed: false });
 });

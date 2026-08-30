@@ -125,7 +125,7 @@ Setup:
    - `TWILIO_TEMPLATE_POST_SID` — no place (`follow_me_post`), used by
      auto-post (candidate photos are location-less) and as the fallback
    - `TWILIO_TEMPLATE_WELCOME_SID` — the new-follower welcome
-     (`follow_me_subscriber_welcome`, issue #164), read by `subscribe`
+     (`follow_me_subscriber_welcome_2`, issue #164), read by `subscribe`
    `send-post` / `auto-post` send via the template only when these are set AND
    a collage + gallery link + publisher phone are present; otherwise they fall
    back to the free-form caption (fine in the sandbox / before approval). Do
@@ -135,16 +135,50 @@ Setup:
    The **welcome** template is the one followers actually depend on: they
    subscribe by typing a number on the join page and have never messaged our
    sender, so *no* session window is ever open on that path and free-form is
-   rejected outright. One variable, no header/buttons, and submit it as
-   **UTILITY** — it confirms an action the follower just took, and utility
-   templates escape the per-user frequency caps the two post templates live
-   under (both were approved as MARKETING). Body:
+   rejected outright. No header/buttons, two variables, body:
 
    ```
-   You're now following {{1}}.
-   You'll receive their photos here on WhatsApp.
-   Reply STOP at any time to unsubscribe.
+   You're following {{1}}.
+   New photos will arrive right here on WhatsApp.
+   See everything they've shared so far: {{2}}
+   Reply STOP to unsubscribe at any time.
    ```
+
+   `{{2}}` is the publisher's gallery **feed** — `gallery.html?u=<publisherId>`,
+   every post as a card, newest first — built by `publisherGalleryUrl`
+   (`_shared/postGallery.ts`), not the `?id=<postId>` story link the post
+   templates carry. It exists so the welcome is worth opening before the first
+   new post arrives: a follower who joins today can still see everything
+   already shared.
+
+   The link is a **variable**, never body text: it differs per publisher, and
+   keeping it in a variable means a later move to a custom domain (or a
+   `GALLERY_BASE_URL` change) costs no re-approval. It also sits on the
+   second-to-last line on purpose — Meta rejects a body whose final token is a
+   parameter, so `Reply STOP…` has to stay last.
+
+   **Category — a known gap.** Every template in the account is registered as
+   MARKETING, the welcome included. UTILITY is the right category for it (it
+   confirms an action the follower just took, and utility templates escape the
+   per-user marketing frequency caps that can drop a message Meta decides is
+   promotional). A capped welcome would fail the way issue #164 did: silently,
+   for the one message a new follower is actually waiting on. Category is fixed
+   at approval, so correcting it means submitting a fresh Content rather than
+   editing this one — worth doing next time the copy is re-cut anyway.
+
+   Adding `{{2}}` **is** a body change, so it needs its own approval round and
+   yields a NEW ContentSid — `follow_me_subscriber_welcome_2`
+   (`HX5ad3faf98a42898985f0f202c9883223`), replacing the one-variable
+   `follow_me_subscriber_welcome` (`HX8145066c…`).
+
+   Sequencing, and the order matters: **deploy the code first**, with the old
+   SID still set. Twilio ignores a variable the live content does not
+   reference, so followers keep getting the previous three-line copy until the
+   swap. The reverse order breaks: the old code sends one variable to a
+   two-variable template and Twilio rejects it for parameter count. Only once
+   the new function is deployed AND the template reads `approved`, swap
+   `TWILIO_TEMPLATE_WELCOME_SID` — in **both** Supabase projects, staging
+   first.
 
    Saving a draft in the Content Template Builder does **not** submit it:
    a saved-but-unsubmitted template reads `status: unsubmitted` and Meta never

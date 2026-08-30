@@ -27,7 +27,8 @@ import {
   composeWelcomeMessage,
 } from '../../../src/domain/services/optOutMessages.ts';
 import { verifyTwilioSignature } from '../../../src/infrastructure/notifiers/twilioSignature.ts';
-import { publisherDisplayName } from '../_shared/publisher.ts';
+import { publisherGalleryUrl } from '../_shared/postGallery.ts';
+import { resolvePublisherName } from '../_shared/publisher.ts';
 import { contactHandleFromWhatsApp, twiml } from './logic.ts';
 
 const TWILIO_ACCOUNT_SID = Deno.env.get('TWILIO_ACCOUNT_SID') ?? '';
@@ -41,14 +42,11 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
   auth: { persistSession: false },
 });
 
+// The profile name (what the publisher set in the app) is what followers should
+// see; auth metadata and the email local-part are only fallbacks.
 async function lookupPublisher(publisherId: string): Promise<{ name: string } | null> {
-  try {
-    const { data } = await supabase.auth.admin.getUserById(publisherId);
-    if (!data.user) return null;
-    return { name: publisherDisplayName(data.user.user_metadata as Record<string, string>, data.user.email) };
-  } catch {
-    return null;
-  }
+  const name = await resolvePublisherName(supabase, publisherId);
+  return name != null ? { name } : null;
 }
 
 async function sendWhatsApp(to: string, body: string): Promise<void> {
@@ -188,9 +186,10 @@ async function handleJoin(
   }
 
   // Free-form is fine here (unlike the `subscribe` path): the follower just
-  // messaged us the JOIN, so WhatsApp's 24h session window is open.
+  // messaged us the JOIN, so WhatsApp's 24h session window is open. The copy is
+  // the same either way, gallery link included.
   try {
-    await sendWhatsApp(from, composeWelcomeMessage(publisher.name));
+    await sendWhatsApp(from, composeWelcomeMessage(publisher.name, publisherGalleryUrl(publisherId)));
     return new Response('', { status: 204 });
   } catch (err) {
     console.error('WhatsApp confirmation failed, falling back to TwiML:', err);

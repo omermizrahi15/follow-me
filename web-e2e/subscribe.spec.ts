@@ -33,6 +33,17 @@ test.describe('subscribe page', () => {
     await expect(page.locator('#form-view')).toBeHidden();
   });
 
+  test('an already-subscribed number is told so, not thanked for joining again', async ({ page }) => {
+    await page.route(SUBSCRIBE, route => fulfillJson(route, 200, { ok: true, alreadySubscribed: true }));
+    await page.goto(JOIN);
+    await page.fill('#phone', '+972501234567');
+    await page.getByRole('button', { name: 'Subscribe' }).click();
+
+    await expect(page.getByRole('heading', { name: "You're already subscribed" })).toBeVisible();
+    await expect(page.locator('#confirmed')).toHaveText('+972501234567');
+    await expect(page.locator('#form-view')).toBeHidden();
+  });
+
   test('sends the publisher id and phone to the subscribe function', async ({ page }) => {
     let payload: unknown = null;
     await page.route(SUBSCRIBE, route => {
