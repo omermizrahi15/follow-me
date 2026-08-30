@@ -94,8 +94,11 @@
 
       <section id="success-view" class="success" hidden>
         <div class="check">✓</div>
-        <h1>You're subscribed!</h1>
-        <p class="subtitle">You'll start receiving photos on WhatsApp at <span id="confirmed"></span>.</p>
+        <h1 id="success-title">You're subscribed!</h1>
+        <p class="subtitle">
+          <span id="success-lead">You'll start receiving photos on WhatsApp at</span>
+          <span id="confirmed"></span><span id="success-tail">.</span>
+        </p>
       </section>
     </main>
 
@@ -116,6 +119,24 @@
       var phone = document.getElementById('phone');
       var submit = document.getElementById('submit');
       var errorEl = document.getElementById('error');
+
+      // Two flavours of the same confirmation. Re-subscribing is a success, not
+      // an error — someone who is already on the list just gets told so, rather
+      // than being thanked for joining again (and no second welcome is sent).
+      function showSuccess(alreadySubscribed) {
+        var number = phone.value.trim();
+        document.getElementById('success-title').textContent =
+          alreadySubscribed ? "You're already subscribed" : "You're subscribed!";
+        document.getElementById('success-lead').textContent =
+          alreadySubscribed
+            ? 'Photos are already going to your WhatsApp at'
+            : "You'll start receiving photos on WhatsApp at";
+        document.getElementById('success-tail').textContent =
+          alreadySubscribed ? ' — nothing else to do.' : '.';
+        document.getElementById('confirmed').textContent = number;
+        document.getElementById('form-view').hidden = true;
+        document.getElementById('success-view').hidden = false;
+      }
 
       function showError(message) {
         errorEl.textContent = message;
@@ -138,9 +159,7 @@
           .then(function (resp) { return resp.json().catch(function () { return {}; }).then(function (d) { return { ok: resp.ok, data: d }; }); })
           .then(function (r) {
             if (r.ok && r.data && r.data.ok) {
-              document.getElementById('confirmed').textContent = phone.value.trim();
-              document.getElementById('form-view').hidden = true;
-              document.getElementById('success-view').hidden = false;
+              showSuccess(!!r.data.alreadySubscribed);
               return;
             }
             showError((r.data && r.data.error) || 'Something went wrong. Please try again.');
