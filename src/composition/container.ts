@@ -9,6 +9,7 @@ import { SaveConfigUseCase } from '../application/usecases/SaveConfigUseCase';
 import { LoadConfigUseCase } from '../application/usecases/LoadConfigUseCase';
 import { SuggestPhotosUseCase } from '../application/usecases/SuggestPhotosUseCase';
 import { GetAiUsageUseCase } from '../application/usecases/GetAiUsageUseCase';
+import { InspectGradesUseCase } from '../application/usecases/InspectGradesUseCase';
 import { PhotoSelectionService } from '../domain/services/PhotoSelectionService';
 import { ClassificationCache } from '../infrastructure/cache/ClassificationCache';
 import { BackfillHistoryUseCase } from '../application/usecases/BackfillHistoryUseCase';
@@ -186,6 +187,22 @@ const suggestPhotosUseCase = new SuggestPhotosUseCase(
   async publisherId => (await profileRepo.findByPublisher(publisherId))?.avatarUrl ?? null,
 );
 export const suggestPhotos = monitored('suggest_photos', suggestPhotosUseCase);
+/**
+ * Every grade the device remembers, with the reasoning behind it — what the
+ * grade inspector reads (dev and staging builds only).
+ *
+ * Shares the store and the avatar lookup with the scan above on purpose: an
+ * inspector reading a different set of grades, or reading them under a
+ * different face, would explain a ranking that never happened.
+ */
+export const inspectGrades = monitored(
+  'inspect_grades',
+  new InspectGradesUseCase(
+    ClassificationCache,
+    sentPhotoTracker,
+    async publisherId => (await profileRepo.findByPublisher(publisherId))?.avatarUrl ?? null,
+  ),
+);
 // Reconstructs pre-app travel history one cadence-window at a time (issue #81).
 // Takes the unwrapped suggest use case so a window's failure is tagged
 // `backfill_history` rather than double-reported as a live suggestion.

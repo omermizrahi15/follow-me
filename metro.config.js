@@ -26,6 +26,13 @@ const config = getSentryExpoConfig(__dirname);
 // staging. It pulls in a hook and a quota request that a production build has
 // no caller for.
 //
+// `src/ui/dev/PhotoGradeInspector.tsx` is the grade inspector: every photo the
+// AI has graded, ranked by the same score the post is chosen with, with the
+// factor arithmetic and the model's own reasoning beside each one. It is the
+// heaviest of the three — a screen, a hook, a use case and a thumbnail list —
+// and it exists to explain the algorithm to whoever is tuning it, which is not
+// a job a publisher's build has.
+//
 // Add a module here by adding its real path and its `.prod.tsx` stub to
 // DEV_ONLY_MODULES — and a case to src/devToolsBundling.test.ts, which is what
 // notices when a rename silently switches the rule off.
@@ -36,6 +43,7 @@ const devOnly = name => [
 const DEV_ONLY_MODULES = new Map([
   devOnly('DevNotificationPanel'),
   devOnly('AiUsageBar'),
+  devOnly('PhotoGradeInspector'),
 ]);
 
 // Staging keeps the tooling on purpose: QA triggers the rich approval push from

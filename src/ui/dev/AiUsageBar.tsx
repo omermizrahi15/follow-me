@@ -2,7 +2,7 @@ import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { AiUsageLevel, AiUsageSummary } from '../../domain/entities/AiUsage';
-import { aiUsageCopy } from '../../domain/services/aiUsage';
+import { aiUsageCopy, providerLimitCopy } from '../../domain/services/aiUsage';
 import { showDevTools } from '../data/devTools';
 import { useAiUsage } from '../hooks/useAiUsage';
 import { colors, radius, spacing, typography } from '../theme/theme';
@@ -10,12 +10,15 @@ import { colors, radius, spacing, typography } from '../theme/theme';
 /**
  * "How much AI have I got left today", on the staging build only.
  *
- * The number is the per-user daily classify quota (`classify_quota`, migration
- * 20240015) against the server's own CLASSIFY_DAILY_QUOTA ceiling — the same
- * budget a photo scan spends and the same one that answers 429 with
- * `daily_quota` when it runs out. It is *our* ceiling, not the model vendor's
- * account-wide limit: that one is only visible on the provider's dashboard and
- * nothing the app can call reports it.
+ * Two different things, shown together because only the pair is the truth:
+ *
+ * - The per-user count (`classify_quota`, migration 20240015) against our own
+ *   optional ceiling. That ceiling is normally unset now, so this is usually a
+ *   count with no denominator. It used to default to 500 and be rendered as a
+ *   percentage, which made a number we invented look like the AI's real budget.
+ * - What the PROVIDER says the account may still spend — read off its own
+ *   response headers on every classify call and kept in `provider_limits`. This
+ *   is the wall a scan actually hits, and it was invisible until now.
  *
  * Staging-only on purpose. It is an operational read-out for whoever is testing
  * — publishers have no use for a quota they cannot raise, and the wall already
@@ -39,11 +42,40 @@ export function AiUsageBar({ publisherId }: { publisherId: string }): React.JSX.
           </View>
           <View style={styles.headerText}>
             <Text style={styles.title}>Photo classification</Text>
-            <Text style={styles.subtitle}>Today’s per-account limit</Text>
+            <Text style={styles.subtitle}>Photos you have graded today</Text>
           </View>
           <Body usage={usage} />
         </View>
+        <ProviderLimits summary={usage.data ?? null} />
       </View>
+    </View>
+  );
+}
+
+/**
+ * The provider's own ceilings, underneath our count.
+ *
+ * Renders nothing at all when the provider has never been heard from. A row of
+ * zeros would read as "you have none left", which is the opposite of "we have
+ * not been told" — and standing in for an unknown with a plausible number is
+ * the exact habit this whole panel is correcting.
+ */
+function ProviderLimits({
+  summary,
+}: {
+  summary: AiUsageSummary | null;
+}): React.JSX.Element | null {
+  const copy = providerLimitCopy(summary?.provider ?? null);
+  if (copy == null) return null;
+
+  return (
+    <View style={styles.provider} testID="ai-usage-provider">
+      <Text style={styles.providerHeadline}>{copy.headline}</Text>
+      {copy.lines.map(line => (
+        <Text key={line} style={styles.providerLine}>
+          {line}
+        </Text>
+      ))}
     </View>
   );
 }
@@ -77,18 +109,24 @@ function Reading({ summary }: { summary: AiUsageSummary }): React.JSX.Element {
       <Text style={[styles.percent, { color: tint }]} testID="ai-usage-percent">
         {copy.headline}
       </Text>
-      <View style={styles.track}>
-        {/* Percent width so the fill tracks the bar at any screen size. A
-            spent budget still shows a sliver, so the bar never reads as
-            "nothing happening" when it means "nothing left". */}
-        <View
-          testID="ai-usage-fill"
-          style={[
-            styles.fill,
-            { width: `${Math.max(2, summary.usedFraction * 100)}%`, backgroundColor: tint },
-          ]}
-        />
-      </View>
+      {/* No bar when nothing of ours caps the count. A track filled against an
+          invented denominator is what made this read as an AI budget rather
+          than as a tally, so with no ceiling there is deliberately nothing to
+          fill. */}
+      {summary.usedFraction != null && (
+        <View style={styles.track}>
+          {/* Percent width so the fill tracks the bar at any screen size. A
+              spent budget still shows a sliver, so the bar never reads as
+              "nothing happening" when it means "nothing left". */}
+          <View
+            testID="ai-usage-fill"
+            style={[
+              styles.fill,
+              { width: `${Math.max(2, summary.usedFraction * 100)}%`, backgroundColor: tint },
+            ]}
+          />
+        </View>
+      )}
       <Text style={styles.detail} testID="ai-usage-detail">
         {copy.detail}
       </Text>
@@ -130,6 +168,15 @@ const styles = StyleSheet.create({
   headerText: { flex: 1 },
   title: { ...typography.body, fontSize: 14, fontWeight: '600', color: colors.text },
   subtitle: { ...typography.caption, color: colors.textSecondary, marginTop: 2 },
+  provider: {
+    borderTopWidth: 1,
+    borderTopColor: colors.border,
+    paddingHorizontal: spacing.lg,
+    paddingVertical: spacing.md,
+    gap: 2,
+  },
+  providerHeadline: { ...typography.caption, color: colors.text, fontWeight: '600' },
+  providerLine: { ...typography.caption, color: colors.textSecondary },
   reading: { flex: 1.1, alignItems: 'flex-end' },
   percent: { ...typography.body, fontSize: 15, fontWeight: '700' },
   track: {

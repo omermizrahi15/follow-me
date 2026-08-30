@@ -4,10 +4,12 @@ import {
   bytesToBase64,
   clamp01,
   classifyCaller,
+  dailyQuotaFrom,
   parseClassification,
   CLASSIFY_IMAGE_WIDTH,
   downscaledUrl,
   isDailyQuotaError,
+  MAX_REASON_LENGTH,
   pairBatchResults,
   parseRetryDelaySeconds,
   quotaSnapshot,
@@ -103,6 +105,7 @@ Deno.test('parseClassification — normalizes a well-formed model response', () 
     // never asked and must not read as "the publisher isn't in this photo".
     contains_reference_person: false,
     reference_confidence: 0,
+    reason: '',
   });
 });
 
@@ -110,7 +113,7 @@ Deno.test('parseClassification — defaults junk scores and text, keeping the st
   const c = parseClassification('id2', { category: 'other', confidence: 5, quality: 'x', caption: 123 });
   assertEquals(c, {
     id: 'id2', category: 'other', confidence: 1, quality: 0, caption: '', scene: '',
-    contains_reference_person: false, reference_confidence: 0,
+    contains_reference_person: false, reference_confidence: 0, reason: '',
   });
 });
 
@@ -331,4 +334,75 @@ Deno.test('quotaSnapshot treats an unreadable count as nothing spent', () => {
 
 Deno.test('quotaSnapshot never reports a negative count', () => {
   assertEquals(quotaSnapshot(-3, 500, '2026-08-28').used, 0);
+});
+
+// ── Our own ceiling, now optional ───────────────────────────────────────────
+//
+// It used to default to 500 photos per user per day, which was a number nobody
+// chose against anything real: it is not what any provider enforces, it is
+// per-user where every provider limit is per-account, and it was the only
+// figure the app could show a publisher. Unset now means we impose no ceiling
+// of our own and the provider's real wall is the wall.
+
+Deno.test('dailyQuotaFrom — unset means we add no ceiling of our own', () => {
+  assertEquals(dailyQuotaFrom(undefined), null);
+  assertEquals(dailyQuotaFrom(''), null);
+});
+
+Deno.test('dailyQuotaFrom — a number set deliberately is honoured', () => {
+  // Still available as a cost brake, just no longer on by default.
+  assertEquals(dailyQuotaFrom('750'), 750);
+});
+
+Deno.test('dailyQuotaFrom — zero switches classification off entirely', () => {
+  // Distinct from unset: zero is a deliberate kill switch, and has to survive
+  // as 0 rather than falling back to "no ceiling".
+  assertEquals(dailyQuotaFrom('0'), 0);
+});
+
+Deno.test('dailyQuotaFrom — nonsense is no ceiling, never a silent 500', () => {
+  // A typo'd secret must not quietly reinstate an invented limit.
+  assertEquals(dailyQuotaFrom('lots'), null);
+  assertEquals(dailyQuotaFrom('-5'), null);
+});
+
+Deno.test('quotaSnapshot — carries a null ceiling through untouched', () => {
+  assertEquals(quotaSnapshot(42, null, '2026-08-29'), {
+    used: 42,
+    limit: null,
+    day: '2026-08-29',
+  });
+});
+
+// ── The model's own account of the grade ────────────────────────────────────
+
+Deno.test('parseClassification — keeps the reason the model gave for its grade', () => {
+  // The numbers alone never explained themselves: a 0.35 on a photo that looks
+  // fine is unarguable-with until the model says "motion blur on the subject".
+  const c = parseClassification('a', {
+    category: 'food',
+    confidence: 0.9,
+    quality: 0.35,
+    caption: 'Dinner',
+    scene: 'restaurant-dinner',
+    reason: 'Sharp plate but the subject is underexposed and the frame is cluttered.',
+  });
+  assertEquals(c.reason, 'Sharp plate but the subject is underexposed and the frame is cluttered.');
+});
+
+Deno.test('parseClassification — a missing reason is empty, never invented', () => {
+  // Every grade bought before this field existed has none, and a made-up
+  // rationale attached to a real grade is worse than an honest blank.
+  const c = parseClassification('a', { category: 'nature', confidence: 1, quality: 1 });
+  assertEquals(c.reason, '');
+});
+
+Deno.test('parseClassification — a rambling reason is trimmed to a readable length', () => {
+  const c = parseClassification('a', {
+    category: 'nature',
+    confidence: 1,
+    quality: 1,
+    reason: 'x'.repeat(500),
+  });
+  assertEquals(c.reason.length, MAX_REASON_LENGTH);
 });

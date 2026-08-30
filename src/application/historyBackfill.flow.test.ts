@@ -40,7 +40,7 @@ function candidate(id: string, createdAt: string): PhotoCandidate {
 function classification(c: PhotoCandidate): PhotoClassification {
   return {
     candidate: c, category: 'nature', confidence: 0.9, quality: 0.8, caption: '', scene: c.id,
-    containsPublisher: false, publisherConfidence: 0,
+    containsPublisher: false, publisherConfidence: 0, reason: '',
   };
 }
 

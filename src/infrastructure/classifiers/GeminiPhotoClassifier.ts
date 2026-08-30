@@ -88,6 +88,12 @@ interface RawClassification {
   /** May be omitted by older deployments of the classify function. */
   scene?: string;
   /**
+   * The model's one-sentence account of the grade. Omitted by any deployment
+   * of the classify function that predates it, which reads as no explanation
+   * rather than as a defect in the grade.
+   */
+  reason?: string;
+  /**
    * Both omitted by any deployment that predates issue #137, and by every
    * request that carried no reference. Absent reads as "not known to contain
    * the publisher", which is the same thing the selection rules do with false.
@@ -511,6 +517,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           scene: raw.scene ?? '',
           containsPublisher: raw.contains_reference_person === true,
           publisherConfidence: raw.reference_confidence ?? 0,
+          reason: raw.reason ?? '',
         });
       }
 

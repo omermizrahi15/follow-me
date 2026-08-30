@@ -148,11 +148,13 @@ const PUBLISHER_ABSENT_WEIGHT = 0.7;
 /**
  * How much the publisher's presence (or absence) counts for, 0..1.
  *
- * Not exported, unlike `categoryWeight`: nothing outside asks "how much is this
- * photo's face worth" on its own. The `only` gate that `isSuggestablePhoto`
- * needs is a boolean, not a weight, and it reads `containsPublisher` directly.
+ * Exported for ./gradeExplanation, which shows a publisher the factors their
+ * score was multiplied from. It restated this weight as a literal until the
+ * duplication was obvious: two copies of a tuning constant, one of them in the
+ * screen built to explain the other. The `only` gate that `isSuggestablePhoto`
+ * needs is still a boolean, not a weight, and reads `containsPublisher` direct.
  */
-function publisherWeight(facts: PhotoFacts, mode: PhotosOfMeMode | undefined): number {
+export function publisherWeight(facts: PhotoFacts, mode: PhotosOfMeMode | undefined): number {
   if (mode !== 'prefer') return TOP_WEIGHT;
   return facts.containsPublisher === true ? TOP_WEIGHT : PUBLISHER_ABSENT_WEIGHT;
 }

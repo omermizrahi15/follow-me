@@ -1,6 +1,13 @@
 import { assert, assertEquals } from '@std/assert';
-import { entriesFrom, isProviderExhausted, retryAfterHeader } from './vision.ts';
+import {
+  entriesFrom,
+  isProviderExhausted,
+  parseDurationSeconds,
+  rateLimitFromHeaders,
+  retryAfterHeader,
+} from './vision.ts';
 import { isGroqDailyLimit, parseGroqRetrySeconds } from './groq.ts';
+import { geminiQuotaLimits } from './gemini.ts';
 
 Deno.test('entriesFrom — a bare array is what a schema-enforcing provider returns', () => {
   assertEquals(entriesFrom([{ index: 0 }, { index: 1 }]), [{ index: 0 }, { index: 1 }]);
@@ -96,4 +103,139 @@ Deno.test('isProviderExhausted — anything unrecognised stays put', () => {
   // accident, quietly draining the provider being held in reserve.
   assertEquals(isProviderExhausted(failure({ status: 404 })), false);
   assertEquals(isProviderExhausted(failure({ status: 418 })), false);
+});
+
+// ── The provider's own limits ───────────────────────────────────────────────
+//
+// Everything below exists because the number the app showed publishers — 500
+// photos a day — was invented by us and matched nothing. The provider states
+// its real ceilings on every single response; these read them.
+
+Deno.test('parseDurationSeconds — the compound form Groq answers with', () => {
+  assertEquals(parseDurationSeconds('2m59.56s'), 180);
+  assertEquals(parseDurationSeconds('1h2m3s'), 3723);
+});
+
+Deno.test('parseDurationSeconds — plain seconds, rounded up', () => {
+  assertEquals(parseDurationSeconds('7.66s'), 8);
+  assertEquals(parseDurationSeconds('60'), 60);
+});
+
+Deno.test('parseDurationSeconds — sub-second waits still count as a wait', () => {
+  // Zero would read as "the window is already open", which it is not.
+  assertEquals(parseDurationSeconds('120ms'), 1);
+});
+
+Deno.test('parseDurationSeconds — nonsense is "the provider did not say"', () => {
+  assertEquals(parseDurationSeconds(''), null);
+  assertEquals(parseDurationSeconds('soon'), null);
+  assertEquals(parseDurationSeconds(null), null);
+});
+
+Deno.test('rateLimitFromHeaders — reads both ceilings a vision call spends', () => {
+  const limits = rateLimitFromHeaders(
+    new Headers({
+      'x-ratelimit-limit-requests': '1000',
+      'x-ratelimit-remaining-requests': '994',
+      'x-ratelimit-reset-requests': '2m59.56s',
+      'x-ratelimit-limit-tokens': '8000',
+      'x-ratelimit-remaining-tokens': '2450',
+      'x-ratelimit-reset-tokens': '41.5s',
+    }),
+    'groq',
+    'qwen/qwen3.6-27b',
+    1_700_000_000_000,
+  );
+
+  assertEquals(limits, {
+    provider: 'groq',
+    model: 'qwen/qwen3.6-27b',
+    requests: { limit: 1000, remaining: 994, resetSeconds: 180 },
+    tokens: { limit: 8000, remaining: 2450, resetSeconds: 42 },
+    observedAt: 1_700_000_000_000,
+  });
+});
+
+Deno.test('rateLimitFromHeaders — one ceiling reported without the other', () => {
+  // Tokens are what actually bound an image workload, so a reply that names
+  // only those is still worth every bit of what it says.
+  const limits = rateLimitFromHeaders(
+    new Headers({ 'x-ratelimit-limit-tokens': '200000', 'x-ratelimit-remaining-tokens': '199000' }),
+    'groq',
+    'm',
+    1,
+  );
+  assertEquals(limits?.requests, null);
+  assertEquals(limits?.tokens, { limit: 200000, remaining: 199000, resetSeconds: null });
+});
+
+Deno.test('rateLimitFromHeaders — a provider that states nothing yields nothing', () => {
+  // Never a zeroed-out shape: "0 of 0 left" is a wall, and inventing one here
+  // would be the same lie as the 500 this replaced.
+  assertEquals(rateLimitFromHeaders(new Headers(), 'gemini', 'gemini-3.5-flash', 1), null);
+});
+
+Deno.test('rateLimitFromHeaders — unreadable numbers are dropped, not guessed at', () => {
+  assertEquals(
+    rateLimitFromHeaders(new Headers({ 'x-ratelimit-limit-requests': 'lots' }), 'groq', 'm', 1),
+    null,
+  );
+});
+
+Deno.test('geminiQuotaLimits — the ceiling Google names in its own refusal', () => {
+  // Gemini sends no x-ratelimit headers at all; the only place it ever states a
+  // number is the QuotaFailure inside a 429. Reading it is how "20 a day" stops
+  // being folklore in a code comment and becomes something the app can show.
+  const body = JSON.stringify({
+    error: {
+      code: 429,
+      details: [
+        {
+          '@type': 'type.googleapis.com/google.rpc.QuotaFailure',
+          violations: [
+            {
+              quotaMetric: 'generativelanguage.googleapis.com/generate_content_free_tier_requests',
+              quotaId: 'GenerateRequestsPerDayPerProjectPerModel-FreeTier',
+              quotaValue: '20',
+            },
+          ],
+        },
+      ],
+    },
+  });
+
+  assertEquals(geminiQuotaLimits(body, 'gemini-3.5-flash', 5), {
+    provider: 'gemini',
+    model: 'gemini-3.5-flash',
+    // Named in the refusal, so by definition none of it is left.
+    requests: { limit: 20, remaining: 0, resetSeconds: null },
+    tokens: null,
+    observedAt: 5,
+  });
+});
+
+Deno.test('geminiQuotaLimits — a per-minute violation keeps its own reset', () => {
+  const body = JSON.stringify({
+    error: {
+      details: [
+        {
+          violations: [{
+            quotaId: 'GenerateRequestsPerMinutePerProjectPerModel-FreeTier',
+            quotaValue: '5',
+          }],
+        },
+        { '@type': 'type.googleapis.com/google.rpc.RetryInfo', retryDelay: '38s' },
+      ],
+    },
+  });
+  assertEquals(geminiQuotaLimits(body, 'm', 1)?.requests, {
+    limit: 5,
+    remaining: 0,
+    resetSeconds: 38,
+  });
+});
+
+Deno.test('geminiQuotaLimits — anything that is not a quota refusal says nothing', () => {
+  assertEquals(geminiQuotaLimits('not json', 'm', 1), null);
+  assertEquals(geminiQuotaLimits(JSON.stringify({ error: { code: 500 } }), 'm', 1), null);
 });

@@ -12,6 +12,7 @@
 import { isDailyQuotaError, parseRetryDelaySeconds } from './logic.ts';
 import {
   entriesFrom,
+  type ProviderLimits,
   type VisionProvider,
   type VisionRequest,
   type VisionResult,
@@ -33,6 +34,56 @@ const GEMINI_ATTEMPTS = 2;
  * edge function open. A per-day ceiling is never waited on at all.
  */
 const INLINE_RETRY_MAX_SECONDS = 2;
+
+/**
+ * The ceiling Gemini names inside its own 429, as a ProviderLimits.
+ *
+ * Gemini sends no `x-ratelimit-*` headers — the single place it ever states a
+ * number is the QuotaFailure attached to a refusal. So unlike a header-based
+ * provider, this is knowable only once the wall has been hit, and `remaining`
+ * is 0 by definition: it was reported because there was nothing left.
+ *
+ * Reading it is what turns "3.5-flash allows twenty a day" from folklore in a
+ * code comment into a figure the app can show, sourced from Google rather than
+ * from us.
+ */
+export function geminiQuotaLimits(
+  body: string,
+  model: string,
+  observedAt: number,
+): ProviderLimits | null {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(body);
+  } catch {
+    return null;
+  }
+  const details = (parsed as { error?: { details?: unknown[] } })?.error?.details;
+  if (!Array.isArray(details)) return null;
+
+  let limit: number | null = null;
+  for (const detail of details) {
+    const violations = (detail as { violations?: unknown[] })?.violations;
+    if (!Array.isArray(violations)) continue;
+    for (const violation of violations) {
+      const value = Number((violation as { quotaValue?: unknown })?.quotaValue);
+      // The smallest ceiling named is the one actually stopping us: a reply can
+      // cite the per-minute and per-day quotas at once, and reporting the
+      // roomier of the two would describe a wall nobody hit.
+      if (Number.isFinite(value) && (limit == null || value < limit)) limit = value;
+    }
+  }
+  if (limit == null) return null;
+
+  return {
+    provider: 'gemini',
+    model,
+    requests: { limit, remaining: 0, resetSeconds: parseRetryDelaySeconds(body) },
+    // Gemini states no token allowance anywhere in a refusal.
+    tokens: null,
+    observedAt,
+  };
+}
 
 export function geminiProvider(apiKey: string, model: string): VisionProvider {
   return {
@@ -98,6 +149,7 @@ export function geminiProvider(apiKey: string, model: string): VisionProvider {
           if (typeof text !== 'string') {
             return {
               ok: false,
+              limits: null,
               failure: {
                 status: res.status,
                 body: 'gemini returned no text part',
@@ -107,10 +159,13 @@ export function geminiProvider(apiKey: string, model: string): VisionProvider {
             };
           }
           try {
-            return { ok: true, entries: entriesFrom(JSON.parse(text)) };
+            // A success teaches nothing about the ceiling here: Gemini only
+            // ever names it in a refusal.
+            return { ok: true, entries: entriesFrom(JSON.parse(text)), limits: null };
           } catch (err) {
             return {
               ok: false,
+              limits: null,
               failure: {
                 status: res.status,
                 body: `gemini returned unparseable JSON (${String(err)})`,
@@ -140,7 +195,12 @@ export function geminiProvider(apiKey: string, model: string): VisionProvider {
         );
       }
 
-      return { ok: false, failure };
+      // A refusal is the only moment Gemini states its ceiling, so the parse
+      // happens here rather than per-attempt: `failure` holds the last body.
+      const limits = failure.status === 429
+        ? geminiQuotaLimits(failure.body, model, Date.now())
+        : null;
+      return { ok: false, failure, limits };
     },
   };
 }

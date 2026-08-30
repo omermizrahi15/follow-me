@@ -27,6 +27,12 @@ interface StoredGrade {
   referenceKey?: string;
   containsPublisher?: boolean;
   publisherConfidence?: number;
+  /**
+   * Why the model graded it this way. Optional: entries written before the
+   * field existed have none, and they are perfectly good grades otherwise — a
+   * missing explanation is not worth re-buying a classification for.
+   */
+  reason?: string;
 }
 
 type Store = Record<string, StoredGrade>;
@@ -69,6 +75,7 @@ function toClassification(id: string, g: StoredGrade): PhotoClassification {
     scene: g.scene,
     containsPublisher: g.containsPublisher ?? false,
     publisherConfidence: g.publisherConfidence ?? 0,
+    reason: g.reason ?? '',
   };
 }
 
@@ -138,6 +145,17 @@ export const ClassificationCache: IClassificationStore = {
     return found;
   },
 
+  async loadAll(referenceKey = ''): Promise<PhotoClassification[]> {
+    const store = await readAll();
+    const now = Date.now();
+    return Object.entries(store)
+      .filter(([, g]) => now - g.gradedAt <= TTL_MS && answersReference(g, referenceKey))
+      .map(([id, g]) => toClassification(id, g))
+      // Newest photo first — the same order every other list in the app uses,
+      // and the one that puts what the publisher just shot at the top.
+      .sort((a, b) => b.candidate.createdAt.getTime() - a.candidate.createdAt.getTime());
+  },
+
   async save(
     classifications: readonly PhotoClassification[],
     referenceKey = '',
@@ -159,6 +177,7 @@ export const ClassificationCache: IClassificationStore = {
           referenceKey,
           containsPublisher: c.containsPublisher,
           publisherConfidence: c.publisherConfidence,
+          reason: c.reason,
         };
       }
       await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(prune(store, now)));

@@ -15,6 +15,7 @@
  */
 import {
   entriesFrom,
+  rateLimitFromHeaders,
   retryAfterHeader,
   type VisionProvider,
   type VisionRequest,
@@ -56,7 +57,7 @@ Return ONLY a JSON object of the form {"results": [ ... ]} with one entry per ph
 to classify, each entry containing exactly these keys:
   "index" (integer, 0-based, identifying which photo the entry describes),
   "category" (string), "confidence" (number 0..1), "quality" (number 0..1),
-  "caption" (string), "scene" (string)
+  "caption" (string), "scene" (string), "reason" (string)
 Add no commentary outside the JSON.`;
 
 const REFERENCE_SHAPE_INSTRUCTIONS = `
@@ -129,8 +130,10 @@ export function groqProvider(apiKey: string): VisionProvider {
           }),
         });
       } catch (err) {
+        // Nothing came back, so nothing was learned about the ceiling.
         return {
           ok: false,
+          limits: null,
           failure: {
             status: 0,
             body: `groq unreachable: ${String(err)}`,
@@ -140,10 +143,18 @@ export function groqProvider(apiKey: string): VisionProvider {
         };
       }
 
+      // Groq states the account's real ceilings on EVERY response, refusal or
+      // not. Read once here and attached to whatever this call turns out to be:
+      // learning the limit only from a 429 means only ever learning it too
+      // late, which is how an invented 500-a-day number survived for months as
+      // the only figure the app could show.
+      const limits = rateLimitFromHeaders(res.headers, 'groq', model, Date.now());
+
       const text = await res.text().catch(() => '<unreadable body>');
       if (!res.ok) {
         return {
           ok: false,
+          limits,
           failure: {
             status: res.status,
             body: text,
@@ -180,6 +191,7 @@ export function groqProvider(apiKey: string): VisionProvider {
         if (typeof raw !== 'string') {
           return {
             ok: false,
+            limits,
             failure: {
               status: res.status,
               body: `groq returned no message content: ${text.slice(0, 300)}`,
@@ -188,10 +200,11 @@ export function groqProvider(apiKey: string): VisionProvider {
             },
           };
         }
-        return { ok: true, entries: entriesFrom(JSON.parse(raw)) };
+        return { ok: true, entries: entriesFrom(JSON.parse(raw)), limits };
       } catch (err) {
         return {
           ok: false,
+          limits,
           failure: {
             status: res.status,
             body: `groq returned unparseable JSON (${String(err)}): ${text.slice(0, 300)}`,

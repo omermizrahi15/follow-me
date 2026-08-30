@@ -19,6 +19,12 @@ export interface CachedPhoto {
    * selection rules treat it as.
    */
   containsPublisher?: boolean;
+  /**
+   * The model's account of the grade. Optional for the same reason
+   * `containsPublisher` is: this cache is also filled from the approval push,
+   * whose payload is built by a server deployment that may predate the field.
+   */
+  reason?: string;
 }
 
 export interface CachedSuggestion {
@@ -49,6 +55,7 @@ export function cachedPhotoToClassification(p: CachedPhoto): PhotoClassification
     // and a cached suggestion is already a decided batch rather than something
     // that gets re-ranked.
     publisherConfidence: 0,
+    reason: p.reason ?? '',
   };
 }
 
@@ -63,6 +70,7 @@ export function classificationToCachedPhoto(c: PhotoClassification): CachedPhoto
     scene: c.scene,
     createdAt: c.candidate.createdAt.getTime(),
     containsPublisher: c.containsPublisher,
+    reason: c.reason,
   };
 }
 

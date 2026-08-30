@@ -38,6 +38,7 @@ function classification(id: string, over: Partial<PhotoClassification> = {}): Ph
     scene: '',
     containsPublisher: false,
     publisherConfidence: 0,
+    reason: '',
     ...over,
   };
 }
@@ -175,7 +176,12 @@ describe('SuggestPhotosUseCase', () => {
     }
 
     /** In-memory IClassificationStore, so a test can see what was remembered. */
-    function store(): { load: jest.Mock; save: jest.Mock; held: Map<string, PhotoClassification> } {
+    function store(): {
+      load: jest.Mock;
+      save: jest.Mock;
+      loadAll: jest.Mock;
+      held: Map<string, PhotoClassification>;
+    } {
       const held = new Map<string, PhotoClassification>();
       return {
         held,
@@ -186,6 +192,9 @@ describe('SuggestPhotosUseCase', () => {
           for (const c of cs) held.set(c.candidate.id, c);
           return Promise.resolve();
         }),
+        // Part of the store interface but never touched by a scan — only the
+        // grade inspector asks for everything at once.
+        loadAll: jest.fn(() => Promise.resolve([...held.values()])),
       };
     }
 

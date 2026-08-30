@@ -156,6 +156,18 @@ export interface Classification {
   contains_reference_person: boolean;
   /** Model confidence in the above, 0..1. Zero when unasked. */
   reference_confidence: number;
+  /**
+   * One sentence from the model on why this photo got this grade.
+   *
+   * Exists because the numbers never explained themselves. A 0.35 quality on a
+   * photo the publisher likes is unarguable-with until something says "motion
+   * blur on the subject" — and without that, the only way to disagree with the
+   * AI was to distrust all of it. Empty when the model volunteered nothing, and
+   * empty on every grade bought before this field existed; never filled in with
+   * a guess, because a plausible rationale attached to a grade nobody explained
+   * is worse than a blank.
+   */
+  reason: string;
 }
 
 /** btoa over arbitrary bytes, chunked to avoid the argument-count limit on large images. */
@@ -167,6 +179,16 @@ export function bytesToBase64(bytes: Uint8Array): string {
   }
   return btoa(binary);
 }
+
+/**
+ * Longest rationale kept, in characters.
+ *
+ * The model is asked for one short sentence and usually gives one, but a
+ * rambling answer is stored on the device for every graded photo — five
+ * thousand of them, in a single AsyncStorage blob with a size limit. Trimming
+ * bounds that; the first 200 characters carry the reason in every sample seen.
+ */
+export const MAX_REASON_LENGTH = 200;
 
 /** Coerce anything to a 0..1 score; non-finite input becomes 0. */
 export function clamp01(n: unknown): number {
@@ -216,6 +238,7 @@ export function parseClassification(
     scene: typeof parsed.scene === 'string' ? parsed.scene.toLowerCase().trim() : '',
     contains_reference_person: askedForReference && parsed.contains_reference_person === true,
     reference_confidence: askedForReference ? clamp01(parsed.reference_confidence) : 0,
+    reason: typeof parsed.reason === 'string' ? parsed.reason.trim().slice(0, MAX_REASON_LENGTH) : '',
   };
 }
 
@@ -306,8 +329,11 @@ export function pairBatchResults(
 export interface QuotaSnapshot {
   /** Photos counted against this publisher today. May exceed `limit` — see below. */
   used: number;
-  /** DAILY_QUOTA, the server's own ceiling. */
-  limit: number;
+  /**
+   * Our own ceiling, or null when we impose none and the provider's limit is
+   * the only wall. Null is the default — see dailyQuotaFrom.
+   */
+  limit: number | null;
   /** The DB's `current_date` for the count, ISO `YYYY-MM-DD`. */
   day: string;
 }
@@ -325,7 +351,31 @@ export interface QuotaSnapshot {
  * before a request is judged, so a day that ended on a refusal genuinely sits
  * above the ceiling; the client clamps it for display and keeps the raw number.
  */
-export function quotaSnapshot(count: unknown, limit: number, day: string): QuotaSnapshot {
+/**
+ * Our own per-user daily ceiling, from the raw `CLASSIFY_DAILY_QUOTA` secret.
+ *
+ * Null means we impose none — the new default, and a correction rather than a
+ * loosening. The old default was 500 photos per user per day: a number invented
+ * here, matching nothing any vendor enforces, counted per user where every real
+ * limit is per account, and — because it was the only figure the function could
+ * report — the number the app showed publishers as though it were the truth
+ * about the AI. The provider states its actual ceilings on every response (see
+ * rateLimitFromHeaders); those are the wall, and this is now only a cost brake
+ * for whoever wants one.
+ *
+ * Zero is kept distinct from unset on purpose: it is the deliberate kill switch
+ * that turns classification off, so it must not fall through to "no ceiling".
+ * Anything unparseable does fall through — a typo'd secret reinstating a made-up
+ * limit is exactly the failure this is undoing.
+ */
+export function dailyQuotaFrom(raw: string | undefined | null): number | null {
+  if (raw == null || raw.trim() === '') return null;
+  const value = Number(raw);
+  if (!Number.isFinite(value) || value < 0) return null;
+  return Math.floor(value);
+}
+
+export function quotaSnapshot(count: unknown, limit: number | null, day: string): QuotaSnapshot {
   const used = typeof count === 'number' && Number.isFinite(count) ? Math.max(0, count) : 0;
   return { used, limit, day };
 }

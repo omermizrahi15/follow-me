@@ -35,4 +35,19 @@ export interface IClassificationStore {
    * what a later `load` matches against.
    */
   save(classifications: readonly PhotoClassification[], referenceKey?: string): Promise<void>;
+  /**
+   * Every grade currently remembered, newest photo first.
+   *
+   * The odd one out here: `load` answers "what do we already know about these
+   * particular photos", which is what a scan asks. This answers "what does the
+   * AI think of everything it has ever looked at", which nothing could ask at
+   * all — and which is the only question the grade inspector has, since it
+   * starts from no id list and no window.
+   *
+   * `referenceKey` filters exactly as `load`'s does: a grade bought without a
+   * face being looked for says `containsPublisher: false` for the trivial
+   * reason that nobody asked, and serving it under a face key would rank photos
+   * of the publisher as though they were not in them.
+   */
+  loadAll(referenceKey?: string): Promise<PhotoClassification[]>;
 }
