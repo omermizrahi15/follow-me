@@ -19,6 +19,8 @@ const DEV_PANEL = path.join(repoRoot, 'src/ui/dev/DevNotificationPanel.tsx');
 const DEV_PANEL_STUB = path.join(repoRoot, 'src/ui/dev/DevNotificationPanel.prod.tsx');
 const USAGE_BAR = path.join(repoRoot, 'src/ui/dev/AiUsageBar.tsx');
 const USAGE_BAR_STUB = path.join(repoRoot, 'src/ui/dev/AiUsageBar.prod.tsx');
+const INSPECTOR = path.join(repoRoot, 'src/ui/dev/PhotoGradeInspector.tsx');
+const INSPECTOR_STUB = path.join(repoRoot, 'src/ui/dev/PhotoGradeInspector.prod.tsx');
 
 interface Resolution { type: string; filePath?: string }
 interface Resolver {
@@ -105,6 +107,21 @@ describe('dev notification tooling', () => {
     expect(resolve(resolver, USAGE_BAR, './AiUsageBar')).toBe(USAGE_BAR);
   });
 
+  it('swaps the grade inspector in a production bundle', () => {
+    // The heaviest of the dev tools: a screen, a hook, a use case and a
+    // thumbnail list, all to explain the ranking to whoever is tuning it. A
+    // publisher's build has no caller for any of it.
+    const resolver = resolverFor({ NODE_ENV: 'production', EXPO_PUBLIC_APP_VARIANT: 'production' });
+
+    expect(resolve(resolver, INSPECTOR, './PhotoGradeInspector')).toBe(INSPECTOR_STUB);
+  });
+
+  it('keeps the grade inspector on staging, where the tuning happens', () => {
+    const resolver = resolverFor({ NODE_ENV: 'production', EXPO_PUBLIC_APP_VARIANT: 'staging' });
+
+    expect(resolve(resolver, INSPECTOR, './PhotoGradeInspector')).toBe(INSPECTOR);
+  });
+
   it('swaps a module that actually exists — a renamed panel must fail loudly', () => {
     // The swap is keyed on an absolute path. Move or rename either file without
     // updating metro.config.js and the rule silently stops applying, which is
@@ -113,6 +130,8 @@ describe('dev notification tooling', () => {
     expect(fs.existsSync(DEV_PANEL_STUB)).toBe(true);
     expect(fs.existsSync(USAGE_BAR)).toBe(true);
     expect(fs.existsSync(USAGE_BAR_STUB)).toBe(true);
+    expect(fs.existsSync(INSPECTOR)).toBe(true);
+    expect(fs.existsSync(INSPECTOR_STUB)).toBe(true);
   });
 
   it('keeps the sample gallery confined to the module that gets swapped', () => {

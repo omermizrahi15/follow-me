@@ -1,4 +1,4 @@
-import type { AiUsageSnapshot } from '../../domain/entities/AiUsage';
+import type { AiUsageSnapshot, ProviderLimits, ProviderLimitWindow } from '../../domain/entities/AiUsage';
 import type { IAiUsageReader } from '../../domain/interfaces';
 import { appFetch } from '../http/appFetch';
 
@@ -41,18 +41,62 @@ export class ClassifyQuotaReader implements IAiUsageReader {
       used?: unknown;
       limit?: unknown;
       day?: unknown;
+      provider?: unknown;
     } | null;
 
     // A deployment that predates the GET handler answers 405 with its own JSON,
-    // so a well-formed body is not enough — the numbers have to be there.
-    if (!Number.isFinite(body?.used) || !Number.isFinite(body?.limit)) {
+    // so a well-formed body is not enough — the count has to be there. `limit`
+    // is deliberately NOT required: null is its normal value now (we impose no
+    // ceiling of our own), and demanding a number would reject the honest
+    // answer while accepting the invented one.
+    if (!Number.isFinite(body?.used)) {
       throw new Error('classify-photos returned an unreadable usage body');
     }
 
     return {
       used: Number(body?.used),
-      limit: Number(body?.limit),
+      limit: Number.isFinite(body?.limit) ? Number(body?.limit) : null,
       day: typeof body?.day === 'string' ? body.day : '',
+      provider: parseProviderLimits(body?.provider),
     };
   }
+}
+
+/** One `{ limit, remaining, resetSeconds }` from the wire, or null. */
+function parseWindow(raw: unknown): ProviderLimitWindow | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const w = raw as { limit?: unknown; remaining?: unknown; resetSeconds?: unknown };
+  if (!Number.isFinite(w.limit) || !Number.isFinite(w.remaining)) return null;
+  return {
+    limit: Number(w.limit),
+    remaining: Number(w.remaining),
+    resetSeconds: Number.isFinite(w.resetSeconds) ? Number(w.resetSeconds) : null,
+  };
+}
+
+/**
+ * The provider's own ceilings out of the response, or null.
+ *
+ * Every branch here fails to null rather than to zeros. "The provider has not
+ * told us" and "you have none left" look identical in a zeroed shape and mean
+ * opposite things, and this whole change exists because a number that stood in
+ * for a fact got believed.
+ */
+function parseProviderLimits(raw: unknown): ProviderLimits | null {
+  if (raw == null || typeof raw !== 'object') return null;
+  const p = raw as {
+    provider?: unknown;
+    model?: unknown;
+    requests?: unknown;
+    tokens?: unknown;
+    observedAt?: unknown;
+  };
+  if (typeof p.provider !== 'string' || typeof p.model !== 'string') return null;
+  return {
+    provider: p.provider,
+    model: p.model,
+    requests: parseWindow(p.requests),
+    tokens: parseWindow(p.tokens),
+    observedAt: Number.isFinite(p.observedAt) ? Number(p.observedAt) : 0,
+  };
 }

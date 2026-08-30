@@ -3,14 +3,24 @@
  * Body: { "photos": [{ "id": string, "url"?: string, "base64"?: string, "mimeType"?: string }],
  *         "reference"?: { "url"?: string, "base64"?: string, "mimeType"?: string } }
  * Returns: { "classifications": [{ id, category, confidence, quality, caption, scene,
- *                                  contains_reference_person, reference_confidence }] }
+ *                                  reason, contains_reference_person,
+ *                                  reference_confidence }],
+ *             "limits": ProviderLimits | null }
  *
- * Also: GET /classify-photos → { "used": number, "limit": number, "day": "YYYY-MM-DD" }
- * — the caller's own spend against the day's ceiling, for the staging AI budget
- * bar. Same auth as the POST. Both numbers are only knowable here (the count is
- * in a service-role-only table, the ceiling is this function's env var), which
- * is why it is a route rather than something the app works out. See
- * usageResponse.
+ * `reason` is the model's own one-sentence account of why a photo got the
+ * category and quality it did. The scores alone were unarguable-with: a 0.35 on
+ * a photo the publisher likes gave them nothing to disagree with except the
+ * whole feature. See the grade inspector in the app.
+ *
+ * Also: GET /classify-photos → { "used", "limit": number | null, "day",
+ *                                "provider": ProviderLimits | null }
+ * — the caller's own spend, and what the AI provider says the ACCOUNT may still
+ * spend. Same auth as the POST. `limit` is our own optional cost brake and is
+ * null unless CLASSIFY_DAILY_QUOTA is set; it used to default to 500 photos a
+ * day, a figure invented here that matched no vendor's rules and was
+ * nevertheless the only "AI limit" the app could show. `provider` is the real
+ * wall, stated by the provider itself on every response and kept in
+ * `provider_limits` (migration 20240037). See usageResponse, recordLimits.
  *
  * `reference` is the publisher's profile photo (issue #137). When it is present
  * each photo is additionally judged for whether that same person appears in it,
@@ -57,6 +67,7 @@ import {
   CATEGORIES,
   type Classification,
   classifyCaller,
+  dailyQuotaFrom,
   downscaledUrl,
   pairBatchResults,
   parseClassification,
@@ -67,6 +78,7 @@ import { geminiProvider } from './gemini.ts';
 import { groqProvider } from './groq.ts';
 import {
   isProviderExhausted,
+  type ProviderLimits,
   type ResolvedImage,
   type VisionFailure,
   type VisionProvider,
@@ -104,19 +116,24 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: 
  */
 const MAX_PHOTOS_PER_REQUEST = 12;
 /**
- * Per-user photos per day. This is *our* ceiling, not Google's — Google's real
- * limit is per-account and only visible on the AI Studio rate-limit dashboard,
- * so this exists to stop a bug costing a fortune, not to mirror the API.
+ * Our own per-user photos-per-day ceiling — and now OFF unless someone sets it.
  *
- * Overridable via the CLASSIFY_DAILY_QUOTA secret precisely because the right
- * number depends on the account: tune it once the dashboard says what the plan
- * actually allows, without a redeploy of this file.
+ * It used to default to 500, which was a number with no source. It is not what
+ * any vendor enforces; it counts per user where every provider limit is per
+ * account; and because it was the only figure this function could report, it
+ * became the number the app showed publishers as "your daily AI limit". Anyone
+ * reasoning about why a scan stopped was reasoning about a figure we made up.
  *
- * Hitting it is not a failure — grades are remembered per photo on the device,
- * so a scan stopped here resumes where it left off instead of re-buying what
- * it already has.
+ * The real ceilings come from the provider on every response it sends and are
+ * recorded by recordLimits below, so the wall is now knowable without a number
+ * standing in for it. `CLASSIFY_DAILY_QUOTA` remains for whoever wants a cost
+ * brake — set it to a number to cap, or to 0 to switch classification off —
+ * but unset means unset rather than 500.
+ *
+ * Hitting it is still not a failure: grades are remembered per photo on the
+ * device, so a scan stopped here resumes where it left off.
  */
-const DAILY_QUOTA = Number(Deno.env.get('CLASSIFY_DAILY_QUOTA') ?? '500') || 500;
+const DAILY_QUOTA = dailyQuotaFrom(Deno.env.get('CLASSIFY_DAILY_QUOTA'));
 
 /**
  * Resolves the id whose quota this request spends, or null when the caller is
@@ -191,6 +208,11 @@ Also rate:
   or subject of the photo, ignoring who is in it (e.g. "beach-sunset", "restaurant-dinner",
   "mountain-trail", "old-city-market"). Two photos of the same place MUST share the same
   slug. Prefer generic location terms over unique details so similar shots collide.
+- reason: ONE short sentence (max 25 words) saying why THIS photo got THIS category and
+  THIS quality — name what you actually saw. Be concrete and specific: "subject is
+  motion-blurred and the horizon is tilted" or "crisp golden-hour light, clean
+  composition, sharp on the couple". Never restate the scores back as words, never
+  hedge, and never describe a photo you were not shown.
 
 Respond with JSON only.`;
 
@@ -201,10 +223,11 @@ const BASE_PROPERTIES = {
   quality: { type: 'NUMBER' },
   caption: { type: 'STRING' },
   scene: { type: 'STRING' },
+  reason: { type: 'STRING' },
 };
 // `index` is required and load-bearing: see pairBatchResults for why a bare
 // ordered array is not safe enough to attach a grade to a photo.
-const BASE_REQUIRED = ['index', 'category', 'confidence', 'quality', 'caption', 'scene'];
+const BASE_REQUIRED = ['index', 'category', 'confidence', 'quality', 'caption', 'scene', 'reason'];
 
 /**
  * One entry per photo, tagged with the index of the image it grades.
@@ -402,22 +425,28 @@ async function gradeWithProvider(
   classifications: Classification[];
   ungraded: PhotoInput[];
   failure: VisionFailure | null;
+  /** The last thing this provider said about its own ceilings. */
+  limits: ProviderLimits | null;
 }> {
   // The reference rides in every call and counts against the provider's image
   // budget, so it is subtracted once here rather than remembered in each one.
   const perCall = Math.max(1, provider.maxImagesPerCall - (reference == null ? 0 : 1));
   const classifications: Classification[] = [];
+  // Overwritten by each call, so this ends up holding the most recent reading —
+  // which is the only one worth keeping: a limit is a current fact.
+  let limits: ProviderLimits | null = null;
 
   for (let offset = 0; offset < photos.length; offset += perCall) {
     const slice = photos.slice(offset, offset + perCall);
     const images = await Promise.all(slice.map(resolveImage));
 
     const result = await provider.classify({ prompt, reference, images, responseSchema: schema });
+    if (result.limits != null) limits = result.limits;
     if (!result.ok) {
       // Everything from this slice on is still ungraded. Handing it back whole
       // is what lets a fallback grade only the remainder instead of paying for
       // the photos this provider already answered.
-      return { classifications, ungraded: photos.slice(offset), failure: result.failure };
+      return { classifications, ungraded: photos.slice(offset), failure: result.failure, limits };
     }
 
     // Indices are per call, so each slice is paired against its own ids. A
@@ -429,7 +458,7 @@ async function gradeWithProvider(
     }
   }
 
-  return { classifications, ungraded: [], failure: null };
+  return { classifications, ungraded: [], failure: null, limits };
 }
 
 /**
@@ -447,7 +476,11 @@ async function gradeWithProvider(
 async function classifyBatch(
   photos: PhotoInput[],
   reference: ResolvedImage | null,
-): Promise<{ classifications: Classification[]; missing: string[] }> {
+): Promise<{
+  classifications: Classification[];
+  missing: string[];
+  limits: ProviderLimits | null;
+}> {
   const chain = providerChain();
   const prompt = reference == null ? PROMPT : REFERENCE_PROMPT + PROMPT;
   const schema = responseSchema(reference != null);
@@ -456,6 +489,7 @@ async function classifyBatch(
   let remaining = photos;
   let lastFailure: VisionFailure | null = null;
   let lastProvider = chain[0]?.name ?? 'none';
+  let limits: ProviderLimits | null = null;
 
   for (const provider of chain) {
     if (remaining.length === 0) break;
@@ -465,6 +499,10 @@ async function classifyBatch(
     remaining = result.ungraded;
     lastFailure = result.failure;
     lastProvider = provider.name;
+    // The chain's *last* speaker wins. That is deliberate: if Groq was spent and
+    // Gemini finished the batch, the ceiling that matters to the next request is
+    // Gemini's, and reporting the leader's would describe a wall already passed.
+    if (result.limits != null) limits = result.limits;
 
     if (result.failure == null) break;
 
@@ -481,6 +519,10 @@ async function classifyBatch(
   // Nothing at all came back and something went wrong: report it, so a spent
   // quota or a broken key surfaces as itself instead of as "no photos matched".
   if (classifications.length === 0 && lastFailure != null) {
+    // Recorded before throwing. A refusal is often the most informative reading
+    // there is — for Gemini it is the *only* one — and losing it to the error
+    // path is how the real ceiling stayed invisible.
+    await recordLimits(limits);
     throw new ClassifyError(
       photos[0]?.id ?? '',
       `${lastProvider} error (${lastFailure.status}): ${lastFailure.body}`,
@@ -490,7 +532,78 @@ async function classifyBatch(
     );
   }
 
-  return { classifications, missing: remaining.map(p => p.id) };
+  return { classifications, missing: remaining.map(p => p.id), limits };
+}
+
+/**
+ * Saves the provider's latest statement of its own ceilings.
+ *
+ * Best-effort by design: a classify request that graded photos must not fail
+ * because a diagnostic write did. Failures are logged and swallowed — the same
+ * bargain the quota counter makes.
+ *
+ * Written per request rather than sampled, because the numbers move per request
+ * and the value of having them at all is that they are current. The table holds
+ * one row per provider+model, so this is an overwrite, not growth.
+ */
+async function recordLimits(limits: ProviderLimits | null): Promise<void> {
+  if (limits == null) return;
+  const { error } = await admin.rpc('record_provider_limits', {
+    p_provider: limits.provider,
+    p_model: limits.model,
+    p_request_limit: limits.requests?.limit ?? null,
+    p_request_remaining: limits.requests?.remaining ?? null,
+    p_request_reset_seconds: limits.requests?.resetSeconds ?? null,
+    p_token_limit: limits.tokens?.limit ?? null,
+    p_token_remaining: limits.tokens?.remaining ?? null,
+    p_token_reset_seconds: limits.tokens?.resetSeconds ?? null,
+  });
+  if (error != null) console.warn('classify: could not record provider limits:', error.message);
+}
+
+/** Row shape of `provider_limits` — see migration 20240037. */
+interface LimitsRow {
+  provider: string;
+  model: string;
+  request_limit: number | null;
+  request_remaining: number | null;
+  request_reset_seconds: number | null;
+  token_limit: number | null;
+  token_remaining: number | null;
+  token_reset_seconds: number | null;
+  observed_at: string;
+}
+
+/**
+ * The most recent reading of the provider's ceilings, or null if none has been
+ * taken yet (a fresh deployment, or a provider that states nothing).
+ *
+ * Null rather than zeros, all the way through: "we have not been told" and "you
+ * have none left" are opposite facts, and the app renders them differently.
+ */
+async function readLimits(): Promise<ProviderLimits | null> {
+  const { data, error } = await admin
+    .from('provider_limits')
+    .select('*')
+    .order('observed_at', { ascending: false })
+    .limit(1);
+  if (error != null) {
+    console.warn('classify: could not read provider limits:', error.message);
+    return null;
+  }
+  const row = (data as LimitsRow[] | null)?.[0];
+  if (row == null) return null;
+
+  const window = (limit: number | null, remaining: number | null, reset: number | null) =>
+    limit == null || remaining == null ? null : { limit, remaining, resetSeconds: reset };
+
+  return {
+    provider: row.provider,
+    model: row.model,
+    requests: window(row.request_limit, row.request_remaining, row.request_reset_seconds),
+    tokens: window(row.token_limit, row.token_remaining, row.token_reset_seconds),
+    observedAt: Date.parse(row.observed_at),
+  };
 }
 
 /**
@@ -516,7 +629,11 @@ async function usageResponse(userId: string): Promise<Response> {
   // `current_date` separately would be a second round trip for a label. UTC is
   // what a Supabase database's `current_date` resolves to.
   const day = new Date().toISOString().slice(0, 10);
-  return json(quotaSnapshot(quota.data, DAILY_QUOTA, day));
+  // Read alongside our own count, because on their own neither is the answer:
+  // ours says what this publisher spent, the provider's says what the account
+  // may still spend, and only the second is a wall anybody actually hits.
+  const provider = await readLimits();
+  return json({ ...quotaSnapshot(quota.data, DAILY_QUOTA, day), provider });
 }
 
 Deno.serve(async (req: Request) => {
@@ -547,12 +664,14 @@ Deno.serve(async (req: Request) => {
     return json({ error: `Too many photos per request (max ${MAX_PHOTOS_PER_REQUEST})` }, 400);
   }
 
-  // Per-user daily quota. Fails open on infra errors (logged) — a broken
-  // counter must not take the feature down — but rejects over-quota users.
+  // Per-user daily count. Always incremented, even with no ceiling set: the
+  // number is what the AI budget read-out reports, and it is the only per-user
+  // record of spend that exists. Fails open on infra errors (logged) — a broken
+  // counter must not take the feature down.
   const quota = await admin.rpc('increment_classify_quota', { p_user: userId, p_inc: photos.length });
   if (quota.error != null) {
     console.error('classify quota check failed:', quota.error.message);
-  } else if (typeof quota.data === 'number' && quota.data > DAILY_QUOTA) {
+  } else if (DAILY_QUOTA != null && typeof quota.data === 'number' && quota.data > DAILY_QUOTA) {
     console.warn(`classify quota exceeded: user ${userId} at ${quota.data}/${DAILY_QUOTA}`);
     const reason: RefusalReason = 'daily_quota';
     return json({ error: 'Daily classification quota exceeded', reason }, 429);
@@ -578,12 +697,17 @@ Deno.serve(async (req: Request) => {
   // Failing the request is the honest answer: the client surfaces it and
   // remembers nothing.
   let classifications: Classification[] = [];
+  let observed: ProviderLimits | null = null;
   try {
     // One call for the whole request. `missing` is photos the model did not
     // answer for; they are simply absent from the response, so the caller
     // re-queues them rather than caching a grade nobody produced.
     const graded = await classifyBatch(photos, reference);
     classifications = graded.classifications;
+    observed = graded.limits;
+    // Recorded on the success path too, not only on refusal. Learning a ceiling
+    // only from the 429 that enforced it means only ever learning it too late.
+    await recordLimits(observed);
     if (graded.missing.length > 0) {
       console.warn(
         `classify: ${graded.missing.length}/${photos.length} photos ungraded in batch`,
@@ -633,5 +757,8 @@ Deno.serve(async (req: Request) => {
     );
   }
 
-  return json({ classifications });
+  // `limits` rides back with the grades so a caller learns the account's real
+  // remaining budget from the request that just spent some of it, rather than
+  // having to ask separately (and spend another).
+  return json({ classifications, limits: observed });
 });

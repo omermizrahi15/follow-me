@@ -19,7 +19,7 @@ describe('ClassifyQuotaReader', () => {
 
     const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
 
-    expect(snapshot).toEqual({ used: 137, limit: 500, day: '2026-08-28' });
+    expect(snapshot).toEqual({ used: 137, limit: 500, day: '2026-08-28', provider: null });
     const [url, init] = mockFetch.mock.calls[0] as [string, { method: string; headers: Record<string, string> }];
     expect(url).toBe('https://fn.test/classify-photos');
     expect(init.method).toBe('GET');
@@ -58,5 +58,57 @@ describe('ClassifyQuotaReader', () => {
     mockFetch.mockResolvedValue(jsonResponse({ error: 'Method not allowed' }));
 
     await expect(makeSut(() => Promise.resolve('jwt')).read()).rejects.toThrow(/unreadable|unexpected/i);
+  });
+});
+
+
+describe('ClassifyQuotaReader — the provider’s own ceilings', () => {
+  it('reads the limits the provider itself reported', async () => {
+    // The number that matters. Ours is a cost brake we may not even have set;
+    // this is the wall an actual scan runs into, per account rather than per
+    // publisher, and it was invisible to the app until the function started
+    // reporting it.
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        used: 137,
+        limit: null,
+        day: '2026-08-28',
+        provider: {
+          provider: 'groq',
+          model: 'qwen/qwen3.6-27b',
+          requests: { limit: 1000, remaining: 994, resetSeconds: 86400 },
+          tokens: { limit: 8000, remaining: 2450, resetSeconds: 42 },
+          observedAt: 1_700_000_000_000,
+        },
+      }),
+    );
+
+    const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
+
+    expect(snapshot.limit).toBeNull();
+    expect(snapshot.provider?.provider).toBe('groq');
+    expect(snapshot.provider?.tokens).toEqual({ limit: 8000, remaining: 2450, resetSeconds: 42 });
+  });
+
+  it('accepts a null ceiling of ours rather than calling the body unreadable', async () => {
+    // Null is `limit`'s normal value now. Requiring a number here would reject
+    // the honest answer and accept only the invented one.
+    mockFetch.mockResolvedValue(jsonResponse({ used: 5, limit: null, day: '2026-08-28' }));
+
+    await expect(makeSut(() => Promise.resolve('jwt')).read()).resolves.toEqual({
+      used: 5,
+      limit: null,
+      day: '2026-08-28',
+      provider: null,
+    });
+  });
+
+  it('treats a half-written provider block as nothing said', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({ used: 5, limit: null, day: '2026-08-28', provider: { model: 'x' } }),
+    );
+
+    const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
+    expect(snapshot.provider).toBeNull();
   });
 });

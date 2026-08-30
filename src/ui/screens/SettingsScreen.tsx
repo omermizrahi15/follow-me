@@ -7,6 +7,7 @@ import type { RootNavigationProp } from '../navigation/types';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useAuth, usePublisherId } from '../context/AuthContext';
 import { AiUsageBar } from '../dev/AiUsageBar';
+import { PhotoGradeInspectorCard } from '../dev/PhotoGradeInspector';
 import { usePhotoSyncSetting } from '../hooks/usePhotoSyncSetting';
 import { confirmCloudPhotoWipe } from '../data/cloudPhotoWipe';
 import { openLegalDocument, PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../legal';
@@ -176,6 +177,7 @@ export function SettingsScreen(): React.JSX.Element {
         {/* Staging (and dev) only — a production bundle resolves this to a stub
             that renders null, so nothing below it moves. See AiUsageBar. */}
         <AiUsageBar publisherId={publisherId} />
+        <PhotoGradeInspectorCard publisherId={publisherId} />
 
         <TouchableOpacity testID="settings-sign-out" style={styles.signOutButton} onPress={() => void signOut()}>
           <Ionicons name="log-out-outline" size={18} color={colors.danger} />

@@ -37,9 +37,127 @@ export interface VisionFailure {
   dailyQuota: boolean;
 }
 
+/**
+ * One ceiling the provider enforces, and how much of it is left.
+ *
+ * Both numbers are the provider's own, read off the response it just sent —
+ * never ours. That distinction is the whole point of this type: the app used to
+ * show publishers "500 photos a day", a figure invented in this function's env
+ * defaults that corresponded to nothing any vendor enforces. The provider's
+ * real ceiling has always been on every response; nothing read it.
+ */
+export interface LimitWindow {
+  /** The ceiling, in whatever unit the field it sits on is named for. */
+  limit: number;
+  /** How much of it is left right now. */
+  remaining: number;
+  /**
+   * Seconds until this window refills, or null when the provider didn't say.
+   *
+   * Also the only thing that identifies the *period*: providers do not label a
+   * limit "per day" or "per minute" anywhere, so a ~180s reset is a per-minute
+   * bucket and a ~20-hour one is a daily allowance. Reporting the reset rather
+   * than a guessed label keeps this honest when a plan changes underneath us.
+   */
+  resetSeconds: number | null;
+}
+
+/** Everything one provider just said about what it will still accept. */
+export interface ProviderLimits {
+  provider: string;
+  model: string;
+  /** Calls left in the current window. */
+  requests: LimitWindow | null;
+  /**
+   * Tokens left in the current window — the ceiling that actually binds this
+   * workload. An image costs roughly a thousand, so a token allowance divides
+   * into far fewer photos than the request allowance divides into calls, and a
+   * scan hits it first. See the usage logging in groq.ts.
+   */
+  tokens: LimitWindow | null;
+  /** When this was observed, epoch ms — a limit is only true for a moment. */
+  observedAt: number;
+}
+
+/**
+ * Seconds in a provider's duration string, rounded up, or null.
+ *
+ * Providers write these for humans ("2m59.56s", "7.66s", "120ms") rather than
+ * as a count, so this is a parser and not a `Number()`. Rounded up because
+ * every caller uses it to decide how long to wait, and a wait that ends one
+ * moment early buys another 429.
+ */
+export function parseDurationSeconds(raw: string | null | undefined): number | null {
+  if (raw == null) return null;
+  const text = raw.trim();
+  if (text === '') return null;
+
+  // A bare number is already seconds — some providers answer that way.
+  if (/^\d+(\.\d+)?$/.test(text)) return Math.ceil(Number(text));
+
+  const units: Record<string, number> = { h: 3600, m: 60, s: 1, ms: 0.001 };
+  // `ms` before `s` in the alternation, or "120ms" parses as 120 minutes.
+  const parts = text.matchAll(/(\d+(?:\.\d+)?)(ms|h|m|s)/g);
+  let seconds = 0;
+  let matched = false;
+  for (const [, value, unit] of parts) {
+    matched = true;
+    seconds += Number(value) * units[unit];
+  }
+  if (!matched) return null;
+  // A sub-second wait is still a wait: rounding it to zero reads as "the
+  // window is open again", and the retry it invites is refused immediately.
+  return seconds > 0 ? Math.max(1, Math.ceil(seconds)) : 0;
+}
+
+/** One `x-ratelimit-*` triplet, or null when the provider named no such limit. */
+function limitWindow(headers: Headers, unit: 'requests' | 'tokens'): LimitWindow | null {
+  const limit = Number(headers.get(`x-ratelimit-limit-${unit}`));
+  const remaining = Number(headers.get(`x-ratelimit-remaining-${unit}`));
+  if (!Number.isFinite(limit) || !Number.isFinite(remaining)) return null;
+  // An absent header reads as 0 through Number(), which is a real value here —
+  // so require the header to actually exist rather than trusting the coercion.
+  if (headers.get(`x-ratelimit-limit-${unit}`) == null) return null;
+  if (headers.get(`x-ratelimit-remaining-${unit}`) == null) return null;
+  return {
+    limit,
+    remaining,
+    resetSeconds: parseDurationSeconds(headers.get(`x-ratelimit-reset-${unit}`)),
+  };
+}
+
+/**
+ * What a response's `x-ratelimit-*` headers say the account may still spend.
+ *
+ * Null when the provider stated nothing, and deliberately so: a zeroed-out
+ * shape would render as "0 of 0 left", a wall that does not exist, which is the
+ * same kind of fiction as the invented daily quota this replaced. Silence is
+ * reported as silence.
+ *
+ * Sent on every response, success or refusal, which is why this takes `Headers`
+ * rather than only running on a 429 — the useful moment to learn the ceiling is
+ * before it is hit.
+ */
+export function rateLimitFromHeaders(
+  headers: Headers,
+  provider: string,
+  model: string,
+  observedAt: number,
+): ProviderLimits | null {
+  const requests = limitWindow(headers, 'requests');
+  const tokens = limitWindow(headers, 'tokens');
+  if (requests == null && tokens == null) return null;
+  return { provider, model, requests, tokens, observedAt };
+}
+
+/**
+ * Both branches carry `limits` because both learn them: the headers ride on a
+ * success just as they ride on a refusal, and waiting for a 429 to find out
+ * what the ceiling is means only ever knowing it once it is already gone.
+ */
 export type VisionResult =
-  | { ok: true; entries: Record<string, unknown>[] }
-  | { ok: false; failure: VisionFailure };
+  | { ok: true; entries: Record<string, unknown>[]; limits: ProviderLimits | null }
+  | { ok: false; failure: VisionFailure; limits: ProviderLimits | null };
 
 export interface VisionRequest {
   /** Instructions describing the fields wanted, shared across providers. */

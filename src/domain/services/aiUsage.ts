@@ -1,4 +1,9 @@
-import type { AiUsageLevel, AiUsageSnapshot, AiUsageSummary } from '../entities/AiUsage';
+import type {
+  AiUsageLevel,
+  AiUsageSnapshot,
+  AiUsageSummary,
+  ProviderLimits,
+} from '../entities/AiUsage';
 
 /**
  * Spent share at which the day's AI budget stops being background information
@@ -19,16 +24,36 @@ export const LOW_BUDGET_FRACTION = 0.8;
  */
 export function summarizeAiUsage(snapshot: AiUsageSnapshot): AiUsageSummary {
   const used = Math.max(0, snapshot.used);
+
+  // No ceiling of ours: there is a count but no fraction of anything, so every
+  // derived number is null rather than computed against a stand-in. Producing
+  // one here is exactly how an invented 500 came to be shown as fact.
+  if (snapshot.limit == null) {
+    return {
+      used: snapshot.used,
+      limit: null,
+      day: snapshot.day,
+      provider: snapshot.provider ?? null,
+      remaining: null,
+      usedFraction: null,
+      usedPercent: null,
+      // Our ceiling cannot be the thing running out when we have set none. The
+      // provider's limits are reported in their own right — see providerLimitCopy.
+      level: 'ok',
+    };
+  }
+
   const limit = Math.max(0, snapshot.limit);
   const remaining = Math.max(0, limit - used);
-  // No budget at all is fully spent, not undefined: it is the state in which
-  // nothing can be classified, which is what a full bar means.
+  // A ceiling set to zero is the deliberate kill switch, and fully spent: it is
+  // the state in which nothing can be classified, which is what a full bar means.
   const usedFraction = limit === 0 ? 1 : Math.min(1, used / limit);
 
   return {
     used: snapshot.used,
     limit: snapshot.limit,
     day: snapshot.day,
+    provider: snapshot.provider ?? null,
     remaining,
     usedFraction,
     usedPercent: percent(usedFraction),
@@ -69,10 +94,76 @@ export interface AiUsageCopy {
  * at 507 of 500 says something the clamped 500 does not.
  */
 export function aiUsageCopy(summary: AiUsageSummary): AiUsageCopy {
-  const left =
-    summary.remaining === 0 ? 'resets tomorrow' : `${summary.remaining} left`;
+  // Nothing of ours caps it, so there is no percentage to state — only what was
+  // actually spent. A "0% used" against a limit we invented was worse than
+  // silence: it answered a question about the AI's real budget with a number
+  // that had nothing to do with it.
+  if (summary.limit == null || summary.usedPercent == null) {
+    return {
+      headline: `${summary.used} photos`,
+      detail: 'graded today · no limit of ours',
+    };
+  }
+
+  const left = summary.remaining === 0 ? 'resets tomorrow' : `${summary.remaining} left`;
   return {
     headline: `${summary.usedPercent}% used`,
     detail: `${summary.used} of ${summary.limit} photos today · ${left}`,
   };
+}
+
+/**
+ * Roughly what one photo costs the provider in tokens.
+ *
+ * Measured, not assumed: the classify function logs `total_tokens` against the
+ * image count on every Groq call, and a downscaled 768px image comes in around
+ * a thousand. Deliberately approximate — it exists to turn "2450 tokens left",
+ * which means nothing to anyone, into "about two more photos", which is the
+ * unit the rest of the app is spent in.
+ */
+export const TOKENS_PER_PHOTO = 1_000;
+
+/** What the provider's own ceilings look like, written out. */
+export interface ProviderLimitCopy {
+  /** Who is answering, and as what model. */
+  headline: string;
+  /** One line per ceiling, plus the photo estimate when tokens are reported. */
+  lines: string[];
+}
+
+/** A reset delay in the largest unit that stays readable. */
+function resetIn(seconds: number | null): string {
+  if (seconds == null) return '';
+  if (seconds < 60) return ` · resets in ${seconds}s`;
+  if (seconds < 3600) return ` · resets in ${Math.round(seconds / 60)}m`;
+  return ` · resets in ${Math.round(seconds / 3600)}h`;
+}
+
+/**
+ * The provider's ceilings in words — the real ones.
+ *
+ * Null in, null out: a provider that has never answered has said nothing, and
+ * nothing is what gets shown. The alternative — a zeroed row — reads as a wall
+ * that does not exist.
+ */
+export function providerLimitCopy(limits: ProviderLimits | null): ProviderLimitCopy | null {
+  if (limits == null) return null;
+
+  const lines: string[] = [];
+  if (limits.requests != null) {
+    const { remaining, limit, resetSeconds } = limits.requests;
+    lines.push(`Requests: ${remaining} of ${limit} left${resetIn(resetSeconds)}`);
+  }
+  if (limits.tokens != null) {
+    const { remaining, limit, resetSeconds } = limits.tokens;
+    lines.push(`Tokens: ${remaining} of ${limit} left${resetIn(resetSeconds)}`);
+    // The line that makes the rest of it legible. Tokens are the ceiling this
+    // workload actually hits, and nobody can convert them to photos in their
+    // head while wondering why a scan stopped at 40.
+    lines.push(
+      `≈ ${Math.floor(remaining / TOKENS_PER_PHOTO)} more photos before the token window refills`,
+    );
+  }
+
+  return { headline: `${limits.provider} · ${limits.model}`, lines };
 }

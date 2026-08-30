@@ -36,6 +36,7 @@ function make(opts: Opts = {}): PhotoClassification {
     scene: opts.scene ?? '',
     containsPublisher: opts.containsPublisher ?? false,
     publisherConfidence: opts.containsPublisher === true ? 0.9 : 0,
+    reason: '',
   };
 }
 

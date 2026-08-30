@@ -24,6 +24,7 @@ function grade(id: string, over: Partial<PhotoClassification> = {}): PhotoClassi
     scene: 'beach',
     containsPublisher: false,
     publisherConfidence: 0,
+    reason: '',
     ...over,
   };
 }
@@ -137,5 +138,87 @@ describe('ClassificationCache', () => {
       expect(hit?.containsPublisher).toBe(false);
       expect(hit?.publisherConfidence).toBe(0);
     });
+  });
+});
+
+describe('ClassificationCache — the model’s account of a grade', () => {
+  it('remembers why a photo was graded the way it was', async () => {
+    // Without this, the reason survives exactly one scan: every photo the
+    // publisher looks at later is one answered from cache, so the grade
+    // inspector would have numbers for every photo and an explanation for none.
+    await ClassificationCache.save([
+      {
+        candidate: { id: 'a', uri: 'file://a', createdAt: new Date(1_000) },
+        category: 'food',
+        confidence: 0.9,
+        quality: 0.4,
+        caption: 'Dinner',
+        scene: 'restaurant-dinner',
+        containsPublisher: false,
+        publisherConfidence: 0,
+        reason: 'Underexposed and the plate is cropped.',
+      },
+    ]);
+
+    const loaded = await ClassificationCache.load(['a']);
+    expect(loaded.get('a')?.reason).toBe('Underexposed and the plate is cropped.');
+  });
+
+  it('reads a grade stored before reasons existed as having none', async () => {
+    // v2 entries are genuine grades and must keep working; an absent reason is
+    // an absent reason, not a defect worth re-buying the grade over.
+    await AsyncStorage.setItem(
+      'photo_grades:v2',
+      JSON.stringify({
+        old: {
+          uri: 'file://old',
+          createdAt: 1_000,
+          category: 'nature',
+          confidence: 1,
+          quality: 0.7,
+          caption: 'Trees',
+          scene: 'forest',
+          gradedAt: Date.now(),
+        },
+      }),
+    );
+
+    const loaded = await ClassificationCache.load(['old']);
+    expect(loaded.get('old')?.reason).toBe('');
+  });
+});
+
+describe('ClassificationCache.loadAll', () => {
+  it('hands back every remembered grade, newest first', async () => {
+    // The grade inspector has no id list to ask with — its whole question is
+    // "what does the AI think of everything it has looked at", which nothing
+    // could answer while the only read was keyed by asset id.
+    await ClassificationCache.save([
+      grade('old', { candidate: { id: 'old', uri: 'ph://old', createdAt: new Date(1_000) } }),
+      grade('new', { candidate: { id: 'new', uri: 'ph://new', createdAt: new Date(9_000) } }),
+    ]);
+
+    const all = await ClassificationCache.loadAll();
+
+    expect(all.map(c => c.candidate.id)).toEqual(['new', 'old']);
+  });
+
+  it('honours the same face key that load does', async () => {
+    // A grade bought without looking for a face says containsPublisher: false
+    // for the trivial reason that nobody asked. Serving it under a face key
+    // would rank photos of the publisher as though they were not in them —
+    // the same trap load avoids, and the inspector must not reintroduce it.
+    await ClassificationCache.save([grade('a')], 'https://avatar/1.jpg');
+    await ClassificationCache.save([grade('b')], '');
+
+    expect((await ClassificationCache.loadAll('https://avatar/1.jpg')).map(c => c.candidate.id))
+      .toEqual(['a']);
+    // An empty key is "not asking", and every grade qualifies.
+    expect((await ClassificationCache.loadAll('')).map(c => c.candidate.id).sort())
+      .toEqual(['a', 'b']);
+  });
+
+  it('is empty when nothing has been graded', async () => {
+    expect(await ClassificationCache.loadAll()).toEqual([]);
   });
 });

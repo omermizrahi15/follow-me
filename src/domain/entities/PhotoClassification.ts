@@ -65,4 +65,20 @@ export interface PhotoClassification {
   containsPublisher: boolean;
   /** Model confidence in {@link containsPublisher}, 0..1. Zero when unasked. */
   publisherConfidence: number;
+  /**
+   * The model's own one-sentence account of why this photo got this category
+   * and this quality.
+   *
+   * The scores never explained themselves. A 0.35 on a photo the publisher is
+   * fond of gave them nothing to disagree with except the feature as a whole,
+   * and gave whoever was debugging it no way to tell a harsh grader from a
+   * mis-read photo. This is what the grade inspector shows next to the
+   * arithmetic (see domain/services/gradeExplanation).
+   *
+   * Empty when the model volunteered nothing, and empty on every grade
+   * remembered from before the field existed. Never filled in with a guess: a
+   * plausible rationale invented for a real grade is worse than a blank one,
+   * because it would be believed.
+   */
+  reason: string;
 }
