@@ -26,6 +26,7 @@
 import { execSync } from 'node:child_process';
 import { appendFileSync, readFileSync } from 'node:fs';
 import QRCode from 'qrcode';
+import { PENDING, TERMINAL, isInfrastructureFailure } from './otaBuildOutcome.js';
 
 // Owner and slug, for the one link EAS's payload may not give us (see PROJECT).
 const APP_JSON = JSON.parse(readFileSync(new URL('../../app.json', import.meta.url), 'utf8'));
@@ -55,11 +56,6 @@ const eas = (args) => {
   return JSON.parse(raw.slice(at));
 };
 
-// Builds that could still become compatible — no point starting a second one.
-const PENDING = new Set(['NEW', 'IN_QUEUE', 'IN_PROGRESS']);
-// ...and the states EAS is finished with, whatever the outcome.
-const TERMINAL = new Set(['FINISHED', 'ERRORED', 'CANCELED']);
-
 // Hold the job open until the rebuild lands, so its outcome — not its existence
 // — decides the colour of the run. An iOS build here runs ~6 minutes including
 // queue; the cap is generous, and outrunning it is reported, not failed.
@@ -76,6 +72,17 @@ const waitForBuild = async (id) => {
     build = eas(`build:view ${id}`);
   }
   return build;
+};
+
+// --no-wait is load-bearing. Without it eas-cli blocks until the build finishes
+// and exits non-zero when the build FAILS — which `execSync` raises exactly like
+// a build that never started, so run 33292706997 reported "🚫 could not be
+// started — run it yourself" for a binary that had already compiled. It also
+// left waitForBuild() above, and the failure branch below, unreachable. Return
+// immediately and let this script's own polling decide the outcome.
+const startBuild = (why) => {
+  const started = eas(`build --platform ios --profile ${PROFILE} --no-wait --message "${why}"`);
+  return Array.isArray(started) ? started[0] : started;
 };
 
 // --build-profile is what makes this hash match EAS: it loads the profile's env
@@ -263,8 +270,7 @@ if (reachable.length) {
     push(`[Build \`${inFlight.id.slice(0, 8)}\`](${buildUrl(inFlight)}) is already on this runtimeVersion (${inFlight.status}) — no second one started.`, '');
   } else if (AUTO_BUILD && MODE === 'cd') {
     try {
-      const started = eas(`build --platform ios --profile ${PROFILE} --message "auto: runtimeVersion ${runtimeVersion.slice(0, 12)} has no installed build"`);
-      inFlight = Array.isArray(started) ? started[0] : started;
+      inFlight = startBuild(`auto: runtimeVersion ${runtimeVersion.slice(0, 12)} has no installed build`);
       push(`### 🏗 Rebuild started automatically`, '');
       push(`[Build \`${inFlight.id.slice(0, 8)}\`](${buildUrl(inFlight)}) is queued on profile \`${PROFILE}\`.`, '');
     } catch (err) {
@@ -292,7 +298,26 @@ if (reachable.length) {
   }
 
   if (inFlight && MODE === 'cd') {
-    const final = await waitForBuild(inFlight.id);
+    let final = await waitForBuild(inFlight.id);
+
+    // An EAS-side fault is not this commit's fault, and a runtimeVersion with no
+    // build reaches no device — so absorb one, rather than redding the run and
+    // handing the author a command that reproduces nothing. Once only: if the
+    // platform is still failing on the retry, that is worth a human.
+    if (isInfrastructureFailure(final) && AUTO_BUILD) {
+      const e = final.error ?? {};
+      push(`> Build \`${final.id.slice(0, 8)}\` failed inside EAS (\`${e.errorCode}\`: ${e.message}) — an Expo-side fault, not a problem with this commit. Retrying once.`, '');
+      try {
+        inFlight = startBuild(`auto: retry after ${e.errorCode} on ${final.id.slice(0, 8)}`);
+        final = await waitForBuild(inFlight.id);
+      } catch (err) {
+        failed = true;
+        push(`### 🚫 The retry could not be started`, '');
+        push('```bash', `eas build --profile ${PROFILE} --platform ios`, '```', '');
+        push(`<details><summary>full error</summary>\n\n\`\`\`\n${err.message.slice(-2000)}\n\`\`\`\n\n</details>`, '');
+      }
+    }
+
     const url = buildUrl(final) ?? buildUrl(inFlight);
     if (final.status === 'FINISHED') {
       push('', `### ✅ Binary ready — scan to install`, '');
@@ -301,7 +326,12 @@ if (reachable.length) {
     } else if (TERMINAL.has(final.status)) {
       failed = true;
       push('', `### ❌ The rebuild ${final.status.toLowerCase()}`, '');
-      push(`[Build \`${final.id.slice(0, 8)}\`](${url}) produced no binary, so nothing can receive this update. This one is on you.`, '');
+      push(
+        isInfrastructureFailure(final)
+          ? `[Build \`${final.id.slice(0, 8)}\`](${url}) failed inside EAS twice (\`${final.error?.errorCode}\`: ${final.error?.message}), so nothing can receive this update. Nothing here is fixable in this repo — re-run this workflow once EAS is healthy.`
+          : `[Build \`${final.id.slice(0, 8)}\`](${url}) produced no binary, so nothing can receive this update. This one is on you.`,
+        ''
+      );
     } else {
       push('', `### ⏳ Still building after ${WAIT_MINUTES} min`, '');
       push(`[Build \`${final.id.slice(0, 8)}\`](${url}) is ${final.status} — it outran the wait, which is not a failure. Check on it, then install:`, '');
