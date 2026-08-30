@@ -34,3 +34,4 @@ export type {
   IPublisherProfileRepository,
   PhotoSyncState,
 } from './publisher';
+export type { IAiUsageReader } from './aiUsage';

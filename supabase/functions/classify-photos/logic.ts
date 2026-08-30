@@ -301,3 +301,31 @@ export function pairBatchResults(
   });
   return { paired, missing };
 }
+
+/** Today's spend against today's ceiling, as the app's usage bar reads it. */
+export interface QuotaSnapshot {
+  /** Photos counted against this publisher today. May exceed `limit` — see below. */
+  used: number;
+  /** DAILY_QUOTA, the server's own ceiling. */
+  limit: number;
+  /** The DB's `current_date` for the count, ISO `YYYY-MM-DD`. */
+  day: string;
+}
+
+/**
+ * Shapes what the quota RPC returned into the snapshot the app renders.
+ *
+ * `count` is deliberately `unknown`: the RPC fails open, so "we could not read
+ * the counter" arrives as null and has to mean *nothing spent* — the same
+ * answer the request path gives it, where an unreadable count lets the request
+ * through. Reporting a full bar there would tell a publisher their budget was
+ * gone at the exact moment the server stopped enforcing it.
+ *
+ * An overshoot is passed through as it stands. The counter is incremented
+ * before a request is judged, so a day that ended on a refusal genuinely sits
+ * above the ceiling; the client clamps it for display and keeps the raw number.
+ */
+export function quotaSnapshot(count: unknown, limit: number, day: string): QuotaSnapshot {
+  const used = typeof count === 'number' && Number.isFinite(count) ? Math.max(0, count) : 0;
+  return { used, limit, day };
+}

@@ -6,6 +6,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useAuth, usePublisherId } from '../context/AuthContext';
+import { AiUsageBar } from '../dev/AiUsageBar';
 import { usePhotoSyncSetting } from '../hooks/usePhotoSyncSetting';
 import { confirmCloudPhotoWipe } from '../data/cloudPhotoWipe';
 import { openLegalDocument, PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../legal';
@@ -14,12 +15,14 @@ import { colors, radius, spacing, typography } from '../theme/theme';
 /**
  * App settings, opened from the Me-page gear. Currently: profile editing,
  * account info, the deleted-posts trash, the photo-sync switch, the cloud-photo
- * wipe, the hosted privacy policy and terms + sign out.
+ * wipe, the hosted privacy policy and terms + sign out — plus, on staging only,
+ * the day's remaining AI budget.
  */
 export function SettingsScreen(): React.JSX.Element {
   const navigation = useNavigation<RootNavigationProp>();
   const { publisherPhone, signOut } = useAuth();
-  const photoSync = usePhotoSyncSetting(usePublisherId());
+  const publisherId = usePublisherId();
+  const photoSync = usePhotoSyncSetting(publisherId);
 
   return (
     <SafeAreaView style={styles.container}>
@@ -169,6 +172,10 @@ export function SettingsScreen(): React.JSX.Element {
             <Ionicons name="open-outline" size={18} color={colors.textMuted} />
           </TouchableOpacity>
         </View>
+
+        {/* Staging (and dev) only — a production bundle resolves this to a stub
+            that renders null, so nothing below it moves. See AiUsageBar. */}
+        <AiUsageBar publisherId={publisherId} />
 
         <TouchableOpacity testID="settings-sign-out" style={styles.signOutButton} onPress={() => void signOut()}>
           <Ionicons name="log-out-outline" size={18} color={colors.danger} />

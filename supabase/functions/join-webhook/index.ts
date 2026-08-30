@@ -27,6 +27,7 @@ import {
   composeWelcomeMessage,
 } from '../../../src/domain/services/optOutMessages.ts';
 import { verifyTwilioSignature } from '../../../src/infrastructure/notifiers/twilioSignature.ts';
+import { publisherGalleryUrl } from '../_shared/postGallery.ts';
 import { publisherDisplayName } from '../_shared/publisher.ts';
 import { contactHandleFromWhatsApp, twiml } from './logic.ts';
 
@@ -188,9 +189,10 @@ async function handleJoin(
   }
 
   // Free-form is fine here (unlike the `subscribe` path): the follower just
-  // messaged us the JOIN, so WhatsApp's 24h session window is open.
+  // messaged us the JOIN, so WhatsApp's 24h session window is open. The copy is
+  // the same either way, gallery link included.
   try {
-    await sendWhatsApp(from, composeWelcomeMessage(publisher.name));
+    await sendWhatsApp(from, composeWelcomeMessage(publisher.name, publisherGalleryUrl(publisherId)));
     return new Response('', { status: 204 });
   } catch (err) {
     console.error('WhatsApp confirmation failed, falling back to TwiML:', err);

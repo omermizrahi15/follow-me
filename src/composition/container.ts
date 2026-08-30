@@ -8,6 +8,7 @@ import { ResolveContactNamesUseCase } from '../application/usecases/ResolveConta
 import { SaveConfigUseCase } from '../application/usecases/SaveConfigUseCase';
 import { LoadConfigUseCase } from '../application/usecases/LoadConfigUseCase';
 import { SuggestPhotosUseCase } from '../application/usecases/SuggestPhotosUseCase';
+import { GetAiUsageUseCase } from '../application/usecases/GetAiUsageUseCase';
 import { PhotoSelectionService } from '../domain/services/PhotoSelectionService';
 import { ClassificationCache } from '../infrastructure/cache/ClassificationCache';
 import { BackfillHistoryUseCase } from '../application/usecases/BackfillHistoryUseCase';
@@ -16,6 +17,7 @@ import { SyncCandidatePhotosUseCase } from '../application/usecases/SyncCandidat
 import { SaveProfileUseCase } from '../application/usecases/SaveProfileUseCase';
 import { LoadProfileUseCase } from '../application/usecases/LoadProfileUseCase';
 import { GeminiPhotoClassifier } from '../infrastructure/classifiers/GeminiPhotoClassifier';
+import { ClassifyQuotaReader } from '../infrastructure/classifiers/ClassifyQuotaReader';
 import { ExpoMediaLibrary, expoResolvePayload, expoResolveLocalUri, expoResolveAssetLocation } from '../infrastructure/media/ExpoMediaLibrary';
 import { ExpoNotificationScheduler } from '../infrastructure/notifiers/ExpoNotificationScheduler';
 import { ExpoContactsDirectory } from '../infrastructure/contacts/ExpoContactsDirectory';
@@ -111,6 +113,18 @@ const photoClassifier = new GeminiPhotoClassifier(
   photosInRun =>
     reportMessage('classify-photos daily quota exhausted', 'classify_photos', { photosInRun }),
 );
+/**
+ * The same daily budget the classifier spends, read rather than spent (the
+ * classify function answers GET with the caller's count and its own ceiling).
+ * Surfaced only by the staging usage bar — see src/ui/dev/AiUsageBar.tsx.
+ */
+const aiUsageReader = new ClassifyQuotaReader(
+  env.classifyFnUrl,
+  supabaseAnonKey,
+  async () => (await authService.getSession())?.access_token ?? null,
+);
+export const getAiUsage = monitored('get_ai_usage', new GetAiUsageUseCase(aiUsageReader));
+
 const notificationScheduler = new ExpoNotificationScheduler();
 // Already-sent = anything recorded in `media` for this publisher (id == asset id).
 // Ids only: this runs on every suggestion scan and every "+" top-up, and used

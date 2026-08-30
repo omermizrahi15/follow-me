@@ -22,6 +22,19 @@ function galleryBaseUrl(): string {
   }
 }
 
+/**
+ * The publisher's feed on the gallery page — every post they have shared,
+ * newest first (`?u=`), as opposed to the single-post story `?id=` links that
+ * `savePostGallery` returns. Used by the new-follower welcome, which has no
+ * one post to point at.
+ *
+ * Pure string building, so unlike `savePostGallery` it cannot fail and needs
+ * no null branch at the call site.
+ */
+export function publisherGalleryUrl(publisherId: string): string {
+  return `${galleryBaseUrl()}?u=${encodeURIComponent(publisherId)}`;
+}
+
 // deno-lint-ignore no-explicit-any
 type SupabaseClient = any;
 
