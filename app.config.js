@@ -50,6 +50,7 @@ module.exports = ({ config }) => {
       // inherit the per-variant app bundle id above. Requires a native build to
       // take effect (no-op in Expo Go).
       '@bacons/apple-targets',
+      'expo-font',
       // Crash reporting (issue #10): wires the native Sentry SDK and hooks the
       // build so source maps + debug symbols upload during `eas build`. Org and
       // project come from SENTRY_ORG / SENTRY_PROJECT (EAS env vars) so nothing
