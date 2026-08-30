@@ -21,6 +21,9 @@
  * Either way the send is BEST-EFFORT: a failure is logged but the subscribe is
  * still reported as successful, since the DB row is what actually matters.
  *
+ * A follower who is already active gets `{ ok: true, alreadySubscribed: true }`
+ * — no write, no repeat welcome — so the page can just tell them they're in.
+ *
  * Env (injected automatically by Supabase): SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY
  * Env (Twilio): TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_WHATSAPP_FROM,
  *   TWILIO_TEMPLATE_WELCOME_SID
@@ -37,7 +40,7 @@ import { logAcceptedSend } from '../_shared/messageLog.ts';
 import { publisherGalleryUrl } from '../_shared/postGallery.ts';
 import { publisherDisplayName } from '../_shared/publisher.ts';
 import { buildWelcomeTemplate } from '../_shared/welcomeTemplate.ts';
-import { normalizeWhatsApp } from './logic.ts';
+import { normalizeWhatsApp, subscribeAction } from './logic.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SUPABASE_SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -138,14 +141,21 @@ Deno.serve(async (req: Request) => {
   // upsert) so it doesn't depend on a unique constraint or an id default.
   const { data: existing, error: selErr } = await supabase
     .from('subscribers')
-    .select('id')
+    .select('id, status')
     .eq('publisher_id', publisherId)
     .eq('contact_handle', contactHandle)
     .maybeSingle();
   if (selErr) return json({ ok: false, error: 'Something went wrong. Please try again.' }, 500);
 
-  const write = existing
-    ? supabase.from('subscribers').update({ status: 'active' }).eq('id', existing.id)
+  const action = subscribeAction(existing);
+
+  // Already on the list: nothing to write, and no second welcome. Reported as a
+  // success so the page can reassure them they're subscribed rather than show
+  // an error for something they did nothing wrong to hit.
+  if (action === 'already-active') return json({ ok: true, alreadySubscribed: true });
+
+  const write = action === 'reactivate'
+    ? supabase.from('subscribers').update({ status: 'active' }).eq('id', existing!.id)
     : supabase.from('subscribers').insert({
         id: crypto.randomUUID(),
         publisher_id: publisherId,
@@ -159,5 +169,5 @@ Deno.serve(async (req: Request) => {
   const publisherName = await lookupPublisherName(publisherId);
   await sendWelcome(publisherId, contactHandle, publisherName);
 
-  return json({ ok: true });
+  return json({ ok: true, alreadySubscribed: false });
 });

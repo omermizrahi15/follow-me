@@ -118,6 +118,11 @@ Function** — no Twilio, no WhatsApp round-trip:
    `{ publisherId, contactHandle }`. Validates both, then inserts/reactivates the
    subscriber using the **service-role key** (bypasses RLS — no public write
    policy needed, and numbers are never exposed to the anon role). Returns JSON.
+   A number that is **already active** is a re-subscribe: no write, no second
+   welcome, and `{ ok: true, alreadySubscribed: true }` so the page can say
+   "You're already subscribed" instead of thanking them for joining again. Any
+   other status (revoked after STOP, pending, unreachable) is reactivated and
+   welcomed as usual.
 
 Twilio is only needed to *deliver* messages, not to record the subscription —
 the row is written whether or not the send works. It does deliver one message
