@@ -2,6 +2,7 @@ import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import type { IStorageService } from '../../domain/interfaces';
 import { imageWidth } from '../media/imageSize';
 import { uploadFetch } from '../http/appFetch';
+import { describeUploadFailure } from './uploadFailure';
 
 /**
  * Photos are downscaled + re-encoded to JPEG before upload:
@@ -49,8 +50,8 @@ export class CloudinaryStorageService implements IStorageService {
     );
 
     if (!response.ok) {
-      const text = await response.text();
-      throw new Error(`Cloudinary upload failed (${response.status}): ${text}`);
+      const body = await response.text();
+      throw new Error(`Cloudinary upload failed (${response.status}): ${describeUploadFailure(body)}`);
     }
 
     const data = await response.json() as { secure_url: string };

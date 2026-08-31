@@ -71,6 +71,7 @@ import {
   classifyCaller,
   dailyQuotaFrom,
   downscaledUrl,
+  isTransientUpstream,
   pairBatchResults,
   parseClassification,
   quotaSnapshot,
@@ -370,6 +371,15 @@ async function resolveReference(reference: ImageInput | null): Promise<ResolvedI
  * short enough that a scan resumes rather than ending the day.
  */
 const DEFAULT_RATE_LIMIT_RETRY_SECONDS = 30;
+
+/**
+ * What to tell the app to wait when every provider was momentarily unavailable.
+ *
+ * Much shorter than a rate-limit window on purpose: an overloaded model is not
+ * a budget, it is a busy moment, and it typically answers the very next request
+ * (issue #189). Waiting half a minute for it would turn a hiccup into a stall.
+ */
+const DEFAULT_UPSTREAM_BUSY_RETRY_SECONDS = 5;
 
 /**
  * Every provider this function knows how to build, by name.
@@ -827,6 +837,27 @@ Deno.serve(async (req: Request) => {
           detail: failure.message,
         },
         429,
+      );
+    }
+
+    // The vendor was overloaded, down, or never reached. Nothing about this
+    // request was wrong, so answering "classification failed" makes the app
+    // throw ClassificationFailedError and abandon a scan over a condition that
+    // clears by itself — issue #189, filed from a single Gemini 503. Reported
+    // as its own reason with a short wait, so the app pauses and resumes the
+    // way it already does for a throttle.
+    if (failure != null && isTransientUpstream(failure.upstreamStatus ?? -1)) {
+      const reason: RefusalReason = 'upstream_busy';
+      return json(
+        {
+          error: 'Classification provider unavailable',
+          reason,
+          retry_after_seconds:
+            failure.retryAfterSeconds ?? DEFAULT_UPSTREAM_BUSY_RETRY_SECONDS,
+          photo_id: failure.photoId,
+          detail: failure.message,
+        },
+        503,
       );
     }
 

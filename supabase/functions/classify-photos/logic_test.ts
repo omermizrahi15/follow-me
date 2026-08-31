@@ -11,6 +11,7 @@ import {
   CLASSIFY_IMAGE_WIDTH,
   downscaledUrl,
   isDailyQuotaError,
+  isTransientUpstream,
   MAX_REASON_LENGTH,
   pairBatchResults,
   parseRetryDelaySeconds,
@@ -551,4 +552,24 @@ Deno.test('parseClassification — keeps the breakdown when the sentence is over
     reason: 'y'.repeat(1000),
   });
   assert(c.reason.includes('sharp 0.5'));
+});
+
+Deno.test('isTransientUpstream — an overloaded or unreachable model is a pause, not a failure', () => {
+  // Issue #189: Gemini answered 503 "the model is overloaded", which is a
+  // property of that moment and clears by itself. It reached the app as a hard
+  // ClassificationFailedError and ended the whole scan.
+  assert(isTransientUpstream(503));
+  assert(isTransientUpstream(500));
+  assert(isTransientUpstream(502));
+  assert(isTransientUpstream(504));
+  assert(isTransientUpstream(0)); // request never completed
+});
+
+Deno.test('isTransientUpstream — a refused or malformed request is not worth retrying', () => {
+  assert(!isTransientUpstream(400));
+  assert(!isTransientUpstream(401));
+  assert(!isTransientUpstream(403));
+  assert(!isTransientUpstream(404));
+  // 429 has its own reasons and its own wait; it must not be folded in here.
+  assert(!isTransientUpstream(429));
 });
