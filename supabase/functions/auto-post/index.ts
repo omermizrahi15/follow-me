@@ -33,6 +33,7 @@ import type { Coordinate } from '../../../src/domain/services/postingLocation.ts
 import { isTokenDead, sendExpoPush } from '../_shared/expoPush.ts';
 import {
   approvalPushContent,
+  cachedGrade,
   chunk,
   GRADE_BUDGET_PER_TICK,
   gradingDecision,
@@ -174,11 +175,21 @@ interface CandidateRow {
   caption: string | null;
   scene: string | null;
   graded_at: string | null;
+  // The face answer, and which face it was bought against (migration 20240039).
+  // Null `graded_reference` means no face was looked for — which is NOT the
+  // same as "the publisher is not in this photo", and conflating the two is
+  // what made "photos of me" invert itself on every cached grade.
+  contains_reference_person: boolean | null;
+  reference_confidence: number | null;
+  graded_reference: string | null;
 }
 
 /** Columns every candidate read needs: the photo, its GPS, and its cached grade. */
+// One literal, not a concatenation: supabase-js infers the row type from the
+// select string, and a `+` expression defeats that — the rows come back as
+// GenericStringError[] and every field read stops being checked.
 const CANDIDATE_COLUMNS =
-  'asset_id, url, created_at, latitude, longitude, category, confidence, quality, caption, scene, graded_at';
+  'asset_id, url, created_at, latitude, longitude, category, confidence, quality, caption, scene, graded_at, contains_reference_person, reference_confidence, graded_reference';
 
 /** Coordinates of the given asset ids (GPS-tagged photos only), for place naming. */
 function coordsForAssets(rows: CandidateRow[], assetIds: Iterable<string>): Coordinate[] {
@@ -202,6 +213,8 @@ interface RawClassification {
   scene: string;
   /** Absent unless the request carried a reference face — see issue #137. */
   contains_reference_person?: boolean;
+  /** Model confidence in the above, 0..1. Absent when unasked. */
+  reference_confidence?: number;
 }
 
 /** A candidate row joined to its classification — what a batch is made of. */
@@ -277,19 +290,6 @@ const CLASSIFY_PHOTOS_PER_REQUEST = 12;
  */
 const CLASSIFY_CONCURRENCY = 1;
 
-/** The cached grade for a candidate, or null when it hasn't been classified yet. */
-function cachedGrade(row: CandidateRow): RawClassification | null {
-  if (row.graded_at == null || row.category == null) return null;
-  return {
-    id: row.asset_id,
-    category: row.category,
-    confidence: row.confidence ?? 0,
-    quality: row.quality ?? 0,
-    caption: row.caption ?? '',
-    scene: row.scene ?? '',
-  };
-}
-
 /**
  * Grades one chunk, or returns null if the request was refused.
  *
@@ -341,6 +341,7 @@ async function cacheGrades(
   publisherId: string,
   grades: RawClassification[],
   now: Date,
+  reference: { url: string } | null,
 ): Promise<void> {
   const gradedAt = now.toISOString();
   const writes = grades.map(g =>
@@ -353,6 +354,12 @@ async function cacheGrades(
         caption: g.caption,
         scene: g.scene,
         graded_at: gradedAt,
+        // Written even when null: null records "no face was looked for", which
+        // is what lets the next run tell an unasked question from a negative
+        // answer instead of assuming the publisher is in none of their photos.
+        contains_reference_person: reference == null ? null : g.contains_reference_person === true,
+        reference_confidence: reference == null ? null : g.reference_confidence ?? 0,
+        graded_reference: reference?.url ?? null,
       })
       .eq('publisher_id', publisherId)
       .eq('asset_id', g.id),
@@ -387,8 +394,12 @@ async function gradeCandidates(
 ): Promise<Grading> {
   const classified: RawClassification[] = [];
   const ungraded: CandidateRow[] = [];
+  // The face this run is asking about, or null when the preference is off. A
+  // remembered grade only counts if it answers that same question — see
+  // cachedGrade for why a `false` bought without a reference is a lie.
+  const wantedReference = reference?.url ?? null;
   for (const row of rows) {
-    const grade = cachedGrade(row);
+    const grade = cachedGrade(row, wantedReference);
     if (grade != null) classified.push(grade);
     else ungraded.push(row);
   }
@@ -417,7 +428,7 @@ async function gradeCandidates(
     for (const part of wave) fresh.push(...(part ?? []));
   }
 
-  if (fresh.length > 0) await cacheGrades(publisherId, fresh, now);
+  if (fresh.length > 0) await cacheGrades(publisherId, fresh, now, reference);
   classified.push(...fresh);
 
   return { classified, ungraded: ungraded.length - fresh.length };
