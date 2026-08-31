@@ -12,12 +12,15 @@ import {
   downscaledUrl,
   isDailyQuotaError,
   isTransientUpstream,
+  pacingWaitSeconds,
+  TOKEN_WINDOW_SECONDS,
   MAX_REASON_LENGTH,
   pairBatchResults,
   parseRetryDelaySeconds,
   quotaSnapshot,
   requestedProviders,
 } from './logic.ts';
+import type { ProviderLimits } from './vision.ts';
 
 // The exact body staging logged when the AI photo suggestion reported "daily
 // limit reached" on the first attempt of the day (issue #141). It is a
@@ -572,4 +575,55 @@ Deno.test('isTransientUpstream — a refused or malformed request is not worth r
   assert(!isTransientUpstream(404));
   // 429 has its own reasons and its own wait; it must not be folded in here.
   assert(!isTransientUpstream(429));
+});
+
+// Pacing against the provider's own token budget.
+//
+// Groq's free tier allows 8,000 tokens a MINUTE and an image costs about a
+// thousand, so the ceiling is roughly eight photos a minute. The app was
+// sending twelve photos per request with four requests in flight — about
+// 48,000 tokens against an 8,000 budget, six times over in the first second.
+// Every scan 429'd immediately, fell through to Gemini's twenty-a-day, and
+// died there. The headers that say so are on every response and nothing read
+// them.
+const tokenLimits = (remaining: number, resetSeconds: number | null): ProviderLimits => ({
+  provider: 'groq',
+  model: 'qwen/qwen3.6-27b',
+  requests: { limit: 1000, remaining: 999, resetSeconds: 87 },
+  tokens: { limit: 8000, remaining, resetSeconds },
+  observedAt: 0,
+});
+
+Deno.test('pacingWaitSeconds — no wait when the budget covers the call', () => {
+  assertEquals(pacingWaitSeconds(tokenLimits(8000, 21), 5), 0);
+});
+
+Deno.test('pacingWaitSeconds — waits out the window when it does not', () => {
+  // Five images cost ~5000; only 1200 left.
+  assertEquals(pacingWaitSeconds(tokenLimits(1200, 34), 5), 34);
+});
+
+// Firing anyway buys a 429, and a 429 is what sends the whole scan down the
+// chain to a provider with twenty requests a day. Waiting is strictly cheaper.
+Deno.test('pacingWaitSeconds — an exhausted window waits even for one image', () => {
+  assertEquals(pacingWaitSeconds(tokenLimits(0, 12), 1), 12);
+});
+
+Deno.test('pacingWaitSeconds — nothing known means no wait', () => {
+  // The first call of a request has heard nothing yet: it goes, and what comes
+  // back paces everything after it.
+  assertEquals(pacingWaitSeconds(null, 5), 0);
+  assertEquals(pacingWaitSeconds({ ...tokenLimits(0, 10), tokens: null }, 5), 0);
+});
+
+Deno.test('pacingWaitSeconds — a provider that named no reset gets a whole window', () => {
+  assertEquals(pacingWaitSeconds(tokenLimits(0, null), 5), TOKEN_WINDOW_SECONDS);
+});
+
+// The reference portrait rides in every call and costs tokens like any other
+// image, so it has to be counted or the estimate is short on exactly the
+// requests that are tightest.
+Deno.test('pacingWaitSeconds — counts every image in the call, reference included', () => {
+  assertEquals(pacingWaitSeconds(tokenLimits(5500, 30), 5), 0);
+  assertEquals(pacingWaitSeconds(tokenLimits(5500, 30), 6), 30);
 });

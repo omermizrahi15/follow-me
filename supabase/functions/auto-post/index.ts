@@ -268,13 +268,21 @@ function classifiedCandidates(
  * Photos per classify-photos request. Must stay at or below that function's own
  * MAX_PHOTOS_PER_REQUEST, which answers 400 above it.
  *
- * Set to the function's own cap, because a request is now a single Gemini call
- * carrying every photo in it. When each photo cost its own call this was 1, to
- * make a rate-limited refusal cost only the photo it refused; batching inverts
- * that reasoning entirely — asking for one photo at a time would spend twelve
- * rate-limit slots to do one request's work.
+ * Was 12 — the function's cap — on the reasoning that a request is a single
+ * model call, so asking for fewer photos would spend more rate-limit slots to
+ * do the same work. That reasoning held while the binding limit was REQUESTS
+ * per minute. It is tokens now: Groq's free tier allows 8,000 a minute and an
+ * image costs about a thousand, so twelve photos is half as much again as a
+ * whole minute's budget and classify-photos has to split it into three
+ * provider calls to send it at all.
+ *
+ * Five is one provider call and ~5,000 tokens, inside the window. It does not
+ * grade fewer photos per minute — the token budget was always the divisor —
+ * it stops each request being refused before it starts. classify-photos also
+ * paces itself against the window now (see pacingWaitSeconds); this keeps the
+ * common request from ever needing to.
  */
-const CLASSIFY_PHOTOS_PER_REQUEST = 12;
+const CLASSIFY_PHOTOS_PER_REQUEST = 5;
 
 /**
  * Requests in flight at once.

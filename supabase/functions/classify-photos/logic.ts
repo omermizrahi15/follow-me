@@ -1,3 +1,4 @@
+import type { ProviderLimits } from './vision.ts';
 // Pure classification helpers for classify-photos, split out of index.ts for
 // unit testing: the category set, score/category normalization, base64 encoding,
 // defensive parsing of the model's JSON response, and who the caller is.
@@ -574,4 +575,60 @@ export function requestedProviders(raw: string | undefined | null): string[] {
     .map(name => name.trim().toLowerCase())
     .filter(name => name !== '');
   return names.length > 0 ? names : ['groq', 'gemini'];
+}
+
+/**
+ * Roughly what one image costs a vision provider in tokens.
+ *
+ * Measured, not assumed: every Groq call logs `total_tokens` against the image
+ * count, and a 768px-wide image (see CLASSIFY_IMAGE_WIDTH) comes in around a
+ * thousand. Approximate on purpose — it decides whether to wait a few seconds,
+ * and being 20% out changes nothing about that decision.
+ */
+export const TOKENS_PER_IMAGE = 1_000;
+
+/**
+ * How long a token window lasts when the provider did not say.
+ *
+ * Groq's token ceiling is per minute, and every provider that meters tokens at
+ * all meters them per minute. A minute is therefore the honest default for a
+ * response that reported a spent budget without a reset.
+ */
+export const TOKEN_WINDOW_SECONDS = 60;
+
+/**
+ * How long to hold off before a call, given what the provider last said.
+ *
+ * Tokens, not requests, are what bounds this workload: Groq's free tier allows
+ * 8,000 tokens a MINUTE against 1,000 requests a day, and an image costs about
+ * a thousand tokens — so the real ceiling is roughly eight photos a minute,
+ * and the request allowance is never reached. The app was sending twelve
+ * photos per request with four requests in flight: about 48,000 tokens against
+ * an 8,000 budget, six times over in the first second of every scan. Every
+ * scan 429'd, fell through to Gemini's twenty-requests-a-DAY, and died there —
+ * which is why the usage panel reported Gemini on a deployment configured to
+ * grade on Groq.
+ *
+ * The numbers that say all this are on every response the provider sends and
+ * nothing read them. This does.
+ *
+ * Zero when nothing is known, which is deliberate: the first call of a request
+ * has heard nothing yet, so it goes, and what comes back paces everything
+ * after it. Guessing a wait from no information would just make the common
+ * case slower for nothing.
+ */
+export function pacingWaitSeconds(
+  limits: ProviderLimits | null,
+  imagesInCall: number,
+): number {
+  const tokens = limits?.tokens;
+  if (tokens == null) return 0;
+
+  const cost = Math.max(1, imagesInCall) * TOKENS_PER_IMAGE;
+  if (tokens.remaining >= cost) return 0;
+
+  // A window that has to refill before this call can afford to run. Firing
+  // anyway buys a 429, and a 429 is what sends the scan down the chain to a
+  // provider with a twentieth of the budget — waiting is strictly cheaper.
+  return tokens.resetSeconds ?? TOKEN_WINDOW_SECONDS;
 }

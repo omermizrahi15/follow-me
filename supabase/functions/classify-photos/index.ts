@@ -75,6 +75,7 @@ import {
   pairBatchResults,
   parseClassification,
   quotaSnapshot,
+  pacingWaitSeconds,
   type RefusalReason,
   requestedProviders,
 } from './logic.ts';
@@ -119,6 +120,16 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: 
  * across many images in one context, not the transport.
  */
 const MAX_PHOTOS_PER_REQUEST = 12;
+
+/**
+ * Longest this function will hold a request open waiting for a token window.
+ *
+ * A per-minute window refills in under a minute, so the common pause is a few
+ * seconds and worth taking inline — a round trip costs more than the wait. A
+ * long one is not: the caller is holding a connection, and the app's own
+ * rate-limit handling already waits and resumes without one.
+ */
+const MAX_INLINE_PACING_SECONDS = 20;
 /**
  * Our own per-user photos-per-day ceiling — and now OFF unless someone sets it.
  *
@@ -497,6 +508,34 @@ async function gradeWithProvider(
 
   for (let offset = 0; offset < photos.length; offset += perCall) {
     const slice = photos.slice(offset, offset + perCall);
+
+    // What the previous call in this loop reported. Tokens are what bounds this
+    // workload — see pacingWaitSeconds — and firing into a spent window buys a
+    // 429, which sends the whole scan down the chain to a provider with a
+    // twentieth of the budget. Waiting is strictly cheaper than that.
+    const wait = pacingWaitSeconds(limits, slice.length + (reference == null ? 0 : 1));
+    if (wait > MAX_INLINE_PACING_SECONDS) {
+      // Too long to hold a request open for. Hand back what is graded plus a
+      // refusal shaped exactly like the provider's own, so the caller reports
+      // "busy, try shortly" — the app already knows how to wait that out and
+      // resume, and the grades bought so far are kept either way.
+      return {
+        classifications,
+        ungraded: photos.slice(offset),
+        failure: {
+          status: 429,
+          body: `paced: ${provider.name} token window refills in ${wait}s`,
+          retryAfterSeconds: wait,
+          dailyQuota: false,
+        },
+        limits,
+      };
+    }
+    if (wait > 0) {
+      console.log(`classify: pacing ${wait}s for ${provider.name}'s token window`);
+      await new Promise(resolve => setTimeout(resolve, wait * 1000));
+    }
+
     const images = await Promise.all(slice.map(resolveImage));
 
     const result = await provider.classify({ prompt, reference, images, responseSchema: schema });
