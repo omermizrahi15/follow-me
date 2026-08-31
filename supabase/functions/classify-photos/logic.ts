@@ -60,8 +60,30 @@ export function classifyCaller(
  * scan sat on "Scanning your library" indefinitely. Told apart by quotaId, and
  * reported as `daily_quota`, because from the app's side it means exactly what
  * our own ceiling means: nothing today will help.
+ *
+ * `upstream_busy` is the third: the vendor was momentarily unable to answer at
+ * all (Gemini's 503 "the model is overloaded"). It says nothing about any
+ * budget — it is the same request being worth making again in a few seconds —
+ * so it must not reach the app as a broken classifier (issue #189).
  */
-export type RefusalReason = 'daily_quota' | 'rate_limited';
+export type RefusalReason = 'daily_quota' | 'rate_limited' | 'upstream_busy';
+
+/**
+ * True when an upstream status is a moment rather than a verdict.
+ *
+ * A vendor that is overloaded, down, or never reached will very likely answer
+ * the identical request seconds later. Telling the app that its classifier is
+ * broken ends the scan and throws away every grade in flight, which is what
+ * issue #189 filed: a single Gemini 503 surfaced as ClassificationFailedError.
+ *
+ * 429 is deliberately excluded: it has its own two reasons and its own waits,
+ * and folding it in here would lose the difference between "busy" and "come
+ * back tomorrow".
+ */
+export function isTransientUpstream(status: number): boolean {
+  // 0 is the local marker for a request that never completed at all.
+  return status === 0 || (status >= 500 && status <= 599);
+}
 
 /**
  * Seconds Gemini asked us to wait, from a 429 body, or null when it didn't say.
