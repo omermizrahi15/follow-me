@@ -80,6 +80,28 @@ async function readRefusal(res: Response): Promise<Refusal> {
   };
 }
 
+/**
+ * Wait when the function says the provider is busy but names no delay — an
+ * older deployment, which answered a bare 503. Short, because an overloaded
+ * model usually answers the next request (issue #189).
+ */
+const BUSY_RETRY_SECONDS = 5;
+
+/**
+ * Seconds to wait before retrying a busy provider.
+ *
+ * Falls back to a short pause when the body says nothing — a deployment that
+ * predates the reason, or the function's own "Usage unavailable" 503. Either
+ * way the request is worth repeating, which is the whole point of issue #189.
+ */
+async function readBusyDelay(res: Response): Promise<number> {
+  const body = (await res.json().catch(() => null)) as { retry_after_seconds?: unknown } | null;
+  const seconds = Number(body?.retry_after_seconds);
+  return Number.isFinite(seconds) && seconds >= 0
+    ? seconds
+    : BUSY_RETRY_SECONDS;
+}
+
 interface RawClassification {
   id: string;
   category: PhotoCategory;
@@ -158,6 +180,14 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
 
   /** Longest single wait honoured, whatever the server asks for. */
   private static readonly MAX_RATE_LIMIT_WAIT_MS = 60_000;
+
+  /**
+   * How many times one chunk sits out an overloaded model before the run gives
+   * up on it. Its own budget, separate from the throttle's: the two walls are
+   * unrelated, and a scan that has already waited out a rate-limit window
+   * should still get its full patience for a vendor hiccup.
+   */
+  private static readonly MAX_BUSY_WAITS = 3;
 
   /**
    * Wait before retrying a photo the network dropped. Going straight back out
@@ -395,6 +425,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     let lastNetworkError: unknown;
     let networkAttempts = 0;
     let rateLimitWaits = 0;
+    let busyWaits = 0;
     let authWaits = 0;
 
     while (networkAttempts < GeminiPhotoClassifier.MAX_ATTEMPTS) {
@@ -519,6 +550,28 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           this.onQuotaExhausted?.(this.runSize);
         }
         console.warn(`classify-photos quota reached for ${c.id}`);
+        return [];
+      }
+
+      // The provider was overloaded or unreachable — a moment, not a verdict.
+      // This used to arrive as a 502 and end the whole scan (issue #189), when
+      // the same request seconds later would have been graded. Treated like a
+      // throttle: sit it out, try the same photos again.
+      if (res.status === 503) {
+        if (busyWaits < GeminiPhotoClassifier.MAX_BUSY_WAITS) {
+          busyWaits++;
+          // A request the model never answered must not spend one of the two
+          // attempts reserved for genuine network trouble.
+          networkAttempts--;
+          this.pauseFor(await readBusyDelay(res));
+          continue;
+        }
+
+        // Still busy after waiting as long as we're willing to. Soft-stop the
+        // run the way a throttle does: the grades in hand are real, and the
+        // publisher is told to try again shortly rather than shown a failure.
+        this.hitRateLimit = true;
+        console.warn(`classify-photos provider still busy for ${c.id} after ${busyWaits} waits`);
         return [];
       }
 

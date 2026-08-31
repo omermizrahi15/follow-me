@@ -572,3 +572,93 @@ describe('GeminiPhotoClassifier — the request ran out of time (issue #174)', (
     expect(sut.timedOut()).toBe(false);
   });
 });
+
+/**
+ * Issue #189: the model itself was momentarily overloaded (Gemini 503), which
+ * the function reported as a plain failure and the app turned into a
+ * ClassificationFailedError — ending a scan over a condition that clears by
+ * itself in seconds. It belongs with the throttle: wait, retry, and if it is
+ * still busy, stop softly and keep the grades already in hand.
+ */
+describe('GeminiPhotoClassifier.classify — the model is busy', () => {
+  /** The function's answer when every provider was momentarily unavailable. */
+  function busyResponse(retryAfterSeconds = 0): unknown {
+    return {
+      ok: false,
+      status: 503,
+      text: () => Promise.resolve('Classification provider unavailable'),
+      json: () =>
+        Promise.resolve({
+          error: 'Classification provider unavailable',
+          reason: 'upstream_busy',
+          retry_after_seconds: retryAfterSeconds,
+        }),
+    };
+  }
+
+  it('waits out an overloaded model and finishes the run', async () => {
+    let calls = 0;
+    mockFetch.mockImplementation((_url: string, init: { body: string }) => {
+      calls++;
+      if (calls === 1) return Promise.resolve(busyResponse());
+      return Promise.resolve(okResponse(requestedIds(init.body)));
+    });
+
+    const sut = makeSut();
+    const results = await sut.classify([candidate('p1')]);
+
+    expect(results).toHaveLength(1);
+    expect(sut.rateLimited()).toBe(false);
+    expect(sut.quotaExhausted()).toBe(false);
+  });
+
+  it('stops softly as busy — never as a failure — when it stays overloaded', async () => {
+    mockFetch.mockImplementation(() => Promise.resolve(busyResponse()));
+    const sut = makeSut();
+
+    const results = await sut.classify([candidate('p1'), candidate('p2')]);
+
+    expect(results).toEqual([]);
+    expect(sut.rateLimited()).toBe(true);
+    expect(sut.quotaExhausted()).toBe(false);
+    expect(reportedQuota).not.toHaveBeenCalled();
+  });
+
+  it('treats a 503 with no reason as busy too, for older deployments', async () => {
+    // 503 means "unavailable" whoever sent it; guessing "broken" instead ends
+    // the scan, which is the exact damage of issue #189. A body with no delay
+    // in it falls back to a few seconds' wait, so time is driven by hand here
+    // rather than actually slept through.
+    mockFetch.mockImplementation(() =>
+      Promise.resolve({
+        ok: false,
+        status: 503,
+        text: () => Promise.resolve('Usage unavailable'),
+        json: () => Promise.resolve({ error: 'Usage unavailable' }),
+      }),
+    );
+    jest.useFakeTimers();
+    const sut = makeSut();
+
+    const run = sut.classify([candidate('p1')]);
+    await jest.runAllTimersAsync();
+    const results = await run;
+    jest.useRealTimers();
+
+    expect(results).toEqual([]);
+    expect(sut.rateLimited()).toBe(true);
+  });
+
+  it('still fails hard on a broken request, which no wait will fix', async () => {
+    mockFetch.mockImplementation(() =>
+      Promise.resolve({
+        ok: false,
+        status: 400,
+        text: () => Promise.resolve('too many photos'),
+        json: () => Promise.resolve({ error: 'too many photos' }),
+      }),
+    );
+
+    await expect(makeSut().classify([candidate('p1')])).rejects.toThrow(ClassificationFailedError);
+  });
+});
