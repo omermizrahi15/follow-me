@@ -14,6 +14,7 @@ describe('GetAiUsageUseCase', () => {
       limit: 500,
       day: '2026-08-28',
       provider: null,
+      providers: [],
       remaining: 100,
       usedFraction: 0.8,
       usedPercent: 80,

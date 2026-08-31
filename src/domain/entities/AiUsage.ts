@@ -53,8 +53,21 @@ export interface AiUsageSnapshot {
    * What the AI provider last said about the account's own ceilings, or null
    * when it has never been heard from (a fresh deployment, or a provider that
    * states nothing).
+   *
+   * The chain's LEADER — the provider actually doing the grading. Prefer
+   * {@link providers}; this stays for the one-provider read-out.
    */
   readonly provider?: ProviderLimits | null;
+  /**
+   * Every provider in the chain, in the order they are tried.
+   *
+   * Grading falls through: `VISION_PROVIDER` can name several, and when the
+   * leader's budget is gone the next one answers. Reporting a single provider
+   * meant reporting whichever spoke LAST, so a deployment grading on Groq
+   * displayed "gemini" from the moment Groq's daily tokens ran out — with no
+   * way to tell that apart from being misconfigured.
+   */
+  readonly providers?: readonly ProviderLimits[];
 }
 
 /** How close the budget is to running out — what the bar colours itself by. */

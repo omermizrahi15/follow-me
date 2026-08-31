@@ -13,7 +13,8 @@
  * whole feature. See the grade inspector in the app.
  *
  * Also: GET /classify-photos → { "used", "limit": number | null, "day",
- *                                "provider": ProviderLimits | null }
+ *                                "provider": ProviderLimits | null,
+ *                                "providers": ProviderLimits[] }
  * — the caller's own spend, and what the AI provider says the ACCOUNT may still
  * spend. Same auth as the POST. `limit` is our own optional cost brake and is
  * null unless CLASSIFY_DAILY_QUOTA is set; it used to default to 500 photos a
@@ -575,35 +576,59 @@ interface LimitsRow {
 }
 
 /**
- * The most recent reading of the provider's ceilings, or null if none has been
- * taken yet (a fresh deployment, or a provider that states nothing).
+ * The latest reading from EVERY provider that has ever answered, in the order
+ * VISION_PROVIDER tries them.
  *
- * Null rather than zeros, all the way through: "we have not been told" and "you
- * have none left" are opposite facts, and the app renders them differently.
+ * It used to return only the newest row, and the newest row is whichever
+ * provider spoke last — which is the FALLBACK whenever the leader is spent. A
+ * deployment configured `groq,gemini` therefore reported "gemini" to the app the
+ * moment Groq's daily tokens ran out, so the chain's configuration and what the
+ * screen said were both true and irreconcilable from the screen.
+ *
+ * Chain order, not observation order: the list is about how grading is
+ * configured, and sorting by recency would reshuffle it every time a provider
+ * answered. A provider that has never been heard from is simply absent.
+ *
+ * Null windows rather than zeros, all the way through: "we have not been told"
+ * and "you have none left" are opposite facts, and the app renders them apart.
  */
-async function readLimits(): Promise<ProviderLimits | null> {
+async function readLimits(): Promise<ProviderLimits[]> {
   const { data, error } = await admin
     .from('provider_limits')
     .select('*')
-    .order('observed_at', { ascending: false })
-    .limit(1);
+    .order('observed_at', { ascending: false });
   if (error != null) {
     console.warn('classify: could not read provider limits:', error.message);
-    return null;
+    return [];
   }
-  const row = (data as LimitsRow[] | null)?.[0];
-  if (row == null) return null;
 
   const window = (limit: number | null, remaining: number | null, reset: number | null) =>
     limit == null || remaining == null ? null : { limit, remaining, resetSeconds: reset };
 
-  return {
-    provider: row.provider,
-    model: row.model,
-    requests: window(row.request_limit, row.request_remaining, row.request_reset_seconds),
-    tokens: window(row.token_limit, row.token_remaining, row.token_reset_seconds),
-    observedAt: Date.parse(row.observed_at),
-  };
+  const byProvider = new Map<string, ProviderLimits>();
+  for (const row of (data as LimitsRow[] | null) ?? []) {
+    // Rows arrive newest first, so the first one seen for a provider is its
+    // latest reading — a provider that has switched models keeps only the
+    // reading that still describes what it is answering as.
+    if (byProvider.has(row.provider)) continue;
+    byProvider.set(row.provider, {
+      provider: row.provider,
+      model: row.model,
+      requests: window(row.request_limit, row.request_remaining, row.request_reset_seconds),
+      tokens: window(row.token_limit, row.token_remaining, row.token_reset_seconds),
+      observedAt: Date.parse(row.observed_at),
+    });
+  }
+
+  const order = requestedProviders(Deno.env.get('VISION_PROVIDER'));
+  const chain = order
+    .map(name => byProvider.get(name))
+    .filter((p): p is ProviderLimits => p != null);
+  // Anything recorded by a provider no longer in the chain still gets reported,
+  // after the configured ones: it is a real reading, and silently dropping it
+  // would hide a provider that was answering until this morning.
+  const extra = [...byProvider.values()].filter(p => !order.includes(p.provider));
+  return [...chain, ...extra];
 }
 
 /**
@@ -632,8 +657,15 @@ async function usageResponse(userId: string): Promise<Response> {
   // Read alongside our own count, because on their own neither is the answer:
   // ours says what this publisher spent, the provider's says what the account
   // may still spend, and only the second is a wall anybody actually hits.
-  const provider = await readLimits();
-  return json({ ...quotaSnapshot(quota.data, DAILY_QUOTA, day), provider });
+  const providers = await readLimits();
+  // `provider` is the singular field older app builds read. Kept as the chain's
+  // LEADER rather than the last speaker, so even an un-updated build stops
+  // naming the fallback as the thing doing the grading.
+  return json({
+    ...quotaSnapshot(quota.data, DAILY_QUOTA, day),
+    provider: providers[0] ?? null,
+    providers,
+  });
 }
 
 Deno.serve(async (req: Request) => {

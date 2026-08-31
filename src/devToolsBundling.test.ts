@@ -17,8 +17,6 @@ import path from 'path';
 const repoRoot = path.join(__dirname, '..');
 const DEV_PANEL = path.join(repoRoot, 'src/ui/dev/DevNotificationPanel.tsx');
 const DEV_PANEL_STUB = path.join(repoRoot, 'src/ui/dev/DevNotificationPanel.prod.tsx');
-const USAGE_BAR = path.join(repoRoot, 'src/ui/dev/AiUsageBar.tsx');
-const USAGE_BAR_STUB = path.join(repoRoot, 'src/ui/dev/AiUsageBar.prod.tsx');
 const INSPECTOR = path.join(repoRoot, 'src/ui/dev/PhotoGradeInspector.tsx');
 const INSPECTOR_STUB = path.join(repoRoot, 'src/ui/dev/PhotoGradeInspector.prod.tsx');
 
@@ -92,19 +90,16 @@ describe('dev notification tooling', () => {
     expect(resolve(resolver, other)).toBe(other);
   });
 
-  it('swaps the staging AI budget bar in a production bundle', () => {
-    // The bar reads the daily classify quota and is an operational read-out for
-    // whoever is testing staging — a production build must not carry it, nor
-    // the quota GET behind it.
+  // The AI budget read-out is deliberately NOT swapped any more. It moved out
+  // of src/ui/dev to src/ui/components/AiUsageCard.tsx and ships in every
+  // build: the provider ceilings are what a scan actually stops on, and a
+  // publisher whose suggestion came back thin has the same right to know why
+  // as whoever is testing staging.
+  it('leaves the AI budget card alone — it is not a dev tool any more', () => {
     const resolver = resolverFor({ NODE_ENV: 'production', EXPO_PUBLIC_APP_VARIANT: 'production' });
+    const card = path.join(repoRoot, 'src/ui/components/AiUsageCard.tsx');
 
-    expect(resolve(resolver, USAGE_BAR, './AiUsageBar')).toBe(USAGE_BAR_STUB);
-  });
-
-  it('keeps the AI budget bar on staging, which is the only place it shows', () => {
-    const resolver = resolverFor({ NODE_ENV: 'production', EXPO_PUBLIC_APP_VARIANT: 'staging' });
-
-    expect(resolve(resolver, USAGE_BAR, './AiUsageBar')).toBe(USAGE_BAR);
+    expect(resolve(resolver, card, './AiUsageCard')).toBe(card);
   });
 
   it('swaps the grade inspector in a production bundle', () => {
@@ -128,8 +123,6 @@ describe('dev notification tooling', () => {
     // exactly the failure mode this whole test file exists for.
     expect(fs.existsSync(DEV_PANEL)).toBe(true);
     expect(fs.existsSync(DEV_PANEL_STUB)).toBe(true);
-    expect(fs.existsSync(USAGE_BAR)).toBe(true);
-    expect(fs.existsSync(USAGE_BAR_STUB)).toBe(true);
     expect(fs.existsSync(INSPECTOR)).toBe(true);
     expect(fs.existsSync(INSPECTOR_STUB)).toBe(true);
   });
