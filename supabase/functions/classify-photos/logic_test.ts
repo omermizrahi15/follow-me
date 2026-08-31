@@ -13,6 +13,7 @@ import {
   pairBatchResults,
   parseRetryDelaySeconds,
   quotaSnapshot,
+  requestedProviders,
 } from './logic.ts';
 
 // The exact body staging logged when the AI photo suggestion reported "daily
@@ -405,4 +406,20 @@ Deno.test('parseClassification — a rambling reason is trimmed to a readable le
     reason: 'x'.repeat(500),
   });
   assertEquals(c.reason.length, MAX_REASON_LENGTH);
+});
+
+// The provider chain. Groq leads by default: Gemini's free tier allows twenty
+// requests a DAY on the only model whose free tier is not zeroed out, which is
+// not enough to grade a single window — let alone a history backfill, which
+// walks one window per posting interval and hit that wall on its first stretch.
+Deno.test('requestedProviders defaults to groq with gemini behind it', () => {
+  assertEquals(requestedProviders(undefined), ['groq', 'gemini']);
+  assertEquals(requestedProviders(''), ['groq', 'gemini']);
+  assertEquals(requestedProviders('   '), ['groq', 'gemini']);
+});
+
+Deno.test('requestedProviders reads an explicit chain in order', () => {
+  assertEquals(requestedProviders('gemini'), ['gemini']);
+  assertEquals(requestedProviders(' Gemini , GROQ '), ['gemini', 'groq']);
+  assertEquals(requestedProviders('groq,,gemini,'), ['groq', 'gemini']);
 });

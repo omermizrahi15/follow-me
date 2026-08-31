@@ -379,3 +379,28 @@ export function quotaSnapshot(count: unknown, limit: number | null, day: string)
   const used = typeof count === 'number' && Number.isFinite(count) ? Math.max(0, count) : 0;
   return { used, limit, day };
 }
+
+/**
+ * The vision providers to try, in order, from the `VISION_PROVIDER` secret.
+ *
+ * The default is `groq,gemini`, and it used to be `gemini` alone. Gemini's free
+ * tier is not a tier any more: 2.0/2.5-flash are set to `limit: 0`, and
+ * 3.5-flash — the one live model with a free allowance — allows twenty requests
+ * a DAY. Twelve photos travel per request, so a day's entire budget is 240
+ * photos across every publisher on the project, and the history backfill (which
+ * grades one window per posting interval) spends it inside its first stretch
+ * and then waits three minutes per window against a wall that lifts tomorrow.
+ * Leading with Groq is what makes the feature work at all; Gemini stays behind
+ * it as the fallback rather than being removed.
+ *
+ * Unknown names and missing keys are the caller's problem — this is the parse,
+ * not the resolution. Case and spacing are normalised because the value is
+ * typed by a human into a secrets UI.
+ */
+export function requestedProviders(raw: string | undefined | null): string[] {
+  const names = (raw ?? '')
+    .split(',')
+    .map(name => name.trim().toLowerCase())
+    .filter(name => name !== '');
+  return names.length > 0 ? names : ['groq', 'gemini'];
+}

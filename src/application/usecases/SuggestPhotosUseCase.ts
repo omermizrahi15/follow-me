@@ -335,7 +335,17 @@ export class SuggestPhotosUseCase {
       announced = true;
       progress?.onBatchReady?.(...this.split(accumulated, rules, alreadySent));
     };
-    announceIfReady();
+    // Announcing is the end of the reveal, not the start of it: until it fires,
+    // the screen renders the batch growing photo by photo out of
+    // `onClassifying`, and afterwards it renders a fixed, swappable post. So
+    // this pre-announce only happens when there is genuinely nothing to grade.
+    //
+    // It used to fire unconditionally, and remembered grades then made "nothing
+    // to reveal" the normal case for the wrong reason: a window that was only
+    // PART graded already had enough in hand to clear the threshold, so the run
+    // announced at once and everything it graded afterwards appeared without
+    // ever being seen to arrive. Grading looked like a step the app skipped.
+    if (ungraded.length === 0) announceIfReady();
 
     const freshlyGraded: PhotoClassification[] = [];
     try {

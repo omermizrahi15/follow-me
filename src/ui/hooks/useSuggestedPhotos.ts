@@ -15,8 +15,16 @@ import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 export type { SuggestStats };
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
+import type { SuggestionPhase } from '../../domain/services/suggestionProgress';
 
-export type SuggestPhase = 'loading' | 'scanning' | 'classifying' | 'done' | 'error';
+/**
+ * Mirrors `SuggestionPhase` in the domain, which is where the step model that
+ * reads it lives. `deduping` is the beat between the library scan and the first
+ * grade — collapsing bursts, loading remembered grades, resolving the face to
+ * match. It was previously folded into `scanning`, which is why the app looked
+ * like it went straight from finding photos to having a post.
+ */
+export type SuggestPhase = SuggestionPhase;
 
 /**
  * Why a top-up came back empty. The distinction matters: only `exhausted`,
@@ -53,6 +61,14 @@ interface State {
   classified: number;
   /** Total photos being classified (= unique). */
   total: number;
+  /**
+   * The classifier is still working. NOT the same as `phase !== 'done'`: the
+   * post becomes previewable at twice photos-per-post and `phase` turns `done`
+   * there, while the rest of the window keeps grading behind it. Anything that
+   * reports grading progress has to read this instead, or it will call the
+   * stage finished a fifth of the way through (see `suggestionProgress`).
+   */
+  grading: boolean;
   /**
    * The AI-*selected* photos accumulated so far during classification — this is
    * the running batch (result of selectBatch on everything classified up to now),
@@ -94,6 +110,7 @@ const INITIAL: State = {
   unique: 0,
   classified: 0,
   total: 0,
+  grading: false,
   partial: [],
   batch: [],
   pool: [],
@@ -214,7 +231,11 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
             setState(s => ({ ...s, phase: 'scanning' }));
           },
           onScanned(found, unique) {
-            setState(s => ({ ...s, found, unique }));
+            // The scan is in; what follows is burst grouping, the remembered
+            // grades and the face to match — a real beat, and previously an
+            // invisible one that made the run look like it jumped from
+            // "finding photos" to "here's your post".
+            setState(s => ({ ...s, found, unique, phase: s.phase === 'done' ? 'done' : 'deduping' }));
           },
           onClassifying(index, total, currentBatch) {
             setState(s => ({
@@ -224,6 +245,9 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
               phase: s.phase === 'done' ? 'done' : 'classifying',
               classified: index,
               total,
+              // True until the classifier stops, which is well after the post
+              // appears. The step bar reads this rather than `phase`.
+              grading: true,
               partial: currentBatch,
             }));
           },
@@ -234,7 +258,10 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
           },
         });
 
-        setState(s => ({ ...s, phase: 'done', classified: 0, total: 0, partial: [], batch, pool, fromCache: false, cachedAt: null, stats, error: null }));
+        // `classified`/`total` are deliberately NOT reset here: they are the
+        // finished tally ("72 of 72"), and blanking them left the grading step
+        // with nothing to show for the minutes it just spent.
+        setState(s => ({ ...s, phase: 'done', grading: false, partial: [], batch, pool, fromCache: false, cachedAt: null, stats, error: null }));
 
         // Persist the scan result so reopening the screen (or tapping the
         // reminder) shows this batch instantly instead of rescanning.
@@ -260,7 +287,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
               'Could not reach the photo AI, so nothing was analysed. Your photos are untouched — try again in a moment.',
             )
           : e;
-        setState(s => ({ ...s, phase: 'error', error }));
+        setState(s => ({ ...s, phase: 'error', grading: false, error }));
       }
     })();
   }, [publisherId]);

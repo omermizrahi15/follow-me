@@ -30,8 +30,9 @@
  * come back false/0. Nothing about the reference is stored here — it is fetched
  * per request, used in one prompt, and forgotten.
  *
- * The single place provider specifics live. It holds GEMINI_API_KEY (never shipped
- * in the app) and asks Gemini Flash to classify each photo into one of the rule
+ * The single place provider specifics live. It holds the provider API keys
+ * (never shipped in the app) and asks whichever vision model VISION_PROVIDER
+ * names — Groq first by default — to classify each photo into one of the rule
  * categories. Photos may be passed as a public URL (the function fetches the bytes)
  * or as base64 (the app reads local library photos this way, avoiding an upload
  * just to classify). Swapping providers means rewriting only this file.
@@ -54,7 +55,7 @@
  * switching vendors never needs an app release.
  *
  * Env: VISION_PROVIDER (optional, comma-separated chain tried in order,
- *        e.g. "groq,gemini" — default "gemini")
+ *        e.g. "groq,gemini" — default "groq,gemini")
  *      GEMINI_API_KEY (required for gemini), GEMINI_MODEL (optional,
  *        default gemini-3.5-flash)
  *      GROQ_API_KEY (required for groq), GROQ_MODEL (optional,
@@ -73,6 +74,7 @@ import {
   parseClassification,
   quotaSnapshot,
   type RefusalReason,
+  requestedProviders,
 } from './logic.ts';
 import { geminiProvider } from './gemini.ts';
 import { groqProvider } from './groq.ts';
@@ -341,13 +343,11 @@ const PROVIDERS: Record<string, () => VisionProvider | null> = {
  * whole configuration — which vendor leads, and what catches it — so changing
  * strategy is a secret, never a deploy.
  *
- * Defaults to gemini alone, so an unset secret behaves exactly as before.
+ * Defaults to "groq,gemini" — see requestedProviders for why Gemini can no
+ * longer lead.
  */
 function providerChain(): VisionProvider[] {
-  const requested = (Deno.env.get('VISION_PROVIDER') ?? 'gemini')
-    .split(',')
-    .map(name => name.trim().toLowerCase())
-    .filter(name => name !== '');
+  const requested = requestedProviders(Deno.env.get('VISION_PROVIDER'));
 
   const chain: VisionProvider[] = [];
   for (const name of requested) {
@@ -641,7 +641,10 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST' && req.method !== 'GET') {
     return json({ error: 'Method not allowed' }, 405);
   }
-  if (!GEMINI_API_KEY) return json({ error: 'Server not configured' }, 500);
+  // Any usable provider will do. This used to demand GEMINI_API_KEY
+  // specifically, which 500s a deployment that grades on Groq and has no Gemini
+  // key at all — the exact configuration `VISION_PROVIDER` exists to allow.
+  if (!GEMINI_API_KEY && !GROQ_API_KEY) return json({ error: 'Server not configured' }, 500);
 
   // The anon key alone is not enough — a signed-in user must be behind the call.
   const userId = await authenticatedUserId(req);

@@ -363,3 +363,58 @@ describe('BackfillHistoryUseCase — classification quota', () => {
     expect(scannedWindows).toBe(3);
   });
 });
+
+describe('BackfillHistoryUseCase — a window that fails outright', () => {
+  // The classifier throwing used to reject the whole run, and the screen's
+  // error branch replaces the timeline — so a connection that dropped on the
+  // seventh stretch threw away six reconstructed postings the publisher was
+  // about to publish. Reconstructing history is minutes of work; losing it to a
+  // tunnel is the difference between a feature that works and one that doesn't.
+  it('keeps every stretch it reconstructed before the classifier died', async () => {
+    const { useCase, classifier } = makeSut();
+    classifier.throwsFromCallIndex = 2;
+
+    const { drafts } = await useCase.execute(input);
+
+    expect(draftIds(drafts)).toEqual([['week1']]);
+  });
+
+  it('reports the failure rather than swallowing it', async () => {
+    const { useCase, classifier } = makeSut();
+    classifier.throwsFromCallIndex = 2;
+
+    const { failure } = await useCase.execute(input);
+
+    expect(failure).toBeInstanceOf(Error);
+    expect((failure as Error).name).toBe('ClassificationFailedError');
+  });
+
+  it('stops the run — every remaining window would hit the same wall', async () => {
+    const { useCase, classifier, library } = makeSut();
+    classifier.throwsFromCallIndex = 2;
+
+    const { scannedWindows } = await useCase.execute(input);
+
+    expect(scannedWindows).toBe(1);
+    expect(library.requestedWindows).toHaveLength(2); // the third never started
+  });
+
+  it('reports no failure on a clean run', async () => {
+    const { useCase } = makeSut();
+    const { failure, drafts } = await useCase.execute(input);
+    expect(failure).toBeNull();
+    expect(drafts).toHaveLength(3);
+  });
+
+  it('still fails loudly when the very first window dies with nothing to keep', async () => {
+    const { useCase, classifier } = makeSut();
+    classifier.throwsFromCallIndex = 1;
+
+    const { drafts, failure } = await useCase.execute(input);
+
+    // Nothing to show and something went wrong: the caller needs to be able to
+    // tell this from "your trip had no photos in it".
+    expect(drafts).toEqual([]);
+    expect(failure).not.toBeNull();
+  });
+});

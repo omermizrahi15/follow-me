@@ -291,6 +291,66 @@ describe('SuggestPhotosUseCase', () => {
 
       expect(gradedWhenAnnounced).toBe(config().photosPerPost * 2);
     });
+
+    // The reveal is the point. Photos land in the grid one at a time as they
+    // are graded, and the screen only switches to the fixed, swappable post
+    // when `onBatchReady` fires — so announcing before a single grade has been
+    // bought skips the whole of it. Remembered grades made that the normal
+    // case: a rescan of a window that is only PART graded had enough in hand to
+    // announce at once, and the photos still being graded appeared silently.
+    it('does not announce before grading starts when there is grading to do', async () => {
+      const { candidates, byId } = window(40);
+      const grades = store();
+      // Enough remembered to clear the announce threshold on their own.
+      await grades.save(candidates.slice(0, 20).map(c => byId.get(c.id)!), '');
+
+      const useCase = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        new FakePhotoClassifier(byId),
+        new FakeSentPhotoTracker(),
+        undefined,
+        grades,
+      );
+
+      let gradedWhenAnnounced = -1;
+      let seen = 0;
+      await useCase.execute(config(), {
+        onScanning() {},
+        onScanned() {},
+        onClassifying() { seen++; },
+        onBatchReady() { if (gradedWhenAnnounced < 0) gradedWhenAnnounced = seen; },
+      });
+
+      expect(gradedWhenAnnounced).toBeGreaterThan(0);
+    });
+
+    // The other half of the same rule: with every grade already in hand there
+    // is nothing to reveal, and making the publisher wait for a scan that has
+    // no work to do would be worse than the problem.
+    it('announces immediately when the whole window is already graded', async () => {
+      const { candidates, byId } = window(12);
+      const grades = store();
+      await grades.save(candidates.map(c => byId.get(c.id)!), '');
+
+      const useCase = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        new FakePhotoClassifier(byId),
+        new FakeSentPhotoTracker(),
+        undefined,
+        grades,
+      );
+
+      let announcedBeforeAnyGrading = false;
+      let seen = 0;
+      await useCase.execute(config(), {
+        onScanning() {},
+        onScanned() {},
+        onClassifying() { seen++; },
+        onBatchReady() { announcedBeforeAnyGrading = seen === 0; },
+      });
+
+      expect(announcedBeforeAnyGrading).toBe(true);
+    });
   });
 
   it('excludes already-sent photos reported by the tracker', async () => {
