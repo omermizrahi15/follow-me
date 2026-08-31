@@ -204,17 +204,54 @@ Choose exactly one category:
 
 Also rate:
 - confidence: 0..1, how certain you are of the category.
-- quality: 0..1, photographic quality (sharpness, exposure, composition; low for blurry/dark/cluttered).
+
+Then judge the photograph on FOUR separate scales. Judge each one on its own —
+a photo can be beautifully composed and hopelessly blurred, and it must score
+high on one and low on the other rather than "about average" on both.
+
+- sharpness: 0..1. Focus and motion blur ONLY. Ignore the subject entirely.
+    0.0-0.2  smeared; nothing in the frame resolves
+    0.3-0.4  visibly soft, or the subject is blurred while the background is sharp
+    0.5-0.6  acceptable at a glance, mushy at full size
+    0.7-0.8  properly sharp on the subject
+    0.9-1.0  crisp to the edges, fine detail intact
+- exposure: 0..1. Light ONLY — brightness, contrast, colour.
+    0.0-0.2  black or blown out; unrecoverable
+    0.3-0.4  badly under/over exposed, heavy colour cast
+    0.5-0.6  flat, dull, or grey but usable
+    0.7-0.8  well exposed with detail in highlights and shadows
+    0.9-1.0  beautiful light — golden hour, dramatic, deliberate
+- composition: 0..1. Framing ONLY.
+    0.0-0.2  subject cut off, wildly tilted, chaotic
+    0.3-0.4  cluttered or careless framing
+    0.5-0.6  centred and unremarkable
+    0.7-0.8  clean framing, level horizon, subject placed well
+    0.9-1.0  genuinely well composed — leading lines, depth, balance
+- appeal: 0..1. Would someone stop scrolling? The only subjective one.
+    0.0-0.2  a screenshot, a receipt, a photo of nothing
+    0.3-0.4  mundane — a parked car, a plain wall, a duplicate of a better shot
+    0.5-0.6  pleasant but ordinary
+    0.7-0.8  a photo worth sharing with friends
+    0.9-1.0  striking; the best photo of the trip
+
+USE THE WHOLE OF EACH SCALE. Scores from a set of real holiday photos should
+range widely — some below 0.3 and some above 0.85. If you find yourself putting
+most photos between 0.6 and 0.8, you are not looking hard enough: go back and
+push the worst ones down and the best ones up. Within the images in THIS
+request, no two photos should carry identical scores on every scale unless they
+are genuinely indistinguishable, and you must be able to say which is the best
+of them and which is the worst.
+
 - caption: a short, friendly caption (max ~8 words).
 - scene: a 2-4 word kebab-case slug describing WHERE or WHAT — the primary location
   or subject of the photo, ignoring who is in it (e.g. "beach-sunset", "restaurant-dinner",
   "mountain-trail", "old-city-market"). Two photos of the same place MUST share the same
   slug. Prefer generic location terms over unique details so similar shots collide.
-- reason: ONE short sentence (max 25 words) saying why THIS photo got THIS category and
-  THIS quality — name what you actually saw. Be concrete and specific: "subject is
-  motion-blurred and the horizon is tilted" or "crisp golden-hour light, clean
-  composition, sharp on the couple". Never restate the scores back as words, never
-  hedge, and never describe a photo you were not shown.
+- reason: ONE short sentence (max 25 words) saying why THIS photo got THESE scores —
+  name what you actually saw. Be concrete and specific: "subject is motion-blurred and
+  the horizon is tilted" or "crisp golden-hour light, clean composition, sharp on the
+  couple". Never restate the scores back as words, never hedge, and never describe a
+  photo you were not shown.
 
 Respond with JSON only.`;
 
@@ -222,14 +259,26 @@ const BASE_PROPERTIES = {
   index: { type: 'INTEGER' },
   category: { type: 'STRING', enum: [...CATEGORIES] },
   confidence: { type: 'NUMBER' },
-  quality: { type: 'NUMBER' },
+  // Four judgements rather than one `quality`. A single holistic score came
+  // back with a standard deviation of 0.042 across 132 real photos — everything
+  // inside a 0.16-wide band — because photos fail in ways that average out when
+  // asked about together. `quality` is computed from these (see qualityFrom)
+  // and is no longer something the model is asked for.
+  sharpness: { type: 'NUMBER' },
+  exposure: { type: 'NUMBER' },
+  composition: { type: 'NUMBER' },
+  appeal: { type: 'NUMBER' },
   caption: { type: 'STRING' },
   scene: { type: 'STRING' },
   reason: { type: 'STRING' },
 };
 // `index` is required and load-bearing: see pairBatchResults for why a bare
 // ordered array is not safe enough to attach a grade to a photo.
-const BASE_REQUIRED = ['index', 'category', 'confidence', 'quality', 'caption', 'scene', 'reason'];
+const BASE_REQUIRED = [
+  'index', 'category', 'confidence',
+  'sharpness', 'exposure', 'composition', 'appeal',
+  'caption', 'scene', 'reason',
+];
 
 /**
  * One entry per photo, tagged with the index of the image it grades.

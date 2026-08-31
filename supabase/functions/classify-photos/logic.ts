@@ -145,6 +145,15 @@ export interface Classification {
   category: Category;
   confidence: number;
   quality: number;
+  /**
+   * The judgements `quality` was computed from, when the model stated any.
+   *
+   * Carried so the grade inspector can say WHY a photo scored what it did —
+   * "0.31" explains nothing, "sharpness 0.2, appeal 0.9" explains everything —
+   * and so a future weighting change can be applied to existing grades instead
+   * of re-buying them.
+   */
+  factors?: QualityFactors;
   caption: string;
   scene: string;
   /**
@@ -222,6 +231,105 @@ export function asCategory(c: unknown): Category | null {
 }
 
 /**
+ * The four judgements quality is built from, each 0..1. Every one is optional:
+ * a model that answered the old single-number shape must still be readable.
+ */
+export interface QualityFactors {
+  /** Focus and motion blur, and nothing else. */
+  sharpness?: number;
+  /** Light: blown highlights, crushed shadows, flat grey. */
+  exposure?: number;
+  /** Framing — horizon, clutter, where the subject sits. */
+  composition?: number;
+  /** Whether the picture is worth stopping on. The only subjective one. */
+  appeal?: number;
+}
+
+/**
+ * How much each judgement is worth.
+ *
+ * Sharpness and exposure together carry more than half, because they decide
+ * whether the image is usable at all: no amount of subject appeal recovers a
+ * smeared frame, while a plain photo that is simply well taken is postable.
+ * Appeal carries the most of the remainder because it is the only one that
+ * knows the difference between a wall and a view.
+ */
+const QUALITY_WEIGHTS: Required<QualityFactors> = {
+  sharpness: 0.3,
+  exposure: 0.25,
+  composition: 0.15,
+  appeal: 0.3,
+};
+
+/**
+ * A factor the model did not answer counts as the middle of the scale.
+ *
+ * Not zero. Absent means "not stated", and scoring it zero punishes the photo
+ * for the model's omission — which, on a response that omitted several, would
+ * bury a good picture under an answer nobody gave.
+ */
+const UNSTATED_FACTOR = 0.5;
+
+/**
+ * The four judgements as one number.
+ *
+ * Asking for quality as a single 0..1 score produced almost no signal: 132
+ * photos graded on staging came back with a mean of 0.696 and a standard
+ * deviation of 0.042 — everything inside a 0.16-wide band, 37 of them on
+ * exactly 0.70. That is the ordinary behaviour of an unanchored holistic ask,
+ * and it made the grade useless for ranking.
+ *
+ * Photos fail in different ways, and the ways are close to independent: a
+ * blurred frame of a wonderful moment and a razor-sharp picture of a blank wall
+ * both average out to "about 0.7" when judged as one thing. Asked separately
+ * they separate — 0.2/0.9 against 0.95/0.2 — and the weighted sum of answers
+ * that disagree lands somewhere the huddle never reached.
+ */
+export function qualityFrom(factors: QualityFactors): number {
+  let total = 0;
+  for (const [name, weight] of Object.entries(QUALITY_WEIGHTS)) {
+    const stated = factors[name as keyof QualityFactors];
+    total += weight * (typeof stated === 'number' ? clamp01(stated) : UNSTATED_FACTOR);
+  }
+  return clamp01(total);
+}
+
+/**
+ * The four judgements written out, for the grade inspector.
+ *
+ * Appended to `reason` rather than carried as its own field, so the breakdown
+ * reaches the inspector that already exists without a response-shape change on
+ * the device and a migration behind it. "0.31" explains nothing about a photo;
+ * "sharp 0.2 · light 0.85 · framing 0.6 · appeal 0.95" explains all of it, and
+ * explaining it is the point of asking for the four separately.
+ */
+function factorBreakdown(factors: QualityFactors): string {
+  const parts: string[] = [];
+  const say = (label: string, value: number | undefined): void => {
+    if (typeof value === 'number') parts.push(`${label} ${Number(value.toFixed(2))}`);
+  };
+  say('sharp', factors.sharpness);
+  say('light', factors.exposure);
+  say('framing', factors.composition);
+  say('appeal', factors.appeal);
+  return parts.join(' · ');
+}
+
+/** The factors the model actually stated, or undefined if it stated none. */
+function statedFactors(parsed: Record<string, unknown>): QualityFactors | undefined {
+  const factors: QualityFactors = {};
+  let any = false;
+  for (const name of Object.keys(QUALITY_WEIGHTS) as (keyof QualityFactors)[]) {
+    const raw = parsed[name];
+    if (typeof raw === 'number' && Number.isFinite(raw)) {
+      factors[name] = clamp01(raw);
+      any = true;
+    }
+  }
+  return any ? factors : undefined;
+}
+
+/**
  * Turn the model's parsed JSON into a Classification.
  *
  * Scores and free text are still defaulted defensively — a missing caption is
@@ -237,11 +345,27 @@ export function asCategory(c: unknown): Category | null {
  * volunteered — the honest answer to a question nobody asked, and the one the
  * selection rules are written to read (see PhotoFacts.containsPublisher).
  */
+/**
+ * The model's sentence, with the factor breakdown after it.
+ *
+ * The sentence is truncated BEFORE the breakdown is appended: a model that used
+ * every word of its allowance would otherwise push the numbers off the end,
+ * losing the explanation precisely when the sentence was least useful.
+ */
+function reasonWith(raw: unknown, factors: QualityFactors | undefined): string {
+  const sentence = typeof raw === 'string' ? raw.trim().slice(0, MAX_REASON_LENGTH) : '';
+  if (factors == null) return sentence;
+  const breakdown = factorBreakdown(factors);
+  if (breakdown === '') return sentence;
+  return sentence === '' ? breakdown : `${sentence} · ${breakdown}`;
+}
+
 export function parseClassification(
   id: string,
   parsed: Record<string, unknown>,
   askedForReference = false,
 ): Classification {
+  const factors = statedFactors(parsed);
   const category = asCategory(parsed.category);
   if (category == null) {
     throw new Error(
@@ -252,12 +376,18 @@ export function parseClassification(
     id,
     category,
     confidence: clamp01(parsed.confidence),
-    quality: clamp01(parsed.quality),
+    // Computed from the factors when the model gave any. A model still
+    // answering the old single-number shape — the first request after a
+    // deploy, or a provider whose schema lagged — keeps its stated quality
+    // rather than being scored as though every factor were missing, which
+    // would flatten an entire batch onto the middle of the scale.
+    quality: factors == null ? clamp01(parsed.quality) : qualityFrom(factors),
+    ...(factors != null ? { factors } : {}),
     caption: typeof parsed.caption === 'string' ? parsed.caption : '',
     scene: typeof parsed.scene === 'string' ? parsed.scene.toLowerCase().trim() : '',
     contains_reference_person: askedForReference && parsed.contains_reference_person === true,
     reference_confidence: askedForReference ? clamp01(parsed.reference_confidence) : 0,
-    reason: typeof parsed.reason === 'string' ? parsed.reason.trim().slice(0, MAX_REASON_LENGTH) : '',
+    reason: reasonWith(parsed.reason, factors),
   };
 }
 

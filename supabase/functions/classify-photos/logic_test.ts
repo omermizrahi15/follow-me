@@ -2,6 +2,7 @@ import { assert, assertEquals, assertThrows } from '@std/assert';
 import {
   asCategory,
   CATEGORIES,
+  qualityFrom,
   bytesToBase64,
   clamp01,
   classifyCaller,
@@ -445,4 +446,109 @@ Deno.test('asCategory still refuses a category that never existed', () => {
 
 Deno.test('cultural is no longer a category the model may be told about', () => {
   assertEquals(CATEGORIES.includes('cultural' as never), false);
+});
+
+// Quality is now computed from four judgements the model makes separately,
+// rather than asked for as one number.
+//
+// The single holistic ask produced almost no signal: 132 photos graded on
+// staging came back with a mean of 0.696 and a standard deviation of 0.042,
+// everything between 0.60 and 0.76, 37 of them on exactly 0.70. Photos fail in
+// different ways — a blurred frame of a wonderful moment and a razor-sharp
+// picture of a wall are both "about 0.7" holistically — and asking about the
+// ways separately is what stops them collapsing onto the same number.
+Deno.test('qualityFrom — weights the four judgements', () => {
+  const perfect = qualityFrom({ sharpness: 1, exposure: 1, composition: 1, appeal: 1 });
+  assertEquals(perfect, 1);
+  assertEquals(qualityFrom({ sharpness: 0, exposure: 0, composition: 0, appeal: 0 }), 0);
+});
+
+// A photo nobody can look at is not saved by being interesting: focus and
+// light are what make an image usable at all, and no amount of subject appeal
+// recovers a smeared one.
+Deno.test('qualityFrom — an unusable image cannot be rescued by its subject', () => {
+  const smeared = qualityFrom({ sharpness: 0, exposure: 0.2, composition: 0.5, appeal: 1 });
+  const plain = qualityFrom({ sharpness: 0.9, exposure: 0.9, composition: 0.6, appeal: 0.3 });
+  assert(smeared < plain);
+});
+
+Deno.test('qualityFrom — a missing judgement counts as the middle, not as zero', () => {
+  // Absent means the model did not answer, which is not the same as answering
+  // badly. Scoring it zero would punish a photo for the model's omission.
+  const partial = qualityFrom({ sharpness: 0.8 });
+  assert(partial > 0.4 && partial < 0.8);
+});
+
+Deno.test('parseClassification — computes quality from the factors', () => {
+  const c = parseClassification('p1', {
+    category: 'nature',
+    confidence: 0.9,
+    sharpness: 0.9,
+    exposure: 0.8,
+    composition: 0.7,
+    appeal: 0.9,
+    caption: 'a photo',
+    scene: 'beach',
+    reason: 'crisp light',
+  });
+  assertEquals(c.quality > 0.8, true);
+  assertEquals(c.factors?.sharpness, 0.9);
+});
+
+// A model answering the old shape must not be scored as though every factor
+// were missing — that would drop every grade to the middle and wipe out the
+// ranking entirely on the first request after a deploy.
+Deno.test('parseClassification — falls back to a stated quality when no factors came', () => {
+  const c = parseClassification('p1', {
+    category: 'nature',
+    confidence: 0.9,
+    quality: 0.31,
+    caption: 'a photo',
+    scene: 'beach',
+    reason: 'soft',
+  });
+  assertEquals(c.quality, 0.31);
+  assertEquals(c.factors, undefined);
+});
+
+// The grade inspector shows `reason`. "0.31" explains nothing; the four numbers
+// behind it explain everything — which is the whole point of asking for them
+// separately. Appended server-side so the breakdown reaches the existing
+// inspector without a schema change on the device.
+Deno.test('parseClassification — appends the factor breakdown to the reason', () => {
+  const c = parseClassification('p1', {
+    category: 'nature',
+    confidence: 0.9,
+    sharpness: 0.2,
+    exposure: 0.85,
+    composition: 0.6,
+    appeal: 0.95,
+    caption: 'x',
+    scene: 'beach',
+    reason: 'motion blur on the subject',
+  });
+
+  assert(c.reason.startsWith('motion blur on the subject'));
+  assert(c.reason.includes('sharp 0.2'));
+  assert(c.reason.includes('appeal 0.95'));
+});
+
+Deno.test('parseClassification — appends nothing when the model stated no factors', () => {
+  const c = parseClassification('p1', {
+    category: 'nature', confidence: 0.9, quality: 0.5, caption: 'x', scene: 'b', reason: 'soft',
+  });
+  assertEquals(c.reason, 'soft');
+});
+
+// The breakdown must survive a model that used every word of its allowance —
+// truncating the sentence first is what leaves room for it.
+Deno.test('parseClassification — keeps the breakdown when the sentence is overlong', () => {
+  const c = parseClassification('p1', {
+    category: 'nature',
+    confidence: 0.9,
+    sharpness: 0.5, exposure: 0.5, composition: 0.5, appeal: 0.5,
+    caption: 'x', scene: 'b',
+    reason: 'y'.repeat(1000),
+  });
+  assert(c.reason.includes('sharp 0.5'));
 });
