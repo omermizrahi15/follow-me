@@ -558,9 +558,12 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
   );
 }
 
-function ReviewStep({ postings, quotaExhausted, config, onToggle, onPlace, onSwap, onAdd, onPublishOne, onPublish, publishing, published, bottomInset }: {
+function ReviewStep({ postings, quotaExhausted, scanError, onRetry, config, onToggle, onPlace, onSwap, onAdd, onPublishOne, onPublish, publishing, published, bottomInset }: {
   postings: ReviewablePosting[];
   quotaExhausted: boolean;
+  /** The scan stopped partway. The timeline below it is still real work. */
+  scanError: unknown;
+  onRetry: () => void;
   config: PublisherConfig | null;
   onToggle: (id: string) => void;
   onPlace: (id: string, place: string, coordinate?: Coordinate) => void;
@@ -616,6 +619,22 @@ function ReviewStep({ postings, quotaExhausted, config, onToggle, onPlace, onSwa
   return (
     <>
       <ScrollView contentContainerStyle={[styles.body, { paddingBottom: spacing.xxl + bottomInset }]}>
+        {/* A scan that died partway keeps what it rebuilt. Publishing it is
+            offered first — it is finished work — with picking up the rest
+            underneath, rather than an error screen that loses both. */}
+        {scanError != null && (
+          <View style={styles.scanErrorCard}>
+            <ErrorState
+              error={scanError}
+              title="The scan stopped early"
+              onRetry={onRetry}
+              compact
+            />
+            <Text style={styles.scanErrorNote}>
+              Everything below was rebuilt before that and is ready to publish now.
+            </Text>
+          </View>
+        )}
         {quotaExhausted && (
           <View style={styles.noticeCard}>
             <Ionicons name="hourglass-outline" size={18} color={colors.accent} />
@@ -693,6 +712,13 @@ interface ContentProps {
    * day's AI budget for nothing.
    */
   gaps?: HistoryWindow[];
+  /**
+   * The same gap detection, re-run for the start date and cadence the publisher
+   * actually chose. `gaps` is measured from their profile before they have
+   * touched anything; the moment they pick something else, `gaps` describes a
+   * different question and using it silently discards their answer.
+   */
+  gapsFor?: (startDate: Date, intervalDays: number) => HistoryWindow[] | null;
   bottomInset?: number;
 }
 
@@ -702,13 +728,29 @@ interface ContentProps {
  * let the same AI pipeline suggest a post per stretch, review the timeline,
  * then publish it back-dated. Nothing here messages a follower.
  */
-export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, bottomInset = 0 }: ContentProps): React.JSX.Element {
+export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, gapsFor, bottomInset = 0 }: ContentProps): React.JSX.Element {
   const publisherId = usePublisherId();
   const {
-    phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error, config,
+    phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error, scanError, config,
     scanClassified, scanOf, scanBatch, scanWindow, paused, togglePause, publishOne,
     run, toggleDropped, setPlace, swapPhoto, addPhoto, publish, reset, retry,
   } = useHistoryBackfill(publisherId);
+
+  /**
+   * The stretches to rebuild for what the publisher just chose.
+   *
+   * Their choice, not their profile's. `gaps` is measured before they touch
+   * anything and used to win outright, so correcting a start date that was a
+   * month out rebuilt exactly the same stretches as before. `gapsFor`
+   * re-measures against the dates they actually picked; a null from it means
+   * the feed is not fully loaded and coverage cannot be judged, in which case
+   * the whole range is scanned — over-scanning is recoverable, rebuilding the
+   * wrong stretches is not.
+   */
+  function chosenWindows(startDate: Date, intervalDays: number): HistoryWindow[] | undefined {
+    if (gapsFor == null) return gaps;
+    return gapsFor(startDate, intervalDays) ?? undefined;
+  }
 
   function handlePublish(): void {
     void publish()
@@ -737,7 +779,7 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
     <View style={styles.content}>
       {phase === 'setup' && (
         <SetupStep
-          onStart={(startDate, intervalDays) => run(startDate, intervalDays, gaps)}
+          onStart={(startDate, intervalDays) => run(startDate, intervalDays, chosenWindows(startDate, intervalDays))}
           initialStartDate={initialStartDate}
           gapCount={gaps?.length ?? null}
           bottomInset={bottomInset}
@@ -767,6 +809,8 @@ export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, 
         <ReviewStep
           postings={postings}
           quotaExhausted={quotaExhausted}
+          scanError={scanError}
+          onRetry={retry}
           config={config}
           onToggle={toggleDropped}
           onPlace={setPlace}
@@ -859,6 +903,18 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   previewText: { ...typography.caption, color: colors.text, flex: 1, lineHeight: 19 },
+  scanErrorCard: {
+    backgroundColor: colors.surfaceAlt,
+    borderRadius: radius.md,
+    paddingBottom: spacing.md,
+  },
+  scanErrorNote: {
+    ...typography.caption,
+    color: colors.textSecondary,
+    textAlign: 'center',
+    paddingHorizontal: spacing.lg,
+    lineHeight: 19,
+  },
 
   primaryButton: {
     backgroundColor: colors.accent,

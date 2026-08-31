@@ -1,4 +1,5 @@
 import * as MediaLibrary from 'expo-media-library';
+import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { IMediaLibrary } from '../../domain/interfaces';
@@ -6,6 +7,23 @@ import type { ResolvePayload } from '../classifiers/GeminiPhotoClassifier';
 import type { ResolveLocalUri, ResolveAssetLocation } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
 import { imageWidth } from './imageSize';
+import { mapInBatches } from '../../application/services/mapInBatches';
+
+/**
+ * The file's size in bytes, or null when it cannot be read.
+ *
+ * Null, never zero. Zero is a real size that `burstRanking` would read as "no
+ * detail at all" and rank last, so an unreadable file would be punished for
+ * being unreadable.
+ */
+async function fileSize(uri: string): Promise<number | null> {
+  try {
+    const info = await FileSystem.getInfoAsync(uri, { size: true });
+    return info.exists && typeof info.size === 'number' && info.size > 0 ? info.size : null;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * How long one photo may spend coming down from iCloud during classification.
@@ -15,6 +33,23 @@ import { imageWidth } from './imageSize';
 const ICLOUD_FETCH_TIMEOUT_MS = 15_000;
 /** Assets fetched per pagination page. */
 const PAGE_SIZE = 100;
+
+/**
+ * How far `modificationTime` must sit past `creationTime` before it counts as
+ * the publisher having edited the photo.
+ *
+ * The library stamps a modification time on import and on metadata writes, not
+ * only on a real edit, and those land within a second or two of creation. A
+ * minute is well clear of that and well under any actual "I went back and
+ * cropped this" gap.
+ */
+const EDIT_MARGIN_MS = 60_000;
+
+/**
+ * Assets described at once. Small on purpose: each one is a library round trip,
+ * and the failure this guards against is not slowness but the iOS watchdog.
+ */
+const DESCRIBE_BATCH_SIZE = 8;
 
 /**
  * Photos are downscaled before being base64-encoded for classification.
@@ -74,6 +109,17 @@ export class ExpoMediaLibrary implements IMediaLibrary {
           id: asset.id,
           uri: asset.uri,
           createdAt: new Date(asset.creationTime),
+          // Free with the page — no per-asset lookup. What lets a burst be
+          // ranked on file density rather than on the clock (see burstRanking).
+          width: asset.width,
+          height: asset.height,
+          // An edit is the publisher saying they cared about this frame. The
+          // library stamps `modificationTime` on import as well as on edit, so
+          // only a modification comfortably AFTER creation counts — otherwise
+          // every photo in the library reads as edited.
+          ...(asset.modificationTime - asset.creationTime > EDIT_MARGIN_MS
+            ? { editedAt: new Date(asset.modificationTime) }
+            : {}),
         });
       }
 
@@ -82,6 +128,39 @@ export class ExpoMediaLibrary implements IMediaLibrary {
     }
 
     return results;
+  }
+
+  /**
+   * File size and favourite flag for the photos that need them.
+   *
+   * One `getAssetInfoAsync` per photo, which is why the caller hands over only
+   * burst members rather than the window. Batched, because a Promise.all over
+   * even a hundred assets is the shape of unbounded concurrent work that has
+   * watchdog-killed this app twice (issues #77, #97).
+   *
+   * `shouldDownloadFromNetwork: false` is load-bearing: without it this would
+   * pull every iCloud original down just to read its size, turning a metadata
+   * pass into a multi-gigabyte one. A photo that lives only in iCloud simply
+   * answers with less, and ranks on what is left.
+   */
+  async describeAssets(candidates: readonly PhotoCandidate[]): Promise<PhotoCandidate[]> {
+    return mapInBatches(candidates, DESCRIBE_BATCH_SIZE, async candidate => {
+      try {
+        const info = await MediaLibrary.getAssetInfoAsync(candidate.id, {
+          shouldDownloadFromNetwork: false,
+        });
+        const byteSize = await fileSize(info.localUri ?? info.uri);
+        return {
+          ...candidate,
+          ...(info.isFavorite === true ? { isFavorite: true } : {}),
+          ...(byteSize != null ? { byteSize } : {}),
+        };
+      } catch {
+        // One unreadable asset must not cost the whole pass. It ranks on what
+        // the scan already knew, which is what every photo did before this.
+        return candidate;
+      }
+    });
   }
 
   private async ensurePermission(): Promise<boolean> {

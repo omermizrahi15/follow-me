@@ -30,6 +30,20 @@ declare module 'expo-file-system/legacy' {
 
   export function copyAsync(options: { from: string; to: string }): Promise<void>;
 
+  export interface FileInfo {
+    exists: boolean;
+    uri: string;
+    /** Present only when `getInfoAsync` was asked for it. */
+    size?: number;
+    isDirectory?: boolean;
+    modificationTime?: number;
+  }
+
+  export function getInfoAsync(
+    fileUri: string,
+    options?: { size?: boolean; md5?: boolean },
+  ): Promise<FileInfo>;
+
   export function readAsStringAsync(
     fileUri: string,
     options?: { encoding?: EncodingType | 'utf8' | 'base64' },

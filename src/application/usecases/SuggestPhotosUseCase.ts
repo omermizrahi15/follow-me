@@ -199,6 +199,28 @@ export class SuggestPhotosUseCase {
   ) {}
 
   /**
+   * The candidates, with per-asset detail filled in for the ones that share a
+   * moment — or unchanged when the library cannot say.
+   *
+   * Never allowed to fail the scan. A metadata read that errors costs a
+   * slightly worse burst ordering, which is exactly what every scan had before
+   * this existed; losing the whole window over it would be absurd.
+   */
+  private async withBurstDetail(candidates: PhotoCandidate[]): Promise<PhotoCandidate[]> {
+    const describe = this.mediaLibrary.describeAssets?.bind(this.mediaLibrary);
+    if (describe == null) return candidates;
+
+    const needing = this.selection.burstMembers(candidates);
+    if (needing.length === 0) return candidates;
+
+    const described = await describe(needing).catch(() => null);
+    if (described == null) return candidates;
+
+    const byId = new Map(described.map(c => [c.id, c]));
+    return candidates.map(c => byId.get(c.id) ?? c);
+  }
+
+  /**
    * The face to look for during a run, or null to not look.
    *
    * Null whenever the preference is off, which is what keeps the profile photo
@@ -295,10 +317,18 @@ export class SuggestPhotosUseCase {
       return { batch: [], pool: [], stats: emptyStats(0, 0) };
     }
 
-    // One photo per burst first, then the rest — an ordering, not a filter.
-    // Nothing is discarded: a photo the old dedup dropped was unreachable
-    // forever, because the top-up queue applied the same rule.
-    const prioritised = this.selection.gradingOrder(candidates);
+    // The best photo of each burst first, then the rest — an ordering, not a
+    // filter. Nothing is discarded: a photo the old dedup dropped was
+    // unreachable forever, because the top-up queue applied the same rule.
+    //
+    // Enriched first, and only for the frames that share a moment: which one of
+    // them is the keeper is decided from file density and the publisher's own
+    // favourite flag (see burstRanking), and that metadata costs a lookup per
+    // photo. Buying it for the whole window would be the unbounded work that
+    // has watchdog-killed this app; buying it for nothing at all left the AI
+    // grading the first frame of every burst, which is the one shot while the
+    // phone was still coming up.
+    const prioritised = this.selection.gradingOrder(await this.withBurstDetail(candidates));
     progress?.onScanned(candidates.length, this.selection.distinctMoments(candidates));
 
     const reference = await this.faceReference(config);
@@ -335,7 +365,17 @@ export class SuggestPhotosUseCase {
       announced = true;
       progress?.onBatchReady?.(...this.split(accumulated, rules, alreadySent));
     };
-    announceIfReady();
+    // Announcing is the end of the reveal, not the start of it: until it fires,
+    // the screen renders the batch growing photo by photo out of
+    // `onClassifying`, and afterwards it renders a fixed, swappable post. So
+    // this pre-announce only happens when there is genuinely nothing to grade.
+    //
+    // It used to fire unconditionally, and remembered grades then made "nothing
+    // to reveal" the normal case for the wrong reason: a window that was only
+    // PART graded already had enough in hand to clear the threshold, so the run
+    // announced at once and everything it graded afterwards appeared without
+    // ever being seen to arrive. Grading looked like a step the app skipped.
+    if (ungraded.length === 0) announceIfReady();
 
     const freshlyGraded: PhotoClassification[] = [];
     try {

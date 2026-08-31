@@ -18,6 +18,7 @@ jest.mock('expo-media-library', () => ({
 
 jest.mock('expo-file-system/legacy', () => ({
   readAsStringAsync: jest.fn(),
+  getInfoAsync: jest.fn(),
   EncodingType: { Base64: 'base64' },
 }));
 
@@ -241,3 +242,72 @@ describe('ExpoMediaLibrary.photosBetween — window boundaries', () => {
   });
 });
 
+
+describe('ExpoMediaLibrary — describeAssets', () => {
+  const candidate = (id: string): PhotoCandidate => ({
+    id, uri: `ph://${id}`, createdAt: new Date('2026-08-01T10:00:00Z'),
+  });
+
+  beforeEach(() => {
+    (MediaLibrary.getAssetInfoAsync as jest.Mock).mockReset();
+    (FileSystem.getInfoAsync as jest.Mock).mockReset();
+  });
+
+  it('fills in the favourite flag and the file size', async () => {
+    (MediaLibrary.getAssetInfoAsync as jest.Mock).mockResolvedValue({
+      uri: 'ph://a', localUri: 'file:///a.jpg', isFavorite: true,
+    });
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: true, size: 3_100_000 });
+
+    const [described] = await new ExpoMediaLibrary().describeAssets([candidate('a')]);
+
+    expect(described?.isFavorite).toBe(true);
+    expect(described?.byteSize).toBe(3_100_000);
+  });
+
+  // Without this the pass would pull every iCloud original down just to read
+  // its size, turning a metadata read into a multi-gigabyte one.
+  it('never downloads an original just to measure it', async () => {
+    (MediaLibrary.getAssetInfoAsync as jest.Mock).mockResolvedValue({ uri: 'ph://a' });
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: false });
+
+    await new ExpoMediaLibrary().describeAssets([candidate('a')]);
+
+    expect(MediaLibrary.getAssetInfoAsync).toHaveBeenCalledWith('a', {
+      shouldDownloadFromNetwork: false,
+    });
+  });
+
+  // Zero is a real size that the burst ranking reads as "no detail at all", so
+  // an unreadable file would be ranked last for being unreadable.
+  it('reports no size rather than a zero one', async () => {
+    (MediaLibrary.getAssetInfoAsync as jest.Mock).mockResolvedValue({ uri: 'ph://a' });
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: true, size: 0 });
+
+    const [described] = await new ExpoMediaLibrary().describeAssets([candidate('a')]);
+
+    expect(described?.byteSize).toBeUndefined();
+  });
+
+  it('hands back the photo unchanged when the library throws', async () => {
+    (MediaLibrary.getAssetInfoAsync as jest.Mock).mockRejectedValue(new Error('gone'));
+
+    const input = candidate('a');
+    const [described] = await new ExpoMediaLibrary().describeAssets([input]);
+
+    expect(described).toEqual(input);
+  });
+
+  it('keeps the order it was given, so the caller can zip the results back', async () => {
+    (MediaLibrary.getAssetInfoAsync as jest.Mock).mockImplementation((id: string) =>
+      Promise.resolve({ uri: `ph://${id}` }),
+    );
+    (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: false });
+
+    const described = await new ExpoMediaLibrary().describeAssets(
+      ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i'].map(candidate),
+    );
+
+    expect(described.map(c => c.id)).toEqual(['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i']);
+  });
+});

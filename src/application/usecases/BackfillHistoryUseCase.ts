@@ -96,6 +96,22 @@ export interface BackfillHistoryResult {
    * for tomorrow (issue #141).
    */
   rateLimited: boolean;
+  /**
+   * What killed the run, or null when nothing did.
+   *
+   * Returned rather than thrown, and that is the point. A backfill is minutes
+   * of work spread over many windows, and it used to reject the whole run the
+   * moment one window's classifier call failed — the screen's error branch
+   * replaces the timeline, so a connection that dropped on the seventh stretch
+   * discarded six finished postings the publisher was about to publish. Every
+   * stretch already reconstructed is real work and comes back in `drafts`; the
+   * caller shows both it and this.
+   *
+   * The run does stop here: a classifier that cannot be reached for one window
+   * cannot be reached for the next, and grinding through the rest to collect
+   * the same failure wastes minutes to end up in the same place.
+   */
+  failure: unknown;
 }
 
 /**
@@ -158,6 +174,7 @@ export class BackfillHistoryUseCase {
     let scannedWindows = 0;
     let quotaExhausted = false;
     let rateLimited = false;
+    let failure: unknown = null;
 
     for (const [i, window] of plan.windows.entries()) {
       await input.beforeWindow?.();
@@ -168,19 +185,29 @@ export class BackfillHistoryUseCase {
       // whether that is all there was, or all that survived deduplication.
       let scanned: WindowScan = { found: 0, unique: 0 };
 
-      const { batch, pool } = await this.suggestPhotos.execute(
-        input.config,
-        {
-          onScanning: () => undefined,
-          onScanned: (found, unique) => {
-            scanned = { found, unique };
-            progress?.onWindowScanned?.(i + 1, total, scanned);
+      let batch: PhotoClassification[];
+      let pool: PhotoClassification[];
+      try {
+        ({ batch, pool } = await this.suggestPhotos.execute(
+          input.config,
+          {
+            onScanning: () => undefined,
+            onScanned: (found, unique) => {
+              scanned = { found, unique };
+              progress?.onWindowScanned?.(i + 1, total, scanned);
+            },
+            onClassifying: (classified, of, currentBatch) =>
+              progress?.onWindowProgress?.(i + 1, total, { classified, of, batch: currentBatch }),
           },
-          onClassifying: (classified, of, currentBatch) =>
-            progress?.onWindowProgress?.(i + 1, total, { classified, of, batch: currentBatch }),
-        },
-        window,
-      );
+          window,
+        ));
+      } catch (e: unknown) {
+        // Banked, not thrown. See `failure` on the result — everything
+        // reconstructed up to here is kept and handed back.
+        failure = e;
+        progress?.onWindowDone?.(i + 1, total, null);
+        break;
+      }
       scannedWindows++;
 
       // A window with nothing in it is normal — weeks at home between trips.
@@ -211,6 +238,6 @@ export class BackfillHistoryUseCase {
       }
     }
 
-    return { drafts, plan, scannedWindows, quotaExhausted, rateLimited };
+    return { drafts, plan, scannedWindows, quotaExhausted, rateLimited, failure };
   }
 }

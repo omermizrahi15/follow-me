@@ -1,6 +1,8 @@
 import { assert, assertEquals, assertThrows } from '@std/assert';
 import {
   asCategory,
+  CATEGORIES,
+  qualityFrom,
   bytesToBase64,
   clamp01,
   classifyCaller,
@@ -10,11 +12,15 @@ import {
   downscaledUrl,
   isDailyQuotaError,
   isTransientUpstream,
+  pacingWaitSeconds,
+  TOKEN_WINDOW_SECONDS,
   MAX_REASON_LENGTH,
   pairBatchResults,
   parseRetryDelaySeconds,
   quotaSnapshot,
+  requestedProviders,
 } from './logic.ts';
+import type { ProviderLimits } from './vision.ts';
 
 // The exact body staging logged when the AI photo suggestion reported "daily
 // limit reached" on the first attempt of the day (issue #141). It is a
@@ -408,6 +414,149 @@ Deno.test('parseClassification — a rambling reason is trimmed to a readable le
   assertEquals(c.reason.length, MAX_REASON_LENGTH);
 });
 
+// The provider chain. Groq leads by default: Gemini's free tier allows twenty
+// requests a DAY on the only model whose free tier is not zeroed out, which is
+// not enough to grade a single window — let alone a history backfill, which
+// walks one window per posting interval and hit that wall on its first stretch.
+Deno.test('requestedProviders defaults to groq with gemini behind it', () => {
+  assertEquals(requestedProviders(undefined), ['groq', 'gemini']);
+  assertEquals(requestedProviders(''), ['groq', 'gemini']);
+  assertEquals(requestedProviders('   '), ['groq', 'gemini']);
+});
+
+Deno.test('requestedProviders reads an explicit chain in order', () => {
+  assertEquals(requestedProviders('gemini'), ['gemini']);
+  assertEquals(requestedProviders(' Gemini , GROQ '), ['gemini', 'groq']);
+  assertEquals(requestedProviders('groq,,gemini,'), ['groq', 'gemini']);
+});
+
+// `cultural` was retired: museums, temples and historic sites are buildings,
+// and a category that mostly duplicated `architecture` only gave the model
+// another way to split photos that belong together.
+//
+// It cannot simply vanish from the list, though. `parseClassification` THROWS
+// on an unrecognised category — deliberately, so a broken model contract can
+// never reach the device disguised as a grade — so a model still answering
+// "cultural" from a cached prompt would take the whole batch down with it.
+Deno.test('asCategory folds the retired cultural category into architecture', () => {
+  assertEquals(asCategory('cultural'), 'architecture');
+});
+
+Deno.test('asCategory still refuses a category that never existed', () => {
+  assertEquals(asCategory('interpretive_dance'), null);
+  assertEquals(asCategory(''), null);
+  assertEquals(asCategory(undefined), null);
+});
+
+Deno.test('cultural is no longer a category the model may be told about', () => {
+  assertEquals(CATEGORIES.includes('cultural' as never), false);
+});
+
+// Quality is now computed from four judgements the model makes separately,
+// rather than asked for as one number.
+//
+// The single holistic ask produced almost no signal: 132 photos graded on
+// staging came back with a mean of 0.696 and a standard deviation of 0.042,
+// everything between 0.60 and 0.76, 37 of them on exactly 0.70. Photos fail in
+// different ways — a blurred frame of a wonderful moment and a razor-sharp
+// picture of a wall are both "about 0.7" holistically — and asking about the
+// ways separately is what stops them collapsing onto the same number.
+Deno.test('qualityFrom — weights the four judgements', () => {
+  const perfect = qualityFrom({ sharpness: 1, exposure: 1, composition: 1, appeal: 1 });
+  assertEquals(perfect, 1);
+  assertEquals(qualityFrom({ sharpness: 0, exposure: 0, composition: 0, appeal: 0 }), 0);
+});
+
+// A photo nobody can look at is not saved by being interesting: focus and
+// light are what make an image usable at all, and no amount of subject appeal
+// recovers a smeared one.
+Deno.test('qualityFrom — an unusable image cannot be rescued by its subject', () => {
+  const smeared = qualityFrom({ sharpness: 0, exposure: 0.2, composition: 0.5, appeal: 1 });
+  const plain = qualityFrom({ sharpness: 0.9, exposure: 0.9, composition: 0.6, appeal: 0.3 });
+  assert(smeared < plain);
+});
+
+Deno.test('qualityFrom — a missing judgement counts as the middle, not as zero', () => {
+  // Absent means the model did not answer, which is not the same as answering
+  // badly. Scoring it zero would punish a photo for the model's omission.
+  const partial = qualityFrom({ sharpness: 0.8 });
+  assert(partial > 0.4 && partial < 0.8);
+});
+
+Deno.test('parseClassification — computes quality from the factors', () => {
+  const c = parseClassification('p1', {
+    category: 'nature',
+    confidence: 0.9,
+    sharpness: 0.9,
+    exposure: 0.8,
+    composition: 0.7,
+    appeal: 0.9,
+    caption: 'a photo',
+    scene: 'beach',
+    reason: 'crisp light',
+  });
+  assertEquals(c.quality > 0.8, true);
+  assertEquals(c.factors?.sharpness, 0.9);
+});
+
+// A model answering the old shape must not be scored as though every factor
+// were missing — that would drop every grade to the middle and wipe out the
+// ranking entirely on the first request after a deploy.
+Deno.test('parseClassification — falls back to a stated quality when no factors came', () => {
+  const c = parseClassification('p1', {
+    category: 'nature',
+    confidence: 0.9,
+    quality: 0.31,
+    caption: 'a photo',
+    scene: 'beach',
+    reason: 'soft',
+  });
+  assertEquals(c.quality, 0.31);
+  assertEquals(c.factors, undefined);
+});
+
+// The grade inspector shows `reason`. "0.31" explains nothing; the four numbers
+// behind it explain everything — which is the whole point of asking for them
+// separately. Appended server-side so the breakdown reaches the existing
+// inspector without a schema change on the device.
+Deno.test('parseClassification — appends the factor breakdown to the reason', () => {
+  const c = parseClassification('p1', {
+    category: 'nature',
+    confidence: 0.9,
+    sharpness: 0.2,
+    exposure: 0.85,
+    composition: 0.6,
+    appeal: 0.95,
+    caption: 'x',
+    scene: 'beach',
+    reason: 'motion blur on the subject',
+  });
+
+  assert(c.reason.startsWith('motion blur on the subject'));
+  assert(c.reason.includes('sharp 0.2'));
+  assert(c.reason.includes('appeal 0.95'));
+});
+
+Deno.test('parseClassification — appends nothing when the model stated no factors', () => {
+  const c = parseClassification('p1', {
+    category: 'nature', confidence: 0.9, quality: 0.5, caption: 'x', scene: 'b', reason: 'soft',
+  });
+  assertEquals(c.reason, 'soft');
+});
+
+// The breakdown must survive a model that used every word of its allowance —
+// truncating the sentence first is what leaves room for it.
+Deno.test('parseClassification — keeps the breakdown when the sentence is overlong', () => {
+  const c = parseClassification('p1', {
+    category: 'nature',
+    confidence: 0.9,
+    sharpness: 0.5, exposure: 0.5, composition: 0.5, appeal: 0.5,
+    caption: 'x', scene: 'b',
+    reason: 'y'.repeat(1000),
+  });
+  assert(c.reason.includes('sharp 0.5'));
+});
+
 Deno.test('isTransientUpstream — an overloaded or unreachable model is a pause, not a failure', () => {
   // Issue #189: Gemini answered 503 "the model is overloaded", which is a
   // property of that moment and clears by itself. It reached the app as a hard
@@ -426,4 +575,55 @@ Deno.test('isTransientUpstream — a refused or malformed request is not worth r
   assert(!isTransientUpstream(404));
   // 429 has its own reasons and its own wait; it must not be folded in here.
   assert(!isTransientUpstream(429));
+});
+
+// Pacing against the provider's own token budget.
+//
+// Groq's free tier allows 8,000 tokens a MINUTE and an image costs about a
+// thousand, so the ceiling is roughly eight photos a minute. The app was
+// sending twelve photos per request with four requests in flight — about
+// 48,000 tokens against an 8,000 budget, six times over in the first second.
+// Every scan 429'd immediately, fell through to Gemini's twenty-a-day, and
+// died there. The headers that say so are on every response and nothing read
+// them.
+const tokenLimits = (remaining: number, resetSeconds: number | null): ProviderLimits => ({
+  provider: 'groq',
+  model: 'qwen/qwen3.6-27b',
+  requests: { limit: 1000, remaining: 999, resetSeconds: 87 },
+  tokens: { limit: 8000, remaining, resetSeconds },
+  observedAt: 0,
+});
+
+Deno.test('pacingWaitSeconds — no wait when the budget covers the call', () => {
+  assertEquals(pacingWaitSeconds(tokenLimits(8000, 21), 5), 0);
+});
+
+Deno.test('pacingWaitSeconds — waits out the window when it does not', () => {
+  // Five images cost ~5000; only 1200 left.
+  assertEquals(pacingWaitSeconds(tokenLimits(1200, 34), 5), 34);
+});
+
+// Firing anyway buys a 429, and a 429 is what sends the whole scan down the
+// chain to a provider with twenty requests a day. Waiting is strictly cheaper.
+Deno.test('pacingWaitSeconds — an exhausted window waits even for one image', () => {
+  assertEquals(pacingWaitSeconds(tokenLimits(0, 12), 1), 12);
+});
+
+Deno.test('pacingWaitSeconds — nothing known means no wait', () => {
+  // The first call of a request has heard nothing yet: it goes, and what comes
+  // back paces everything after it.
+  assertEquals(pacingWaitSeconds(null, 5), 0);
+  assertEquals(pacingWaitSeconds({ ...tokenLimits(0, 10), tokens: null }, 5), 0);
+});
+
+Deno.test('pacingWaitSeconds — a provider that named no reset gets a whole window', () => {
+  assertEquals(pacingWaitSeconds(tokenLimits(0, null), 5), TOKEN_WINDOW_SECONDS);
+});
+
+// The reference portrait rides in every call and costs tokens like any other
+// image, so it has to be counted or the estimate is short on exactly the
+// requests that are tightest.
+Deno.test('pacingWaitSeconds — counts every image in the call, reference included', () => {
+  assertEquals(pacingWaitSeconds(tokenLimits(5500, 30), 5), 0);
+  assertEquals(pacingWaitSeconds(tokenLimits(5500, 30), 6), 30);
 });

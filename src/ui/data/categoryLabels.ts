@@ -13,6 +13,5 @@ export const CATEGORY_LABEL: Record<PhotoCategory, string> = {
   food: 'Food',
   nature: 'Nature',
   night_scene: 'Night scene',
-  cultural: 'Cultural',
   other: 'Other',
 };

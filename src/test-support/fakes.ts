@@ -491,6 +491,12 @@ export class FakePhotoClassifier implements IPhotoClassifier {
   rateLimitedFromCallIndex: number | null = null;
   /** The face reference each classify() call was given, in call order (issue #137). */
   receivedReferences: Array<FaceReference | null> = [];
+  /**
+   * Simulates the classifier being unreachable — the real one throws
+   * `ClassificationFailedError` rather than inventing grades. From this 1-based
+   * call index onward, classify() rejects.
+   */
+  throwsFromCallIndex: number | null = null;
 
   constructor(private readonly byId: Map<string, PhotoClassification> = new Map()) {}
 
@@ -516,6 +522,11 @@ export class FakePhotoClassifier implements IPhotoClassifier {
     this.callCount++;
     this.receivedCandidateIds = [];
     this.receivedReferences.push(reference ?? null);
+    if (this.throwsFromCallIndex != null && this.callCount >= this.throwsFromCallIndex) {
+      const failure = new Error('classify-photos unreachable');
+      failure.name = 'ClassificationFailedError';
+      return Promise.reject(failure);
+    }
     const results: PhotoClassification[] = [];
     const total = candidates.length;
     // Out of budget, or throttled after exhausting its patience: the real

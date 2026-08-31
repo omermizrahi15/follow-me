@@ -44,7 +44,7 @@ describe('buildOrderedList', () => {
   });
 
   it('round-trips through enabledCategoriesOf', () => {
-    const stored: PhotoCategory[] = ['cultural', 'food', 'architecture'];
+    const stored: PhotoCategory[] = ['night_scene', 'food', 'architecture'];
 
     expect(enabledCategoriesOf(buildOrderedList(stored))).toEqual(stored);
   });

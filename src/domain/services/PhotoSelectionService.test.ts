@@ -72,7 +72,7 @@ describe('PhotoSelectionService — burst ordering', () => {
     expect(service.gradingOrder([c])).toEqual([c]);
   });
 
-  it('puts one photo per burst first, then the followers — losing none', () => {
+  it('puts the BEST photo of each burst first, then the followers — losing none', () => {
     const result = service.gradingOrder([
       candidate('a', 0),
       candidate('b', 10_000),  // 10s after a → same burst
@@ -80,10 +80,32 @@ describe('PhotoSelectionService — burst ordering', () => {
       candidate('d', 30_000),  // exactly 30s after a → new group (>= threshold)
       candidate('e', 35_000),  // 5s after d → same burst as d
     ]);
-    // Leaders newest-first (d, a), then followers newest-first (e, c, b).
+    // Keepers newest-burst-first (e, c), then the also-rans (d, b, a).
+    //
+    // With no metadata to tell the frames apart, the keeper is the LAST of its
+    // burst rather than the first — the settled frame at the end of a held
+    // shutter, not the one taken while the phone was still coming up. The
+    // leader used to be the earliest, which meant the AI spent its budget
+    // grading the clumsiest frame of every moment.
+    //
     // Every photo is still here: the old dedup returned just ['a', 'd'] and
     // the other three were unreachable by any route the publisher had.
-    expect(result.map(c => c.id)).toEqual(['d', 'a', 'e', 'c', 'b']);
+    expect(result.map(c => c.id)).toEqual(['e', 'c', 'd', 'b', 'a']);
+  });
+
+  it('grades the frame the publisher hearted, whatever the clock says', () => {
+    const hearted = { ...candidate('b', 10_000), isFavorite: true };
+    const result = service.gradingOrder([candidate('a', 0), hearted, candidate('c', 25_000)]);
+
+    expect(result.map(c => c.id)).toEqual(['b', 'c', 'a']);
+  });
+
+  it('grades the denser frame first — the no-AI stand-in for sharpness', () => {
+    const sharp = { ...candidate('a', 0), width: 4000, height: 3000, byteSize: 6_000_000 };
+    const blurred = { ...candidate('b', 10_000), width: 4000, height: 3000, byteSize: 1_500_000 };
+    const result = service.gradingOrder([sharp, blurred]);
+
+    expect(result.map(c => c.id)).toEqual(['a', 'b']);
   });
 
   it('treats every photo as its own moment when the gaps are wide', () => {
@@ -100,8 +122,9 @@ describe('PhotoSelectionService — burst ordering', () => {
       candidate('b', 10_000),
       candidate('a', 0),
     ]);
-    // a leads its burst (it is earliest); b follows rather than vanishing.
-    expect(result.map(c => c.id)).toEqual(['a', 'b']);
+    // b leads its burst (nothing distinguishes them, so the later frame wins);
+    // a follows rather than vanishing.
+    expect(result.map(c => c.id)).toEqual(['b', 'a']);
   });
 
   it('counts distinct moments without discarding anything', () => {
@@ -448,5 +471,37 @@ describe('PhotoSelectionService — photos of me (issue #137)', () => {
       config({ photosOfMe: 'only' }),
     );
     expect(batch).toEqual([]);
+  });
+});
+
+describe('PhotoSelectionService — who needs a closer look', () => {
+  const candidate = (id: string, ms: number): PhotoCandidate => ({
+    id, uri: `https://cdn.test/${id}.jpg`, createdAt: new Date(ms),
+  });
+
+  // Reading a photo's file size and favourite flag costs a per-asset lookup,
+  // which is exactly what has watchdog-killed this app before when run over a
+  // whole window. It is also pointless for a moment that was shot once: there
+  // is nothing to break a tie between. So only frames that share a moment are
+  // worth the lookup, and on a normal library that is a small minority.
+  it('names only the photos that share a moment with another', () => {
+    const service = new PhotoSelectionService();
+    const members = service.burstMembers([
+      candidate('alone', 0),
+      candidate('pair-1', 60_000),
+      candidate('pair-2', 65_000),
+      candidate('alone-2', 200_000),
+    ]);
+
+    expect(members.map(c => c.id).sort()).toEqual(['pair-1', 'pair-2']);
+  });
+
+  it('names nobody when every photo is its own moment', () => {
+    const service = new PhotoSelectionService();
+    expect(service.burstMembers([candidate('a', 0), candidate('b', 60_000)])).toEqual([]);
+  });
+
+  it('names nobody for an empty library', () => {
+    expect(new PhotoSelectionService().burstMembers([])).toEqual([]);
   });
 });

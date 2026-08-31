@@ -14,6 +14,7 @@ import type { PhotoCount, PhotosOfMe } from '../../../domain/entities/PublisherC
 import { useProfile } from '../../hooks/useProfile';
 import { isPhotoSyncEnabled } from '../../data/photoSyncConsent';
 import { runCandidateSyncQuietly } from '../../data/candidateSync';
+import { invalidatePostingConfig } from '../../data/queries';
 import { useConnectionStatus } from '../../data/connectivity';
 import { isUsable } from '../../../domain/services/connectivityCopy';
 import { describeFailure } from '../../../domain/services/networkError';
@@ -148,6 +149,8 @@ export function AutoPostingSection({ bottomInset, onPreview }: Props): React.JSX
     if (mountedRef.current) setSaveState('saving');
     try {
       await saveConfig.execute(next);
+      // Home measures the trip's missing stretches with this cadence.
+      invalidatePostingConfig(publisherId);
       savedSnapshotRef.current = snapshot;
 
       // Deliberately nothing about photo-upload consent here. It used to hang

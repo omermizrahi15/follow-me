@@ -19,7 +19,7 @@ describe('ClassifyQuotaReader', () => {
 
     const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
 
-    expect(snapshot).toEqual({ used: 137, limit: 500, day: '2026-08-28', provider: null });
+    expect(snapshot).toEqual({ used: 137, limit: 500, day: '2026-08-28', provider: null, providers: [] });
     const [url, init] = mockFetch.mock.calls[0] as [string, { method: string; headers: Record<string, string> }];
     expect(url).toBe('https://fn.test/classify-photos');
     expect(init.method).toBe('GET');
@@ -100,6 +100,7 @@ describe('ClassifyQuotaReader — the provider’s own ceilings', () => {
       limit: null,
       day: '2026-08-28',
       provider: null,
+      providers: [],
     });
   });
 
@@ -110,5 +111,65 @@ describe('ClassifyQuotaReader — the provider’s own ceilings', () => {
 
     const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
     expect(snapshot.provider).toBeNull();
+  });
+});
+
+describe('ClassifyQuotaReader — the whole provider chain', () => {
+  const groq = {
+    provider: 'groq',
+    model: 'qwen/qwen3.6-27b',
+    requests: { limit: 1000, remaining: 999, resetSeconds: 87 },
+    tokens: { limit: 8000, remaining: 5283, resetSeconds: 21 },
+    observedAt: 1,
+  };
+  const gemini = {
+    provider: 'gemini',
+    model: 'gemini-3.5-flash',
+    requests: { limit: 20, remaining: 0, resetSeconds: 44 },
+    tokens: null,
+    observedAt: 2,
+  };
+
+  it('reads every provider the function reports, in the order given', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({ used: 4, limit: null, day: '2026-08-31', provider: groq, providers: [groq, gemini] }),
+    );
+
+    const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
+
+    expect(snapshot.providers?.map(p => p.provider)).toEqual(['groq', 'gemini']);
+    expect(snapshot.providers?.[1]?.tokens).toBeNull();
+  });
+
+  // A deployment that predates the list still answers with the singular field.
+  // Treating that as "no providers at all" would blank the panel on the very
+  // deployment whose limits someone is trying to read.
+  it('falls back to the singular provider when no list is sent', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({ used: 4, limit: null, day: '2026-08-31', provider: groq }),
+    );
+
+    const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
+
+    expect(snapshot.providers?.map(p => p.provider)).toEqual(['groq']);
+  });
+
+  it('reports no chain at all when nothing has ever answered', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ used: 0, limit: null, day: '2026-08-31' }));
+
+    const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
+
+    expect(snapshot.providers).toEqual([]);
+    expect(snapshot.provider).toBeNull();
+  });
+
+  it('drops a malformed entry rather than inventing one', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({ used: 0, limit: null, day: '2026-08-31', providers: [groq, { model: 'x' }, null] }),
+    );
+
+    const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
+
+    expect(snapshot.providers?.map(p => p.provider)).toEqual(['groq']);
   });
 });

@@ -30,7 +30,6 @@ const CATEGORY_LABELS: Record<PhotoCategory, string> = {
   food: 'Food & drinks',
   nature: 'Nature',
   night_scene: 'Night scene',
-  cultural: 'Cultural',
   other: 'Other',
 };
 

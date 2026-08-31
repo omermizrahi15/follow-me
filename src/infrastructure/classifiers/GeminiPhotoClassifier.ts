@@ -1,5 +1,6 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
+import { normaliseCategory } from '../../domain/entities/PhotoClassification';
 import type { FaceReference, IPhotoClassifier } from '../../domain/interfaces';
 import { slowFetch } from '../http/appFetch';
 import { sleep } from '../timers';
@@ -135,25 +136,45 @@ interface RawClassification {
  */
 export class GeminiPhotoClassifier implements IPhotoClassifier {
   /**
-   * Maximum Edge Function calls in flight at once. Uses a sliding window so a
-   * slow photo never blocks other slots — as soon as one finishes, the next
-   * starts, keeping CONCURRENCY calls running at all times. Kept moderate:
-   * each request uploads a multi-MB base64 body, and too many concurrent
-   * uploads saturate a phone connection ("Network request failed").
+   * Maximum Edge Function calls in flight at once — now one.
+   *
+   * It was four, and four was never throughput. Tokens are what bounds photo
+   * grading: Groq's free tier allows 8,000 a MINUTE and an image costs about a
+   * thousand, so the ceiling is roughly eight photos a minute however many
+   * requests are in the air. Four concurrent requests of twelve photos put
+   * ~48,000 tokens against an 8,000 budget — six times over in the first
+   * second of every scan. All four 429'd, the run fell through to Gemini's
+   * twenty-requests-a-DAY, and grading was finished for the day before the
+   * publisher had seen a photo.
+   *
+   * Worse, parallelism decided how much work was in flight when the wall was
+   * hit, and everything in flight was lost. This is the same conclusion
+   * auto-post reached on the server side (CLASSIFY_CONCURRENCY = 1): progress
+   * comes from the grade cache and from staying inside the budget, never from
+   * firing more requests at a closed door.
    */
-  private static readonly CONCURRENCY = 4;
+  private static readonly CONCURRENCY = 1;
 
   /**
-   * Photos per request — and per Gemini call, since classify-photos now grades
-   * a whole request in one.
+   * Photos per request — sized so one request is one provider call.
    *
-   * Grading used to send one photo per request, which meant a 237-photo library
-   * spent 237 slots from a free tier that allows five per MINUTE: about forty
-   * minutes of waiting before the publisher saw a suggestion. Twelve photos to
-   * a call divides that by twelve. Must not exceed classify-photos'
-   * MAX_PHOTOS_PER_REQUEST, which answers 400 above it.
+   * It was twelve, chosen when the binding constraint was Gemini's five
+   * REQUESTS per minute and batching was the whole answer. The provider chain
+   * now leads with Groq, whose ceiling is tokens rather than requests: 8,000 a
+   * minute against about a thousand per image. Twelve photos is ~12,000 tokens
+   * — half as much again as a whole minute's budget — and classify-photos
+   * splits it into three provider calls, so a single request could not succeed
+   * under the free tier no matter how patiently it was retried.
+   *
+   * Five fits inside both: one provider call (Groq's maxImagesPerCall) and
+   * ~5,000 tokens, comfortably under the window. Fewer photos per request is
+   * not fewer photos per minute — the token budget was always the divisor —
+   * it just stops each request being dead on arrival.
+   *
+   * Must not exceed classify-photos' MAX_PHOTOS_PER_REQUEST, which answers 400
+   * above it.
    */
-  private static readonly CHUNK_SIZE = 12;
+  private static readonly CHUNK_SIZE = 5;
 
   /**
    * How many times a chunk waits for a usable session token before giving up.
@@ -563,7 +584,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         if (raw == null) continue;
         graded.push({
           candidate,
-          category: raw.category,
+          category: normaliseCategory(raw.category),
           confidence: raw.confidence,
           quality: raw.quality,
           caption: raw.caption,

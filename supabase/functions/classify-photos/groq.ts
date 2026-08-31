@@ -56,7 +56,9 @@ const SHAPE_INSTRUCTIONS = `
 Return ONLY a JSON object of the form {"results": [ ... ]} with one entry per photo
 to classify, each entry containing exactly these keys:
   "index" (integer, 0-based, identifying which photo the entry describes),
-  "category" (string), "confidence" (number 0..1), "quality" (number 0..1),
+  "category" (string), "confidence" (number 0..1),
+  "sharpness" (number 0..1), "exposure" (number 0..1),
+  "composition" (number 0..1), "appeal" (number 0..1),
   "caption" (string), "scene" (string), "reason" (string)
 Add no commentary outside the JSON.`;
 
