@@ -1,4 +1,4 @@
-import { resilientFetch, UPLOAD_TIMEOUT_MS } from './resilientFetch';
+import { resilientFetch, UPLOAD_TIMEOUT_MS, type ResilientFetchOptions } from './resilientFetch';
 
 /**
  * The three flavours of network call this app actually makes, each with the
@@ -23,16 +23,28 @@ export const appFetch = resilientFetch();
  * Photo uploads. Minutes-long by nature on a phone uplink, so the short
  * deadline would guillotine perfectly healthy transfers.
  *
- * One retry, and POST is opted in for it: a repeat can at worst leave an unused
- * copy in Cloudinary (pruned by the retention job), while giving up strands a
- * photo that the whole posting flow is waiting on.
+ * Retried, with POST opted in: a repeat can at worst leave an unused copy in
+ * Cloudinary (pruned by the retention job), while giving up strands a photo
+ * that the whole posting flow is waiting on.
+ *
+ * Two retries rather than one, and the second wait is long. Cloudinary's 502s
+ * are a gateway wobble measured in seconds, not milliseconds (issue #177), and
+ * one retry two seconds later was landing inside the same wobble — close enough
+ * to have cost the user their share for a fault that had already passed.
  */
-export const uploadFetch = resilientFetch({
+/**
+ * Exported so the retry behaviour can be exercised against the same settings
+ * the app ships with — building the wrapper at module load leaves nowhere to
+ * hand in a test clock.
+ */
+export const UPLOAD_FETCH_OPTIONS: ResilientFetchOptions = {
   timeoutMs: UPLOAD_TIMEOUT_MS,
-  retries: 1,
-  backoffMs: [2_000],
+  retries: 2,
+  backoffMs: [2_000, 8_000],
   retryMethods: ['GET', 'HEAD', 'POST'],
-});
+};
+
+export const uploadFetch = resilientFetch(UPLOAD_FETCH_OPTIONS);
 
 /**
  * Server work that is genuinely slow: classifying a photo through Gemini,
