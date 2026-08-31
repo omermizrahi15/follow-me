@@ -1,6 +1,7 @@
 import type { PublisherConfig } from '../entities/PublisherConfig';
 import type { PhotoCandidate } from '../entities/PhotoCandidate';
 import type { PhotoClassification } from '../entities/PhotoClassification';
+import { bestFirst } from './burstRanking';
 import {
   categoryWeight,
   rankAll,
@@ -83,30 +84,76 @@ export class PhotoSelectionService {
    * is newest-first for the same reason the scan is: a truncated run should
    * spend what it has on recent photos.
    *
-   * Choosing the *best* of a burst is deliberately not done here. It needs a
-   * grade, and no grade exists before classification — the pixels aren't even
-   * reachable on-device without decoding them. That job belongs to the ranking
-   * and the per-scene cap in ./photoSelection, which run after grading and use
-   * the classifier's own `scene` slug, a signal built to make photos of one
-   * place collide.
+   * WHICH frame of a burst leads is decided by `burstRanking` — from device
+   * metadata alone, no model call and no pixels. It used to be whichever was
+   * shot first, which is close to the worst available choice: the first frame
+   * of a held shutter is the one taken while the phone was still coming up. So
+   * the AI spent its scarcest resource grading the clumsiest frame of every
+   * moment, and the keeper sat in the ungraded tail behind it.
+   *
+   * Still an ordering, never a filter. The per-scene cap in ./photoSelection
+   * runs after grading and uses the classifier's own `scene` slug; this is the
+   * cheap pass in front of it that decides what grading is spent on.
    */
   gradingOrder(candidates: PhotoCandidate[]): PhotoCandidate[] {
-    const sorted = [...candidates].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const bursts = this.bursts(candidates);
     const leaders: PhotoCandidate[] = [];
-    const followers: PhotoCandidate[] = [];
-    let lastLeaderAt: number | null = null;
-    for (const curr of sorted) {
-      const at = curr.createdAt.getTime();
-      if (lastLeaderAt == null || at - lastLeaderAt >= PhotoSelectionService.BURST_GAP_MS) {
-        leaders.push(curr);
-        lastLeaderAt = at;
-      } else {
-        followers.push(curr);
-      }
+    // Kept per burst rather than flattened, so reversing puts the newest MOMENT
+    // first without also reversing the ranking inside it — flattening first and
+    // reversing the lot handed back each burst's also-rans worst-first, which
+    // is the opposite of what a swap should reach for.
+    const alsoRans: PhotoCandidate[][] = [];
+    for (const burst of bursts) {
+      const [best, ...rest] = bestFirst(burst);
+      // A burst always holds at least one photo, so `best` is never undefined —
+      // but the array destructuring cannot know that.
+      if (best != null) leaders.push(best);
+      alsoRans.push(rest);
     }
     leaders.reverse();
-    followers.reverse();
+    const followers = alsoRans.reverse().flat();
     return [...leaders, ...followers];
+  }
+
+  /**
+   * The candidates split into moments, oldest moment first, each burst in
+   * chronological order.
+   *
+   * A new burst starts when a photo lands `BURST_GAP_MS` or more after the one
+   * that OPENED the current burst — not after the previous photo, which would
+   * chain a slow sequence of shots into one endless moment.
+   */
+  private bursts(candidates: PhotoCandidate[]): PhotoCandidate[][] {
+    const sorted = [...candidates].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
+    const groups: PhotoCandidate[][] = [];
+    let openedAt: number | null = null;
+    for (const curr of sorted) {
+      const at = curr.createdAt.getTime();
+      if (openedAt == null || at - openedAt >= PhotoSelectionService.BURST_GAP_MS) {
+        groups.push([curr]);
+        openedAt = at;
+      } else {
+        groups[groups.length - 1]?.push(curr);
+      }
+    }
+    return groups;
+  }
+
+  /**
+   * The photos that share a moment with at least one other — the only ones
+   * worth a per-asset metadata lookup.
+   *
+   * Reading a photo's file size and favourite flag costs a round trip to the
+   * library per asset, and doing that across a whole window is the unbounded
+   * work pattern that has watchdog-killed this app before. It is also pointless
+   * for a moment shot once: `bestFirst` has nothing to choose between. On an
+   * ordinary library the bursts are a small minority of the window, so this
+   * turns "one lookup per photo" into "one lookup per photo that needs one".
+   */
+  burstMembers(candidates: PhotoCandidate[]): PhotoCandidate[] {
+    return this.bursts(candidates)
+      .filter(burst => burst.length > 1)
+      .flat();
   }
 
   /** How many distinct moments `candidates` covers — the burst leaders. */

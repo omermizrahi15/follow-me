@@ -412,6 +412,11 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       // this queue ran the same discarding rule, so a photo dropped once was
       // unreachable by the "+", by a swap, and by a rescan alike. It is ordered
       // behind the burst leader now, not deleted.
+      //
+      // The leader is `a-burst`, the LATER frame: with no file size or
+      // favourite flag to tell them apart, the settled shot at the end of a
+      // held shutter beats the one taken while the phone was still coming up
+      // (see burstRanking).
       const moment = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
       const library = new FakeMediaLibrary([
         { id: 'a', uri: 'https://cdn.test/a.jpg', createdAt: moment },
@@ -421,7 +426,7 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
 
       const pending = await useCase.pendingCandidates(config());
 
-      expect(pending.map(c => c.id)).toEqual(['a', 'a-burst']);
+      expect(pending.map(c => c.id)).toEqual(['a-burst', 'a']);
     });
 
     /**
