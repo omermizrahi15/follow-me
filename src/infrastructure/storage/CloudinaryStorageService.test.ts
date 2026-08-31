@@ -154,3 +154,12 @@ describe('CloudinaryStorageService — environment folder', () => {
     expect(lastFormData.has('folder')).toBe(false);
   });
 });
+
+describe('CloudinaryStorageService — failure messages', () => {
+  it('reports the message from a Cloudinary JSON error (issue #177)', async () => {
+    mockFailure(400, JSON.stringify({ error: { message: 'Invalid image file' } }));
+    await expect(makeSut().upload('file:///photo.jpg', 'photo.jpg')).rejects.toThrow(
+      'Cloudinary upload failed (400): Invalid image file',
+    );
+  });
+});
