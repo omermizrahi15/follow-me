@@ -113,6 +113,13 @@ const photoClassifier = new GeminiPhotoClassifier(
   // publishers hit it mid-backfill (issue #81).
   photosInRun =>
     reportMessage('classify-photos daily quota exhausted', 'classify_photos', { photosInRun }),
+  // A request that ran out of time is now handled rather than thrown (issue
+  // #174), which is the right outcome and would otherwise make it invisible —
+  // it reached us as a Sentry error in the first place. Warning, not error:
+  // this is a slow connection, and the number worth having is how often real
+  // publishers hit one.
+  photosInRun =>
+    reportMessage('classify-photos timed out', 'classify_photos', { photosInRun }),
 );
 /**
  * The same daily budget the classifier spends, read rather than spent (the

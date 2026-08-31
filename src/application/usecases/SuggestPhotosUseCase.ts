@@ -81,6 +81,13 @@ export interface SuggestStats {
    * tomorrow (issue #141).
    */
   rateLimited: boolean;
+  /**
+   * The scan stopped short because a request outlived its deadline — the photos
+   * did not make it across in time. Neither of the other two walls: nothing to
+   * do with the budget, nothing to do with the provider, and the only wall here
+   * a publisher can act on (issue #174).
+   */
+  timedOut: boolean;
 }
 
 export interface SuggestResult {
@@ -115,6 +122,12 @@ export interface ClassifyMoreResult {
    */
   rateLimited: boolean;
   /**
+   * The round stopped because a request ran out of time. Reported separately
+   * again, because the advice differs once more: this one is the connection,
+   * and waiting for it to lift is waiting for nothing (issue #174).
+   */
+  timedOut: boolean;
+  /**
    * The round stopped at its wave limit with candidates still queued, rather
    * than because the window was spent. The distinction is the whole point of
    * the limit: "nothing found yet" must not be reported as "nothing exists".
@@ -134,7 +147,15 @@ export interface SuggestWindow {
 }
 
 function emptyStats(scanned: number, unique: number): SuggestStats {
-  return { scanned, unique, graded: 0, unreadable: 0, quotaExhausted: false, rateLimited: false };
+  return {
+    scanned,
+    unique,
+    graded: 0,
+    unreadable: 0,
+    quotaExhausted: false,
+    rateLimited: false,
+    timedOut: false,
+  };
 }
 
 /**
@@ -370,6 +391,7 @@ export class SuggestPhotosUseCase {
     const [batch, pool] = this.split(accumulated, rules, alreadySent);
     const quotaExhausted = this.classifier.quotaExhausted?.() === true;
     const rateLimited = this.classifier.rateLimited?.() === true;
+    const timedOut = this.classifier.timedOut?.() === true;
     return {
       batch,
       pool,
@@ -385,9 +407,13 @@ export class SuggestPhotosUseCase {
         // never attempted, so counting them as unreadable would be a lie.
         // A throttled scan skipped photos it never attempted, for the same
         // reason a quota wall does — neither is an unreadable file.
-        unreadable: quotaExhausted || rateLimited ? 0 : ungraded.length - freshlyGraded.length,
+        // A run that ran out of time skipped photos it never attempted too —
+        // same reason, same answer: they are not unreadable files.
+        unreadable:
+          quotaExhausted || rateLimited || timedOut ? 0 : ungraded.length - freshlyGraded.length,
         quotaExhausted,
         rateLimited,
+        timedOut,
       },
     };
   }
@@ -478,6 +504,7 @@ export class SuggestPhotosUseCase {
     let waves = 0;
     let quotaExhausted = false;
     let rateLimited = false;
+    let timedOut = false;
 
     // Resolved once for the whole top-up, not per wave: it is the same face
     // throughout, and the lookup can be a network round trip.
@@ -518,6 +545,13 @@ export class SuggestPhotosUseCase {
         rateLimited = true;
         break;
       }
+      // And once more for a round that ran out of time. Every further wave
+      // would go over the same connection, and each stall costs a whole
+      // deadline — a "+" that sits there for minutes and then says nothing.
+      if (this.classifier.timedOut?.() === true) {
+        timedOut = true;
+        break;
+      }
     }
 
     return {
@@ -526,6 +560,7 @@ export class SuggestPhotosUseCase {
       consumed,
       quotaExhausted,
       rateLimited,
+      timedOut,
       // Only a wave limit counts as "capped": a round that stopped because it
       // found what it wanted, because the queue ran dry, or because it hit a
       // wall, is not unfinished in the sense the "+" cares about.
@@ -533,6 +568,7 @@ export class SuggestPhotosUseCase {
         suggestions.length < want &&
         !quotaExhausted &&
         !rateLimited &&
+        !timedOut &&
         consumed < candidates.length,
     };
   }

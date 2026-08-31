@@ -1,7 +1,11 @@
 import { ClassificationFailedError, GeminiPhotoClassifier } from './GeminiPhotoClassifier';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
+import { CLASSIFY_TIMEOUT_MS } from '../http/appFetch';
+import { RequestTimeoutError } from '../http/resilientFetch';
 /** Stands in for the monitoring hook the composition root injects. */
 const reportedQuota = jest.fn();
+/** And for the one that reports a run cut short by a deadline (issue #174). */
+const reportedTimeout = jest.fn();
 
 /**
  * Concurrency/finish-condition tests: whatever mix of fast and slow responses
@@ -54,13 +58,14 @@ function respondWithDelay(delayMs: (id: string) => number): void {
 
 function makeSut(): GeminiPhotoClassifier {
   return new GeminiPhotoClassifier(
-    'https://fn.test/classify', 'anon-key', undefined, undefined, reportedQuota,
+    'https://fn.test/classify', 'anon-key', undefined, undefined, reportedQuota, reportedTimeout,
   );
 }
 
 beforeEach(() => {
   mockFetch.mockReset();
   reportedQuota.mockClear();
+  reportedTimeout.mockClear();
 });
 
 /** Every request answers 429, as the Edge Function does once the day's budget is spent. */
@@ -460,5 +465,110 @@ describe('GeminiPhotoClassifier — session token', () => {
     });
     await makeSut().classify([candidate('p0')]);
     expect(seen).toEqual(['Bearer anon-key']);
+  });
+});
+
+describe('GeminiPhotoClassifier — the request ran out of time (issue #174)', () => {
+  /** Every request outlives its deadline, as a weak uplink makes it do. */
+  function respondTimedOut(): void {
+    mockFetch.mockImplementation((url: string) =>
+      Promise.reject(new RequestTimeoutError(url, CLASSIFY_TIMEOUT_MS)),
+    );
+  }
+
+  it('stops the run and keeps what it graded, rather than throwing the scan away', async () => {
+    // A deadline that passed is the publisher's connection, not a broken
+    // classifier: it says nothing about the photos and nothing about the AI, so
+    // it must not abort the scan with an error the way a 500 does.
+    const many = Array.from({ length: 24 }, (_, i) => candidate(`p${i}`));
+    // The chunk that answers gets in first, as it does in life: a deadline is
+    // 150 seconds and a healthy round trip is a couple.
+    mockFetch.mockImplementation((url: string, init: { body: string }) => {
+      const ids = requestedIds(init.body);
+      if (ids.includes('p12')) {
+        return new Promise((_, reject) =>
+          setTimeout(() => reject(new RequestTimeoutError(url, CLASSIFY_TIMEOUT_MS)), 25),
+        );
+      }
+      return new Promise(resolve => setTimeout(() => resolve(okResponse(ids)), 1));
+    });
+    const sut = makeSut();
+
+    const results = await sut.classify(many);
+
+    expect(results).toHaveLength(12);
+    expect(sut.timedOut()).toBe(true);
+  });
+
+  it('does not re-send a chunk that timed out — the budget is charged before the grading', async () => {
+    // The function counts the photos against the day's quota on the way in, so
+    // a chunk sent twice is paid for twice while the publisher gets one answer
+    // at most. One request per chunk, then stop.
+    respondTimedOut();
+    const sut = makeSut();
+
+    await sut.classify([candidate('p1')]);
+
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('is not filed as a spent budget or a throttle', async () => {
+    // Three different walls with three different remedies. A timeout says
+    // "your connection", not "come back tomorrow" and not "the AI is busy".
+    respondTimedOut();
+    const sut = makeSut();
+
+    await sut.classify([candidate('p1')]);
+
+    expect(sut.quotaExhausted()).toBe(false);
+    expect(sut.rateLimited()).toBe(false);
+    expect(reportedQuota).not.toHaveBeenCalled();
+  });
+
+  it('stops feeding the queue once a request has timed out', async () => {
+    // Every remaining chunk would be sent over the same connection and hit the
+    // same wall, so the run stops rather than spending a deadline on each.
+    respondTimedOut();
+    const many = Array.from({ length: 96 }, (_, i) => candidate(`p${i}`));
+
+    await makeSut().classify(many);
+
+    expect(mockFetch.mock.calls.length).toBeLessThanOrEqual(4);
+  });
+
+  it('reports the stall once per run, so its frequency stays visible in the field', async () => {
+    // The whole reason issue #174 was ever noticed is that a timeout arrived in
+    // Sentry. Handling it must not make it invisible — but it is expected and
+    // handled now, so it goes as a warning rather than as a crash, and once
+    // rather than once per chunk in flight.
+    respondTimedOut();
+    const many = Array.from({ length: 36 }, (_, i) => candidate(`p${i}`));
+
+    await makeSut().classify(many);
+
+    expect(reportedTimeout).toHaveBeenCalledTimes(1);
+    expect(reportedTimeout).toHaveBeenCalledWith(36);
+  });
+
+  it('clears the flag on the next run', async () => {
+    respondTimedOut();
+    const sut = makeSut();
+    await sut.classify([candidate('p1')]);
+    expect(sut.timedOut()).toBe(true);
+
+    respondWithDelay(() => 1);
+    await sut.classify([candidate('p2')]);
+
+    expect(sut.timedOut()).toBe(false);
+  });
+
+  it('still fails loudly for a network error that never reached the server', async () => {
+    // A dropped connection is the case the retry exists for, and a run that
+    // learned nothing at all must not be reported as a finished scan.
+    mockFetch.mockRejectedValue(new Error('Network request failed'));
+    const sut = makeSut();
+
+    await expect(sut.classify([candidate('p1')])).rejects.toThrow(ClassificationFailedError);
+    expect(sut.timedOut()).toBe(false);
   });
 });

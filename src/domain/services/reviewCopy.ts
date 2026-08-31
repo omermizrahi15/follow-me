@@ -19,9 +19,11 @@
  * Only `exhausted`, `quota` and `failed` mean stop asking. `capped` means the
  * round hit its own wave limit with the window still unfinished — reporting
  * that as "nothing left" is what greyed out the "+" on libraries with photos to
- * spare. `busy` is the provider throttling us, which clears on its own.
+ * spare. `busy` is the provider throttling us, which clears on its own, and
+ * `slow` is the request outliving its deadline — the publisher's connection,
+ * which waiting alone does not mend.
  */
-export type EmptyRoundReason = 'exhausted' | 'quota' | 'busy' | 'capped' | 'failed';
+export type EmptyRoundReason = 'exhausted' | 'quota' | 'busy' | 'capped' | 'failed' | 'slow';
 
 /** What a finished scan actually managed. Mirrors the use case's SuggestStats. */
 export interface ScanStats {
@@ -35,6 +37,8 @@ export interface ScanStats {
   quotaExhausted: boolean;
   /** The provider throttled us mid-scan — unlike the quota, this clears itself. */
   rateLimited: boolean;
+  /** A request outlived its deadline — the connection, not the budget (issue #174). */
+  timedOut: boolean;
 }
 
 /**
@@ -51,6 +55,12 @@ export function emptyRoundNote(reason: EmptyRoundReason | null, attempted: numbe
   // telling publishers to come back the next day for a half-minute pause is
   // what made the feature look broken on the first attempt (issue #141).
   if (reason === 'busy') return 'The photo AI is busy right now — wait a moment and tap again.';
+  // Not "busy" and not "down": the request was sent and never came back in
+  // time. Naming the connection is the only version that suggests the move that
+  // actually helps — try it somewhere with better signal (issue #174).
+  if (reason === 'slow') {
+    return 'The photo AI took too long to answer — check your connection and tap again.';
+  }
   // Never phrased as a fact about the library: the round failed before it could
   // learn anything about it.
   if (reason === 'failed') return 'Could not reach the photo AI — nothing was analysed. Try again in a moment.';
@@ -87,6 +97,12 @@ export function scanShortfallNote(stats: ScanStats | null): string | null {
   }
   if (stats.rateLimited) {
     return `The photo AI was busy after ${stats.graded} photos — rescan in a moment to finish the rest.`;
+  }
+  // Ranked under both walls: they are about the budget and the provider, which
+  // a publisher can do nothing about, while this one points at something they
+  // can — the connection the photos are travelling over.
+  if (stats.timedOut) {
+    return `The photo AI took too long after ${stats.graded} photos — rescan on a better connection to finish the rest.`;
   }
   if (stats.unreadable > 0) {
     return `${stats.unreadable} photo${stats.unreadable === 1 ? '' : 's'} couldn’t be read — usually iCloud originals that haven’t downloaded. Rescanning after they do will find them.`;

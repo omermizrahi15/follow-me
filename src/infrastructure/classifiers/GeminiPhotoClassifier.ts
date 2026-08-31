@@ -1,7 +1,8 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { FaceReference, IPhotoClassifier } from '../../domain/interfaces';
-import { slowFetch } from '../http/appFetch';
+import { classifyFetch } from '../http/appFetch';
+import { RequestTimeoutError } from '../http/resilientFetch';
 import { sleep } from '../timers';
 
 /** Wire shape sent to the classify-photos Edge Function for one photo. */
@@ -182,6 +183,13 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
      * this class, and the composition root is where implementations get chosen.
      */
     private readonly onQuotaExhausted?: (photosInRun: number) => void,
+    /**
+     * Called once per run when a request outlives its deadline. Injected for
+     * the same reason as the quota hook, and for a sharper one: handling the
+     * stall is what stops it reaching Sentry as a crash, and a wall nothing
+     * reports is a wall nobody can count (issue #174).
+     */
+    private readonly onTimedOut?: (photosInRun: number) => void,
   ) {}
 
   /**
@@ -199,6 +207,14 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
    * tomorrow", and conflating the two is the whole of issue #141.
    */
   private hitRateLimit = false;
+
+  /**
+   * Set when a request outlived its deadline. A third wall, kept apart from
+   * the other two for the same reason they are kept apart from each other: the
+   * remedy differs. This one is the publisher's connection — nothing about
+   * their budget, and nothing about the AI.
+   */
+  private hitTimeout = false;
 
   /**
    * When the next request may go out, as an epoch ms. Shared by every in-flight
@@ -223,13 +239,17 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     return this.hitRateLimit;
   }
 
+  timedOut(): boolean {
+    return this.hitTimeout;
+  }
+
   /**
    * Whether the run has hit a wall that every remaining photo would hit too.
-   * Once either is set, further requests are wasted round trips — stop feeding
-   * the queue and keep what has already been graded.
+   * Once any of them is set, further requests are wasted round trips — stop
+   * feeding the queue and keep what has already been graded.
    */
   private stopped(): boolean {
-    return this.hitQuota || this.hitRateLimit;
+    return this.hitQuota || this.hitRateLimit || this.hitTimeout;
   }
 
   /** Hold every worker back until `seconds` from now. */
@@ -253,6 +273,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
   ): Promise<PhotoClassification[]> {
     this.hitQuota = false;
     this.hitRateLimit = false;
+    this.hitTimeout = false;
     this.rateLimitedUntil = 0;
     this.runSize = candidates.length;
     this.runOver = new AbortController();
@@ -409,7 +430,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       networkAttempts++;
       let res: Response;
       try {
-        res = await slowFetch(this.functionUrl, {
+        res = await classifyFetch(this.functionUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -419,6 +440,25 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           body,
         });
       } catch (err) {
+        // Out of time rather than refused. Neither retried nor thrown:
+        // classify-photos counts the photos against the day's budget on the way
+        // in, so re-sending the chunk pays for it twice while the publisher
+        // gets one answer at most — and a slow uplink is not a fault the scan
+        // should die on. Soft-stop it like the throttle wall; the grades
+        // already in hand are real, and a rescan resumes from the cache
+        // (issue #174).
+        if (err instanceof RequestTimeoutError) {
+          // Reported once per run, like the quota wall and for the same reason:
+          // a deadline that passes trips every request in flight, and four
+          // identical events per scan would bury the number worth knowing.
+          if (!this.hitTimeout) {
+            this.hitTimeout = true;
+            this.onTimedOut?.(this.runSize);
+          }
+          console.warn(`classify-photos timed out for ${c.id}`);
+          return [];
+        }
+
         // Network-level failure (upload dropped mid-flight) — retry once, then
         // give up and let it surface.
         lastNetworkError = err;

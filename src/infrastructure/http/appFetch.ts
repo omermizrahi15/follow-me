@@ -47,8 +47,41 @@ export const UPLOAD_FETCH_OPTIONS: ResilientFetchOptions = {
 export const uploadFetch = resilientFetch(UPLOAD_FETCH_OPTIONS);
 
 /**
- * Server work that is genuinely slow: classifying a photo through Gemini,
- * publishing a batch to every follower. Long deadline, and never retried —
- * these have side effects, and the caller can decide better than we can.
+ * Server work that is genuinely slow: publishing a batch to every follower,
+ * clearing a publisher's uploaded candidates. Long deadline, and never retried
+ * — these have side effects, and the caller can decide better than we can.
+ *
+ * Classification used to share this deadline and no longer does; it is a much
+ * heavier request than either of these, and it now has its own (see below).
  */
 export const slowFetch = resilientFetch({ timeoutMs: 60_000, retries: 0 });
+
+/**
+ * Classification. A deadline of its own because the request is unlike anything
+ * else here: it carries up to a dozen downscaled photos — a couple of megabytes
+ * of base64 — and the function on the other end spends them over as many
+ * sequential model calls as the provider's per-call image limit needs, then
+ * falls through to the next provider if the first is out of budget.
+ *
+ * Sixty seconds (the shared slow deadline it used to borrow) is shorter than
+ * that on a weak uplink, and giving up early is not free: the function counts
+ * the photos against the publisher's daily budget *before* it calls the model,
+ * so an abandoned request is budget nobody got a grade for (issue #174).
+ *
+ * 150s rather than a rounder guess: that is the wall-clock life of a Supabase
+ * Edge Function worker, so a request still unanswered by then is one that
+ * nothing on the other side is working on any more.
+ *
+ * Never retried, for the same reason the deadline is long — a repeat charges
+ * the budget a second time for an answer the first attempt may already be
+ * producing. The classifier decides what to do with the failure.
+ */
+export const CLASSIFY_TIMEOUT_MS = 150_000;
+
+/** Exported so tests can exercise the shipped settings against a fake clock. */
+export const CLASSIFY_FETCH_OPTIONS: ResilientFetchOptions = {
+  timeoutMs: CLASSIFY_TIMEOUT_MS,
+  retries: 0,
+};
+
+export const classifyFetch = resilientFetch(CLASSIFY_FETCH_OPTIONS);

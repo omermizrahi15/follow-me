@@ -56,6 +56,17 @@ export interface IPhotoClassifier {
    * looked broken on the first attempt of the day (issue #141).
    */
   rateLimited?(): boolean;
+
+  /**
+   * Whether the last run stopped because a request outlived its deadline.
+   *
+   * The third wall, and the third answer: not the day's budget, not the
+   * provider throttling us, but the photos not making it across in time. Soft
+   * like the other two — the grades in hand are real — and separate for the
+   * same reason, that the only useful thing to tell the publisher differs
+   * (issue #174).
+   */
+  timedOut?(): boolean;
 }
 
 /** Reads photos from the device library within a date window. */

@@ -489,6 +489,11 @@ export class FakePhotoClassifier implements IPhotoClassifier {
    * two are never conflated.
    */
   rateLimitedFromCallIndex: number | null = null;
+  /**
+   * And for a request that never came back in time (issue #174) — a third wall
+   * with a third remedy, which is why the fake can raise it on its own.
+   */
+  timedOutFromCallIndex: number | null = null;
   /** The face reference each classify() call was given, in call order (issue #137). */
   receivedReferences: Array<FaceReference | null> = [];
 
@@ -507,6 +512,10 @@ export class FakePhotoClassifier implements IPhotoClassifier {
     );
   }
 
+  timedOut(): boolean {
+    return this.timedOutFromCallIndex != null && this.callCount >= this.timedOutFromCallIndex;
+  }
+
   classify(
     candidates: PhotoCandidate[],
     onEach?: (result: PhotoClassification, index: number, total: number) => void,
@@ -518,10 +527,12 @@ export class FakePhotoClassifier implements IPhotoClassifier {
     this.receivedReferences.push(reference ?? null);
     const results: PhotoClassification[] = [];
     const total = candidates.length;
-    // Out of budget, or throttled after exhausting its patience: the real
-    // classifier yields nothing in both cases — what differs is the reason it
-    // reports, which is the point of keeping the two flags apart.
-    if (this.quotaExhausted() || this.rateLimited()) return Promise.resolve(results);
+    // Out of budget, throttled after exhausting its patience, or out of time:
+    // the real classifier yields nothing in all three cases — what differs is
+    // the reason it reports, which is the point of keeping the flags apart.
+    if (this.quotaExhausted() || this.rateLimited() || this.timedOut()) {
+      return Promise.resolve(results);
+    }
     for (const c of candidates) {
       this.receivedCandidateIds.push(c.id);
       const r = this.byId.get(c.id);

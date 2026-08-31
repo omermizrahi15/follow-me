@@ -30,8 +30,12 @@ export type SuggestPhase = 'loading' | 'scanning' | 'classifying' | 'done' | 'er
  * the round stops early either way — but it clears in seconds rather than at
  * midnight, so it keeps the "+" alive and asks the publisher to try again
  * shortly (issue #141).
+ *
+ * `slow` is a request that outlived its deadline. It stops the round like the
+ * other two, but the advice is neither "tomorrow" nor "in a moment": the photos
+ * did not make it across, so the thing to change is the connection (issue #174).
  */
-export type TopUpReason = 'exhausted' | 'quota' | 'busy' | 'capped' | 'failed';
+export type TopUpReason = 'exhausted' | 'quota' | 'busy' | 'capped' | 'failed' | 'slow';
 
 /** Outcome of one "give me another photo" request. */
 export interface TopUpResult {
@@ -289,7 +293,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         // Built once per scan, then walked down: the library query is the slow
         // part and the window doesn't move while the screen is open.
         pendingRef.current ??= await suggestPhotos.pendingCandidates(config, knownRef.current);
-        const { classified, suggestions, consumed, quotaExhausted, rateLimited } =
+        const { classified, suggestions, consumed, quotaExhausted, rateLimited, timedOut } =
           await suggestPhotos.classifyMore(pendingRef.current, config);
         pendingRef.current = pendingRef.current.slice(consumed);
 
@@ -316,9 +320,11 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
                 ? 'quota'
                 : rateLimited
                   ? 'busy'
-                  : exhausted
-                    ? 'exhausted'
-                    : 'capped',
+                  : timedOut
+                    ? 'slow'
+                    : exhausted
+                      ? 'exhausted'
+                      : 'capped',
           attempted: consumed,
         };
       } catch {

@@ -466,6 +466,24 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       expect(classifier.callCount).toBe(1);
     });
 
+    it('stops after one wave when the request ran out of time', async () => {
+      // Every remaining wave would travel over the same connection and stall
+      // the same way, and each stall now costs a full deadline — walking the
+      // window would leave the publisher holding a "+" for minutes (issue #174).
+      const { candidates, byId } = wave('p', 12);
+      const classifier = new FakePhotoClassifier(byId);
+      classifier.timedOutFromCallIndex = 1;
+      const useCase = useCaseWith(new FakeMediaLibrary(), classifier);
+
+      const result = await useCase.classifyMore(candidates, config());
+
+      expect(result.timedOut).toBe(true);
+      expect(result.quotaExhausted).toBe(false);
+      expect(classifier.callCount).toBe(1);
+      // Not "capped": the round hit a wall, it did not run out of patience.
+      expect(result.cappedEarly).toBe(false);
+    });
+
     it('honours a larger want by running more waves', async () => {
       const { candidates, byId } = wave('p', 12);
       const useCase = useCaseWith(new FakeMediaLibrary(), new FakePhotoClassifier(byId));
@@ -572,6 +590,28 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       expect(stats.unreadable).toBe(0);
     });
 
+    it('reports a scan that ran out of time as its own wall, not as a spent budget', async () => {
+      // Issue #174: a request that outlived its deadline used to abort the scan
+      // with an error, and the publisher was told nothing had been analysed —
+      // while the grades bought before it sat in the cache. Same soft stop as
+      // the other two walls, and a third reason so the advice can be right.
+      const classifier = new FakePhotoClassifier();
+      classifier.timedOutFromCallIndex = 1;
+
+      const { stats } = await new SuggestPhotosUseCase(
+        new FakeMediaLibrary([candidate('p1'), candidate('p2')]),
+        classifier,
+        new FakeSentPhotoTracker(),
+      ).execute(config());
+
+      expect(stats.timedOut).toBe(true);
+      expect(stats.quotaExhausted).toBe(false);
+      expect(stats.rateLimited).toBe(false);
+      // Never attempted is not unreadable — the same lie the quota wall used to
+      // tell, which sent publishers chasing an iCloud download.
+      expect(stats.unreadable).toBe(0);
+    });
+
     it('reports zeroes rather than nothing for an empty window', async () => {
       const { stats } = await new SuggestPhotosUseCase(
         new FakeMediaLibrary([]),
@@ -586,6 +626,7 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
         unreadable: 0,
         quotaExhausted: false,
         rateLimited: false,
+        timedOut: false,
       });
     });
   });

@@ -410,7 +410,7 @@ export function useHistoryBackfill(publisherId: string): State & {
           return [];
         }
 
-        const { classified, suggestions, consumed, quotaExhausted, rateLimited } =
+        const { classified, suggestions, consumed, quotaExhausted, rateLimited, timedOut } =
           await suggestPhotos.classifyMore(queue, config, 1);
         const left = queue.slice(consumed);
         pending.current.set(posting.id, left);
@@ -430,12 +430,14 @@ export function useHistoryBackfill(publisherId: string): State & {
               ? 'Today’s photo analysis is used up — try again tomorrow'
               : rateLimited
                 ? 'The photo AI is busy — tap again in a moment'
-                : 'Nothing else in these days';
+                : timedOut
+                  ? 'The photo AI took too long — check your connection and tap again'
+                  : 'Nothing else in these days';
             return {
               ...p,
               draft: { ...p.draft, pool: [...p.draft.pool, ...classified] },
               canAddMore: !exhausted,
-              ...(exhausted || rateLimited ? { note } : {}),
+              ...(exhausted || rateLimited || timedOut ? { note } : {}),
             };
           }),
         }));
