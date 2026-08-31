@@ -1,19 +1,18 @@
 import type { PhotoCandidate } from './PhotoCandidate';
 
 /**
- * The 8 scene categories a photo can fall into, ordered from most to least
+ * The 7 scene categories a photo can fall into, ordered from most to least
  * desirable for a travel/lifestyle share. `other` is a catch-all for anything
  * that doesn't fit (screenshots, receipts, blurry shots) and is always excluded.
  */
 export type PhotoCategory =
   | 'selfie_with_view'    // People in frame with scenic background (selfie or not)
   | 'sunset_sunrise'      // Golden-hour / sunrise / sunset sky
-  | 'architecture'        // Buildings, streets, urban scenes
+  | 'architecture'        // Buildings, streets, urban scenes, museums, historic sites
   | 'selfie_with_people'  // People photos — group, portrait, or candid; no notable scenery
   | 'food'                // Food & drinks
   | 'nature'              // Wildlife, plants, natural scenes (people not the subject)
   | 'night_scene'         // Night photography, city lights after dark
-  | 'cultural'            // Museums, art, historical, religious sites
   | 'other';
 
 /** Every category the publisher is allowed to enable (excludes `other`). */
@@ -25,8 +24,44 @@ export const SELECTABLE_CATEGORIES: readonly PhotoCategory[] = [
   'food',
   'nature',
   'night_scene',
-  'cultural',
 ] as const;
+
+/**
+ * Categories that used to exist, and what a stored grade carrying one becomes.
+ *
+ * `cultural` was retired: museums, temples and historic sites are buildings,
+ * and a category that mostly duplicated `architecture` only gave the model
+ * another way to split photos that belong together — a publisher with
+ * `architecture` switched on was not offered the cathedral they photographed.
+ *
+ * Retiring a category is not the same as deleting it. Grades already bought
+ * carry it — in the device cache and in `candidate_photos` — and a stored
+ * `cultural` reaching the selection rules matches no enabled category, so the
+ * photo is silently dropped rather than shown. Every read of a stored category
+ * goes through {@link normaliseCategory}.
+ */
+const RETIRED_CATEGORIES: Record<string, PhotoCategory> = {
+  cultural: 'architecture',
+};
+
+/**
+ * A category off the wire or out of storage, as one this build understands.
+ *
+ * Unrecognised input becomes `other`, which is excluded from suggestions — an
+ * unreadable grade should sink, not be offered as a confident one. (The
+ * classify function is stricter: an unknown category there THROWS, because a
+ * live model contradicting its own schema is a bug rather than old data.)
+ */
+export function normaliseCategory(raw: string | null | undefined): PhotoCategory {
+  if (raw == null) return 'other';
+  if ((CATEGORY_SET as Set<string>).has(raw)) return raw as PhotoCategory;
+  return RETIRED_CATEGORIES[raw] ?? 'other';
+}
+
+const CATEGORY_SET: ReadonlySet<PhotoCategory> = new Set<PhotoCategory>([
+  ...SELECTABLE_CATEGORIES,
+  'other',
+]);
 
 /**
  * The AI's verdict on a single candidate photo. Produced by an IPhotoClassifier

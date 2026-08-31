@@ -1,5 +1,6 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
+import { normaliseCategory } from '../../domain/entities/PhotoClassification';
 import type { FaceReference, IPhotoClassifier } from '../../domain/interfaces';
 import { slowFetch } from '../http/appFetch';
 import { sleep } from '../timers';
@@ -510,7 +511,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         if (raw == null) continue;
         graded.push({
           candidate,
-          category: raw.category,
+          category: normaliseCategory(raw.category),
           confidence: raw.confidence,
           quality: raw.quality,
           caption: raw.caption,

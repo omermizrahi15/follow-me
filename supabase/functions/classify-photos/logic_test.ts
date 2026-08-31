@@ -1,6 +1,7 @@
 import { assert, assertEquals, assertThrows } from '@std/assert';
 import {
   asCategory,
+  CATEGORIES,
   bytesToBase64,
   clamp01,
   classifyCaller,
@@ -422,4 +423,26 @@ Deno.test('requestedProviders reads an explicit chain in order', () => {
   assertEquals(requestedProviders('gemini'), ['gemini']);
   assertEquals(requestedProviders(' Gemini , GROQ '), ['gemini', 'groq']);
   assertEquals(requestedProviders('groq,,gemini,'), ['groq', 'gemini']);
+});
+
+// `cultural` was retired: museums, temples and historic sites are buildings,
+// and a category that mostly duplicated `architecture` only gave the model
+// another way to split photos that belong together.
+//
+// It cannot simply vanish from the list, though. `parseClassification` THROWS
+// on an unrecognised category — deliberately, so a broken model contract can
+// never reach the device disguised as a grade — so a model still answering
+// "cultural" from a cached prompt would take the whole batch down with it.
+Deno.test('asCategory folds the retired cultural category into architecture', () => {
+  assertEquals(asCategory('cultural'), 'architecture');
+});
+
+Deno.test('asCategory still refuses a category that never existed', () => {
+  assertEquals(asCategory('interpretive_dance'), null);
+  assertEquals(asCategory(''), null);
+  assertEquals(asCategory(undefined), null);
+});
+
+Deno.test('cultural is no longer a category the model may be told about', () => {
+  assertEquals(CATEGORIES.includes('cultural' as never), false);
 });

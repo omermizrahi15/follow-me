@@ -195,12 +195,11 @@ For each image:
 Choose exactly one category:
 - selfie_with_view: one or more people in frame with a scenic/landscape background — selfie, posed, or candid alike.
 - sunset_sunrise: dominant subject is a golden-hour, sunrise, or sunset sky (with or without people).
-- architecture: buildings, bridges, streets, or urban scenes without focus on nature or people.
+- architecture: buildings, bridges, streets, or urban scenes without focus on nature or people — including museums, temples, churches and historic sites.
 - selfie_with_people: people are the subject — group shot, portrait, or candid; no notable scenery.
 - food: a dish, drink, or meal is the primary subject.
 - nature: forests, beaches, wildlife, plants — natural scenes where people are not the subject.
 - night_scene: night photography, city lights, stars, or dark-sky shots.
-- cultural: museums, art, religious or historical sites, traditions, or performances.
 - other: anything else — screenshots, documents, receipts, memes, blurry/unusable images.
 
 Also rate:

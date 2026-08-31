@@ -136,7 +136,6 @@ export const CATEGORIES = [
   'food',
   'nature',
   'night_scene',
-  'cultural',
   'other',
 ] as const;
 export type Category = (typeof CATEGORIES)[number];
@@ -198,8 +197,28 @@ export function clamp01(n: unknown): number {
 }
 
 /** The known Category for `c`, or null when the model returned something else. */
+/**
+ * Categories that no longer exist, and what they became.
+ *
+ * `cultural` was retired: museums, temples and historic sites are buildings,
+ * and a category that mostly duplicated `architecture` only gave the model
+ * another way to split photos that belong together — which showed up as a
+ * publisher who had switched `architecture` on still not being offered the
+ * cathedral they photographed.
+ *
+ * Folded rather than dropped, because `parseClassification` THROWS on an
+ * unrecognised category (deliberately — a broken model contract must never
+ * reach the device disguised as a grade). A model still answering "cultural"
+ * from a cached prompt, or a stored grade bought before this change, would
+ * otherwise take a whole batch down with it.
+ */
+const RETIRED_CATEGORIES: Record<string, Category> = {
+  cultural: 'architecture',
+};
+
 export function asCategory(c: unknown): Category | null {
-  return CATEGORIES.includes(c as Category) ? (c as Category) : null;
+  if (CATEGORIES.includes(c as Category)) return c as Category;
+  return typeof c === 'string' ? RETIRED_CATEGORIES[c] ?? null : null;
 }
 
 /**
