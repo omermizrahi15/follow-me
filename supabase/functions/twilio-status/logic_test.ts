@@ -10,6 +10,7 @@ Deno.test('parseErrorCode — numeric string, empty, and non-numeric', () => {
 Deno.test('shouldMarkUnreachable — failure status AND an unreachable code', () => {
   assert(shouldMarkUnreachable('failed', '21211')); // invalid number
   assert(shouldMarkUnreachable('undelivered', '63003')); // channel can't reach
+  assert(shouldMarkUnreachable('undelivered', '63032')); // WhatsApp refuses this user (experiment) — issue #203
 });
 
 Deno.test('shouldMarkUnreachable — false for progress states or non-recipient codes', () => {
