@@ -358,34 +358,41 @@ export function selectBatch<T>(
       (rules.photosOfMe !== 'only' || e.facts.containsPublisher === true),
   );
 
+  // Spread across the categories the post can actually draw from, so the
+  // dominant one doesn't take every slot. Counted over what is eligible, not
+  // what is enabled: an empty category must not reserve slots nobody can fill.
+  const present = new Set(
+    eligible.map(e => e.facts.category).filter(c => c !== FALLBACK_CATEGORY),
+  );
+  const perCategoryCap = Math.max(1, Math.ceil(quota / Math.max(1, present.size)));
+
   const selected: Entry<T>[] = [];
   const taken = new Set<string>();
   const perScene = new Map<string, number>();
+  const perCategory = new Map<string, number>();
 
-  for (const entry of eligible) {
-    if (selected.length >= quota) break;
-    const scene = sceneKey(entry.facts);
-    if (scene !== '') {
-      const used = perScene.get(scene) ?? 0;
-      if (used >= maxPerScene) continue;
-      perScene.set(scene, used + 1);
-    }
-    selected.push(entry);
-    taken.add(entry.facts.id);
-  }
-
-  // Variety is a preference, not a quota. If the scene cap left the post short
-  // — a single-location day, where the coarse slug lumps everything together —
-  // keep filling by score. Handing back two photos when ten good ones exist is
-  // not restraint, it's a bug the publisher can't diagnose.
-  if (selected.length < quota) {
+  // Each pass walks the ranking and relaxes one preference. Variety is a
+  // preference, not a quota: if the caps leave the post short — a
+  // single-location day, a library that is all one category — keep filling by
+  // score. Handing back two photos when ten good ones exist is not restraint,
+  // it's a bug the publisher can't diagnose.
+  const fill = (useCategoryCap: boolean, useSceneCap: boolean): void => {
     for (const entry of eligible) {
       if (selected.length >= quota) break;
       if (taken.has(entry.facts.id)) continue;
+      const category = entry.facts.category;
+      if (useCategoryCap && (perCategory.get(category) ?? 0) >= perCategoryCap) continue;
+      const scene = sceneKey(entry.facts);
+      if (useSceneCap && scene !== '' && (perScene.get(scene) ?? 0) >= maxPerScene) continue;
+      perCategory.set(category, (perCategory.get(category) ?? 0) + 1);
+      if (scene !== '') perScene.set(scene, (perScene.get(scene) ?? 0) + 1);
       selected.push(entry);
       taken.add(entry.facts.id);
     }
-  }
+  };
+  fill(true, true);
+  fill(false, true);
+  fill(false, false);
 
   return selected.map(e => e.item);
 }
