@@ -245,7 +245,7 @@ describe('ShareMediaUseCase — upload fan-out', () => {
     const dtos = await useCase.share({ ownerId: 'user-1', items: manyItems });
 
     expect(dtos).toHaveLength(12);
-    expect(storage.peak).toBeLessThanOrEqual(3);
+    expect(storage.peak).toBeLessThanOrEqual(PHOTO_UPLOAD_BATCH_SIZE);
   });
 
   it('keeps the items in the order they were picked', async (): Promise<void> => {
