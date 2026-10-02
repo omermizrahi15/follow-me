@@ -15,6 +15,21 @@ const variant = process.env.EXPO_PUBLIC_APP_VARIANT as string | undefined;
 export const monitoringEnabled =
   Boolean(dsn) && !__DEV__ && (variant === 'staging' || variant === 'production');
 
+const NETWORK_NOISE = /Network request failed|^Request timed out after /;
+
+/**
+ * A phone losing signal is not a bug in the app (issues #173, #175, #176, #178,
+ * #179): fetch is already retried and time-boxed, and what escapes is the
+ * connection being genuinely down. Kept as a warning rather than dropped so the
+ * frequency stays visible, but below the `error` level that files GitHub issues.
+ */
+export function downgradeNetworkNoise<E extends Sentry.ErrorEvent>(event: E): E {
+  const isNetworkNoise = event.exception?.values?.some(
+    v => v.value != null && NETWORK_NOISE.test(v.value.replace(/^\w*Error: /, '')),
+  );
+  return isNetworkNoise === true ? { ...event, level: 'warning' } : event;
+}
+
 /** Must run before the root component mounts (called at the top of App.js). */
 export function initErrorMonitoring(): void {
   Sentry.init({
@@ -24,6 +39,7 @@ export function initErrorMonitoring(): void {
     // Errors and crashes only — no performance tracing, no PII.
     tracesSampleRate: 0,
     sendDefaultPii: false,
+    beforeSend: downgradeNetworkNoise,
   });
 }
 

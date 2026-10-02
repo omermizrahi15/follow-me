@@ -16,7 +16,7 @@ import type { SyncPhase, SyncStatus } from '../../domain/entities/PhotoSyncStatu
  * State lives in memory (a sync belongs to one app run) except `lastSyncedAt`,
  * which is persisted so "synced 2h ago" survives a restart. The shape and the
  * copy derived from it live in the domain (`PhotoSyncStatus`, `photoSyncCopy`)
- * so they can be unit-tested — src/ui is excluded from jest.
+ * so they stay testable without a React host.
  */
 
 export type { SyncPhase, SyncStatus };
