@@ -1,4 +1,5 @@
 import { ShareMediaUseCase } from './ShareMediaUseCase';
+import { PHOTO_UPLOAD_BATCH_SIZE } from '../services/mapInBatches';
 import { Subscriber } from '../../domain/entities/Subscriber';
 import type { Media } from '../../domain/entities/Media';
 import {
@@ -632,5 +633,80 @@ describe('ShareMediaUseCase — input validation', () => {
       useCase.share({ ownerId: '', items: singleItem }),
     ).rejects.toThrow('ownerId is required');
     expect(mediaRepo.all()).toHaveLength(0);
+  });
+});
+
+describe('ShareMediaUseCase — upload concurrency (issue #197)', () => {
+  /** Storage that holds every upload open so the peak in-flight count is observable. */
+  class GatedStorage extends InMemoryStorageService {
+    inFlight = 0;
+    peak = 0;
+    private waiting: (() => void)[] = [];
+
+    override async upload(localUri: string, filename: string): Promise<string> {
+      this.inFlight++;
+      this.peak = Math.max(this.peak, this.inFlight);
+      await new Promise<void>(resolve => this.waiting.push(resolve));
+      this.inFlight--;
+      return super.upload(localUri, filename);
+    }
+
+    /** Releases uploads one at a time until none are left. */
+    async drain(): Promise<void> {
+      for (let i = 0; i < 100; i++) {
+        await new Promise<void>(resolve => setImmediate(resolve));
+        const next = this.waiting.shift();
+        if (next != null) next();
+        else if (this.inFlight === 0) return;
+      }
+    }
+  }
+
+  const twelve = Array.from({ length: 12 }, (_, i) => ({
+    mediaId: `media-${i}`,
+    localUri: `file:///local/${i}.jpg`,
+    filename: `${i}.jpg`,
+  }));
+
+  it('uploads several photos at once, but never more than the ceiling', async (): Promise<void> => {
+    const storage = new GatedStorage();
+    const useCase = new ShareMediaUseCase(
+      new InMemoryMediaRepository(),
+      new InMemorySubscriberRepository(),
+      new InMemoryNotifier(),
+      storage,
+    );
+
+    const sharing = useCase.share({ ownerId: 'user-1', items: twelve, notify: false });
+    await storage.drain();
+    await sharing;
+
+    expect(storage.peak).toBeGreaterThan(1);
+    expect(storage.peak).toBeLessThanOrEqual(PHOTO_UPLOAD_BATCH_SIZE);
+  });
+
+  it('stops picking up new photos once one upload fails', async (): Promise<void> => {
+    class FailingSecond extends GatedStorage {
+      started = 0;
+      override async upload(localUri: string, filename: string): Promise<string> {
+        this.started++;
+        if (filename === '1.jpg') throw new TypeError('Network request failed');
+        return super.upload(localUri, filename);
+      }
+    }
+    const storage = new FailingSecond();
+    const useCase = new ShareMediaUseCase(
+      new InMemoryMediaRepository(),
+      new InMemorySubscriberRepository(),
+      new InMemoryNotifier(),
+      storage,
+    );
+
+    const sharing = useCase.share({ ownerId: 'user-1', items: twelve, notify: false });
+    const outcome = expect(sharing).rejects.toThrow('Network request failed');
+    await storage.drain();
+    await outcome;
+
+    expect(storage.started).toBeLessThan(twelve.length);
   });
 });
