@@ -256,13 +256,30 @@ test.describe('travel globe', () => {
   // The draggable Me sheet (HomeScreen): rests at 42% of the screen, drags to
   // a peek (20%) or near-full (84%).
   test.describe('draggable sheet', () => {
-    // Lets the sheet's settle animation (~320 ms) finish before measuring.
+    // Measured live; callers poll, since the settle animation takes ~320 ms.
     const visibleHeight = async (page: Page) => {
-      await page.waitForTimeout(450);
       return page.evaluate(() => window.innerHeight - document.getElementById('sheet')!.getBoundingClientRect().top);
     };
 
+    /**
+     * Waits for the map to be drawn and the sheet to stop sliding. Dragging
+     * earlier grabs the handle mid-animation, and on a slow runner the map's
+     * first frames block the page long enough to swallow the gesture.
+     */
+    async function settled(page: Page): Promise<void> {
+      await expect(hero(page)).toHaveClass(/ready/);
+      await page.waitForTimeout(600);
+    }
+
+    /** Polls until the sheet shows `px` of itself (±3), however slow the runner. */
+    async function expectVisible(page: Page, px: number): Promise<void> {
+      await expect
+        .poll(async () => Math.abs((await visibleHeight(page)) - Math.round(px)) < 3, { timeout: 8000 })
+        .toBe(true);
+    }
+
     async function drag(page: Page, dy: number): Promise<void> {
+      await settled(page);
       const box = (await page.locator('#sheetHandle').boundingBox())!;
       const x = box.x + box.width / 2;
       const y = box.y + box.height / 2;
@@ -275,7 +292,7 @@ test.describe('travel globe', () => {
       }
       await page.waitForTimeout(250);
       await page.mouse.up();
-      await page.waitForTimeout(500);
+      await page.waitForTimeout(600);
     }
 
     test('rests at the Me-page height', async ({ page }) => {
@@ -284,7 +301,7 @@ test.describe('travel globe', () => {
     await reveal(page);
       await expect(page.locator('.card')).toHaveCount(1);
       const h = page.viewportSize()!.height;
-      expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.42))).toBeLessThan(3);
+      await expectVisible(page, h * 0.42);
     });
 
     test('dragging up opens it nearly full, dragging down parks it as a peek', async ({ page }) => {
@@ -294,10 +311,10 @@ test.describe('travel globe', () => {
       const h = page.viewportSize()!.height;
 
       await drag(page, -(h * 0.5));
-      expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.84))).toBeLessThan(3);
+      await expectVisible(page, h * 0.84);
 
       await drag(page, h * 0.8);
-      expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.2))).toBeLessThan(3);
+      await expectVisible(page, h * 0.2);
     });
 
     test('the last post can be scrolled fully into view, whatever height the sheet rests at', async ({ page }) => {
@@ -326,13 +343,13 @@ test.describe('travel globe', () => {
       await page.locator('#sheetHandle').focus();
       await page.keyboard.press('ArrowUp');
       await page.waitForTimeout(500);
-      expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.84))).toBeLessThan(3);
+      await expectVisible(page, h * 0.84);
       await expect(page.locator('#sheetHandle')).toHaveAttribute('aria-valuetext', 'Fully open');
 
       await page.keyboard.press('ArrowDown');
       await page.keyboard.press('ArrowDown');
       await page.waitForTimeout(500);
-      expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.2))).toBeLessThan(3);
+      await expectVisible(page, h * 0.2);
     });
 
     test('the globe keeps its place behind the sheet', async ({ page }) => {
