@@ -102,6 +102,7 @@ function parseProviderLimits(raw: unknown): ProviderLimits | null {
     requests?: unknown;
     tokens?: unknown;
     observedAt?: unknown;
+    failing?: unknown;
   };
   if (typeof p.provider !== 'string' || typeof p.model !== 'string') return null;
   return {
@@ -110,5 +111,16 @@ function parseProviderLimits(raw: unknown): ProviderLimits | null {
     requests: parseWindow(p.requests),
     tokens: parseWindow(p.tokens),
     observedAt: Number.isFinite(p.observedAt) ? Number(p.observedAt) : 0,
+    ...parseFailing(p.failing),
+  };
+}
+
+/** `{ failing }` when the wire says the provider is broken, else nothing. */
+function parseFailing(raw: unknown): { failing: { since: number; status: number } } | undefined {
+  if (raw == null || typeof raw !== 'object') return undefined;
+  const f = raw as { since?: unknown; status?: unknown };
+  if (!Number.isFinite(f.since)) return undefined;
+  return {
+    failing: { since: Number(f.since), status: Number.isFinite(f.status) ? Number(f.status) : 0 },
   };
 }

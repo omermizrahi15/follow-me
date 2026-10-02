@@ -83,6 +83,7 @@ import { geminiProvider } from './gemini.ts';
 import { groqProvider } from './groq.ts';
 import {
   isProviderExhausted,
+  isProviderFault,
   type ProviderLimits,
   type ResolvedImage,
   type VisionFailure,
@@ -602,6 +603,10 @@ async function classifyBatch(
     // Gemini's, and reporting the leader's would describe a wall already passed.
     if (result.limits != null) limits = result.limits;
 
+    // Written down every time: a provider that is broken, or has recovered, is
+    // the one thing the fallback otherwise hides completely (issue #202).
+    await recordHealth(provider, result.failure);
+
     if (result.failure == null) break;
 
     // Busy, not finished. Let the app wait rather than spending another
@@ -659,7 +664,36 @@ async function recordLimits(limits: ProviderLimits | null): Promise<void> {
   if (error != null) console.warn('classify: could not record provider limits:', error.message);
 }
 
-/** Row shape of `provider_limits` — see migration 20240037. */
+/**
+ * Records whether a provider just worked, so a broken one cannot hide behind
+ * its fallback.
+ *
+ * Only genuine faults (retired model, bad key, outage) are written as failures;
+ * a spent daily budget or a per-minute limit is normal and leaves the record
+ * alone. Logged at error level as well — the line is what a person reading the
+ * function logs would otherwise never see while Gemini answered. Best-effort
+ * like recordLimits: a diagnostic write must not fail a request that graded
+ * photos.
+ */
+async function recordHealth(provider: VisionProvider, failure: VisionFailure | null): Promise<void> {
+  if (failure != null && !isProviderFault(failure)) return;
+  if (failure != null) {
+    console.error(
+      `classify: provider ${provider.name} (${provider.model}) is FAILING ` +
+        `(${failure.status}): ${failure.body.slice(0, 300)}`,
+    );
+  }
+  const { error } = await admin.rpc('record_provider_health', {
+    p_provider: provider.name,
+    p_model: provider.model,
+    p_ok: failure == null,
+    p_status: failure?.status ?? null,
+    p_detail: failure?.body ?? null,
+  });
+  if (error != null) console.warn('classify: could not record provider health:', error.message);
+}
+
+/** Row shape of `provider_limits` — see migrations 20240037 and 20240040. */
 interface LimitsRow {
   provider: string;
   model: string;
@@ -670,6 +704,8 @@ interface LimitsRow {
   token_remaining: number | null;
   token_reset_seconds: number | null;
   observed_at: string;
+  failing_since: string | null;
+  last_failure_status: number | null;
 }
 
 /**
@@ -714,6 +750,14 @@ async function readLimits(): Promise<ProviderLimits[]> {
       requests: window(row.request_limit, row.request_remaining, row.request_reset_seconds),
       tokens: window(row.token_limit, row.token_remaining, row.token_reset_seconds),
       observedAt: Date.parse(row.observed_at),
+      ...(row.failing_since != null
+        ? {
+          failing: {
+            since: Date.parse(row.failing_since),
+            status: row.last_failure_status ?? 0,
+          },
+        }
+        : {}),
     });
   }
 

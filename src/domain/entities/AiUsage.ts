@@ -27,6 +27,13 @@ export interface ProviderLimits {
   readonly tokens: ProviderLimitWindow | null;
   /** When the provider said it, epoch ms. A limit is only true for a moment. */
   readonly observedAt: number;
+  /**
+   * Present while the provider is BROKEN — a retired model, a bad key, an
+   * outage — as opposed to spent or busy. Without it a failing leader is
+   * invisible: the fallback answers, and nothing on screen says it is the
+   * fallback because something is wrong (issue #202).
+   */
+  readonly failing?: { readonly since: number; readonly status: number };
 }
 
 /**

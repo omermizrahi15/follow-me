@@ -83,6 +83,11 @@ function ProviderChain({
             {copy.headline}
             {i > 0 && <Text style={styles.providerLine}>  · fallback</Text>}
           </Text>
+          {copy.warning != null && (
+            <Text style={styles.providerWarning} testID="ai-usage-provider-warning">
+              ⚠ {copy.warning}
+            </Text>
+          )}
           {copy.lines.map(line => (
             <Text key={line} style={styles.providerLine}>
               {line}
@@ -194,6 +199,7 @@ const styles = StyleSheet.create({
   // is what let "gemini" pass for "what we grade on".
   fallback: { marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
   providerLine: { ...typography.caption, color: colors.textSecondary },
+  providerWarning: { ...typography.caption, color: colors.danger, fontWeight: '600' },
   reading: { flex: 1.1, alignItems: 'flex-end' },
   percent: { ...typography.body, fontSize: 15, fontWeight: '700' },
   track: {

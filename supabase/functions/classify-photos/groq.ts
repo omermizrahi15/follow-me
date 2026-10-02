@@ -97,6 +97,7 @@ export function groqProvider(apiKey: string): VisionProvider {
   const model = Deno.env.get('GROQ_MODEL') ?? DEFAULT_GROQ_MODEL;
   return {
     name: 'groq',
+    model,
     maxImagesPerCall: MAX_IMAGES_PER_CALL,
     enforcesSchema: false,
 

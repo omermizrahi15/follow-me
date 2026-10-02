@@ -88,6 +88,7 @@ export function geminiQuotaLimits(
 export function geminiProvider(apiKey: string, model: string): VisionProvider {
   return {
     name: 'gemini',
+    model,
     maxImagesPerCall: MAX_IMAGES_PER_CALL,
     enforcesSchema: true,
 
