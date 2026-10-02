@@ -3,8 +3,8 @@
  *
  * Lives in the domain rather than next to the React store for the same reason
  * `PhotoSyncStatus` does: the copy derived from it, and the rules for moving
- * between states, are the parts worth unit-testing, and src/ui is excluded
- * from jest.
+ * between states, are the parts worth unit-testing, and they need no React
+ * host to run.
  */
 
 export type ConnectionStatus =
