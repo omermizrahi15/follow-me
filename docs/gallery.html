@@ -260,13 +260,11 @@
       },
     };
 
-    // Satellite imagery for the globe needs a MapTiler key. It ships in this
-    // public page whatever we do, so it is protected the way MapTiler intends:
-    // restrict it to this site's origin in the MapTiler dashboard (Account →
-    // Keys → Allowed HTTP origins). Left empty, the globe falls back to
-    // MapLibre's free demo tiles — flat vector land, no imagery — like the app
-    // does without EXPO_PUBLIC_MAPTILER_KEY.
-    const MAPTILER_KEY = '';
+    // Satellite imagery for the globe. The same key the app ships in eas.json:
+    // public by nature, so its protection is MapTiler's allowed-origins list
+    // (Account → Keys), which must include this site's origin. Empty falls back
+    // to MapLibre's free demo tiles — flat land, no imagery.
+    const MAPTILER_KEY = 'se9C7mmAnwIVOfBQ6hFP';
     function globeStyleUrl() {
       return MAPTILER_KEY === ''
         ? 'https://demotiles.maplibre.org/style.json'

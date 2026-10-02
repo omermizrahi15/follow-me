@@ -55,7 +55,7 @@ async function mock(page: Page, posts: unknown[]): Promise<void> {
   await page.route('**/rest/v1/publisher_profile*', route =>
     json(route, [{ display_name: 'Omer', avatar_url: null }]),
   );
-  await page.route('https://demotiles.maplibre.org/**', route => json(route, BLANK_STYLE));
+  await page.route(/demotiles\.maplibre\.org|api\.maptiler\.com\/maps/, route => json(route, BLANK_STYLE));
   await page.route('https://img.test/**', route =>
     route.fulfill({ status: 200, contentType: 'image/png', body: PIXEL }),
   );
