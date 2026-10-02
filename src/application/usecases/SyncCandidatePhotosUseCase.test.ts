@@ -1,4 +1,5 @@
 import { SyncCandidatePhotosUseCase } from './SyncCandidatePhotosUseCase';
+import { PHOTO_UPLOAD_BATCH_SIZE as BATCH } from '../services/mapInBatches';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import {
   FakeMediaLibrary,
@@ -113,7 +114,7 @@ describe('SyncCandidatePhotosUseCase', () => {
     const rows = await useCase.execute('pub-1', 7);
 
     expect(rows).toHaveLength(10);
-    expect(peak).toBeLessThanOrEqual(3);
+    expect(peak).toBeLessThanOrEqual(BATCH);
   });
 
   it('persists each batch before the next, so an interrupted sync resumes instead of restarting', async () => {
@@ -153,7 +154,7 @@ describe('SyncCandidatePhotosUseCase', () => {
   // while a sync was running. Without this the in-flight batches commit after
   // the delete and the cloud set quietly comes back.
   it('abandons an in-flight sync once the cloud is wiped', async () => {
-    const photos = Array.from({ length: 9 }, (_, i) => candidate(`p${i}`));
+    const photos = Array.from({ length: BATCH * 3 }, (_, i) => candidate(`p${i}`));
     const library = new FakeMediaLibrary(photos);
     const repo = new InMemoryCandidatePhotoRepository();
     const storage = new FakeStorageService();
@@ -163,15 +164,15 @@ describe('SyncCandidatePhotosUseCase', () => {
     const originalUpload = storage.upload.bind(storage);
     storage.upload = async (localUri: string, filename: string): Promise<string> => {
       const url = await originalUpload(localUri, filename);
-      if (storage.uploads.length >= 3) wiped = true;
+      if (storage.uploads.length >= BATCH) wiped = true;
       return url;
     };
 
     const useCase = new SyncCandidatePhotosUseCase(library, storage, repo);
     const rows = await useCase.execute('pub-1', 7, () => Promise.resolve(wiped));
 
-    expect(rows).toHaveLength(3);
-    expect(storage.uploads).toHaveLength(3);
+    expect(rows).toHaveLength(BATCH);
+    expect(storage.uploads).toHaveLength(BATCH);
   });
 
   it('syncs everything when nothing asks it to stop', async () => {
@@ -301,18 +302,19 @@ describe('SyncCandidatePhotosUseCase', () => {
     // time. Without progress the UI has only a spinner to show for it, which is
     // how a working sync got mistaken for a hung one and force-quit halfway.
     it('reports 0-of-total before the first upload, then after each committed batch', async () => {
-      const { useCase } = makeSut(['a', 'b', 'c', 'd'].map(candidate));
+      const total = BATCH + 1;
+      const { useCase } = makeSut(Array.from({ length: total }, (_, i) => candidate(`q${i}`)));
       const progress: [number, number][] = [];
 
-      await useCase.execute('pub-1', 7, undefined, (uploaded, total) =>
-        progress.push([uploaded, total]),
+      await useCase.execute('pub-1', 7, undefined, (uploaded, t) =>
+        progress.push([uploaded, t]),
       );
 
-      // Batch size is 3, so: the opening report, then 3, then the last one.
+      // One full batch commits together, then the last one.
       expect(progress).toEqual([
-        [0, 4],
-        [3, 4],
-        [4, 4],
+        [0, total],
+        [BATCH, total],
+        [total, total],
       ]);
     });
 
@@ -342,7 +344,7 @@ describe('SyncCandidatePhotosUseCase', () => {
     });
 
     it('reports only what was committed when the run is stopped early', async () => {
-      const { useCase } = makeSut(['a', 'b', 'c', 'd', 'e', 'f'].map(candidate));
+      const { useCase } = makeSut(Array.from({ length: BATCH * 2 }, (_, i) => candidate(`s${i}`)));
       const progress: [number, number][] = [];
       // Stop once anything has been committed — the shape of a cloud wipe
       // landing mid-sync, or an iOS background window expiring.
@@ -361,9 +363,9 @@ describe('SyncCandidatePhotosUseCase', () => {
       // The opening report, then whatever landed before the stop — always
       // fewer than all six, and never a count that goes backwards.
       const uploaded = progress.map(([n]) => n);
-      expect(progress[0]).toEqual([0, 6]);
+      expect(progress[0]).toEqual([0, BATCH * 2]);
       expect(progress.length).toBeGreaterThan(1);
-      expect(uploaded.at(-1)).toBeLessThan(6);
+      expect(uploaded.at(-1)).toBeLessThan(BATCH * 2);
       expect([...uploaded].sort((a, b) => a - b)).toEqual(uploaded);
     });
   });
