@@ -94,6 +94,22 @@
       background: rgba(0,0,0,0.45); color: #fff;
       border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 600;
     }
+    /* ---------- no globe (map provider over quota / unreachable) ---------- */
+    /* The feed on its own, as it looked before the globe: a plain page with the
+       profile and cards, instead of a sheet floating over nothing. */
+    body.feed.no-globe { background: var(--bg); overflow: auto; }
+    .no-globe #feedView { position: static; pointer-events: auto; }
+    .no-globe .globe-hero, .no-globe .app-scrim, .no-globe .sheet-handle-area { display: none; }
+    .no-globe .app-header { position: static; padding: 24px 24px 0; margin: 0 auto; max-width: 560px; pointer-events: auto !important; }
+    .no-globe .app-header img { filter: none; }
+    .no-globe .app-header span { color: var(--accent); }
+    .no-globe .sheet {
+      position: static; transform: none !important; width: min(100%, 560px); height: auto;
+      background: none; box-shadow: none; border-radius: 0; overflow: visible; display: block;
+    }
+    .no-globe .sheet-body { overflow: visible; padding: 20px 16px 40px; }
+    .no-globe .sheet-body .profile { padding: 8px 0 20px; }
+
     /* ---------- Me page: globe behind a draggable sheet (issue #200) ---------- */
     /* Mirrors HomeScreen: the globe is the background, a header floats over it,
        and the sheet is always SHEET_H tall, slid down with a transform to show
@@ -601,6 +617,22 @@
     let globe = null;
     let globeLoading = false;
     let globeRouteKey = '';
+    let globeDisabled = false;
+
+    /**
+     * Drops the globe and shows the feed on its own. Used when the map provider
+     * is over quota or unreachable: the photos are the product, so a dead map
+     * must leave a page that looks finished, not a sheet over black.
+     */
+    function showWithoutGlobe() {
+      globeDisabled = true;
+      if (globe != null) { try { globe.remove(); } catch (_) { /* already gone */ } }
+      globe = null;
+      document.body.classList.add('no-globe');
+      document.getElementById('globeHero').hidden = true;
+    }
+    /** HTTP statuses a map provider answers with when a key is out of quota or refused. */
+    const MAP_REFUSED = [401, 402, 403, 429];
 
     function validCoordinate(lat, lon) {
       return typeof lat === 'number' && typeof lon === 'number' &&
@@ -622,7 +654,7 @@
 
     /** Draws the globe, or swaps the new route into the one already drawn. */
     async function syncGlobe() {
-      const hero = document.getElementById('globeHero');
+      if (globeDisabled) return;
       try {
         const { buildTravelRoute } = await import('./globe/travelRoute.js');
         // No located posts is still a globe, as in the app: the planet, no stops.
@@ -634,6 +666,11 @@
         }
         if (globeLoading) return;
         globeLoading = true;
+        // Ask for the style first: an over-quota key answers it with a refusal,
+        // and finding out here means the globe is never drawn, rather than
+        // drawn black and then removed.
+        const styleRes = await fetch(globeStyleUrl());
+        if (!styleRes.ok) { globeLoading = false; return showWithoutGlobe(); }
         await window.loadMapLibre();
         globeRouteKey = key;
         globe = window.createRouteGlobe({
@@ -644,7 +681,11 @@
           bottomPadding: sheetSnaps().medium,
           post(message) {
             if (message.type === 'openPosting') openPost(message.id);
-            if (message.type === 'error') console.warn('[globe]', message.message);
+            if (message.type === 'error') {
+              console.warn('[globe]', message.message);
+              // Tiles can run out of quota mid-visit, after the style loaded.
+              if (MAP_REFUSED.includes(message.status)) showWithoutGlobe();
+            }
           },
         });
         globeLoading = false;
@@ -653,7 +694,7 @@
       } catch (_) {
         // The feed is the product; a blocked CDN or no WebGL must not touch it.
         globeLoading = false;
-        hero.hidden = true;
+        showWithoutGlobe();
       }
     }
 

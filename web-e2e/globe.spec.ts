@@ -128,7 +128,61 @@ test.describe('travel globe', () => {
 
     await expect(page.locator('.card')).toHaveCount(1);
     await expect(hero(page)).toBeHidden();
-    await expect(page.locator('#sheet')).toBeVisible();
+    await expect(page.locator('body')).toHaveClass(/no-globe/);
+  });
+
+  // Over the map provider's quota: no globe, but a page that still looks finished.
+  test.describe('without the globe (map provider refuses)', () => {
+    async function expectPlainFeed(page: Page): Promise<void> {
+      await expect(page.locator('body')).toHaveClass(/no-globe/);
+      await expect(hero(page)).toBeHidden();
+      await expect(page.locator('#sheetHandle')).toBeHidden();
+      await expect(page.locator('#feedName')).toHaveText('Omer');
+      // Cards are in normal flow: the first is on screen with no dragging.
+      const first = page.locator('.card').first();
+      await expect(first).toBeInViewport();
+      // And the page scrolls like a page, not a sheet.
+      expect(await page.evaluate(() => getComputedStyle(document.getElementById('sheet')!).position)).toBe('static');
+    }
+
+    test('an over-quota style request leaves the plain feed', async ({ page }) => {
+      await mock(page, [LISBON, PORTO]);
+      await page.route(/demotiles\.maplibre\.org|api\.maptiler\.com\/maps/, route =>
+        route.fulfill({ status: 403, contentType: 'application/json', body: '{"message":"quota"}' }),
+      );
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+
+      await expect(page.locator('.card')).toHaveCount(2);
+      await expectPlainFeed(page);
+      await expect(page.locator('script[src*="maplibre"]')).toHaveCount(0);
+    });
+
+    test('tiles that run out of quota mid-visit drop the globe', async ({ page }) => {
+      await mock(page, [LISBON, PORTO]);
+      await page.route(/demotiles\.maplibre\.org|api\.maptiler\.com\/maps/, route =>
+        json(route, {
+          version: 8,
+          sources: { t: { type: 'raster', tiles: ['https://tiles.test/{z}/{x}/{y}.png'], tileSize: 256 } },
+          layers: [{ id: 'r', type: 'raster', source: 't' }],
+        }),
+      );
+      await page.route('https://tiles.test/**', route => route.fulfill({ status: 429, body: 'quota' }));
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+
+      await expect(page.locator('body')).toHaveClass(/no-globe/);
+      await expectPlainFeed(page);
+    });
+
+    test('a story still opens from a card without the globe', async ({ page }) => {
+      await mock(page, [LISBON]);
+      await page.route(/demotiles\.maplibre\.org|api\.maptiler\.com\/maps/, route => route.fulfill({ status: 429, body: '' }));
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      await page.locator('.card').first().click();
+
+      await expect(page.locator('#story')).toBeVisible();
+      await page.goBack();
+      await expect(page.locator('.card').first()).toBeInViewport();
+    });
   });
 
   test('the map library is the pinned build with its integrity hash', async ({ page }) => {

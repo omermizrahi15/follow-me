@@ -49,7 +49,7 @@ window.createRouteGlobe = function (config) {
     // happens constantly and harmlessly while panning — MapLibre aborts tiles
     // it no longer needs — and reporting it buries the errors that matter.
     if (err && err.status === 0) return;
-    post({ type: 'error', message: String((err && err.message) || 'map error') });
+    post({ type: 'error', message: String((err && err.message) || 'map error'), status: err && err.status });
   });
 
   /**
@@ -304,7 +304,13 @@ window.createRouteGlobe = function (config) {
     map.easeTo({ center: center, duration: 1000, easing: function (n) { return n; } });
   }
 
-  return { setRoute: setRoute, setBottomPadding: setBottomPadding };
+  return {
+    setRoute: setRoute,
+    setBottomPadding: setBottomPadding,
+    // Tears the map down. The website uses it to drop the globe when the tile
+    // provider starts refusing requests (quota), leaving the feed on its own.
+    remove: function () { map.remove(); },
+  };
 };
 
 /**

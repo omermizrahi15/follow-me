@@ -15,7 +15,7 @@ export { MAPLIBRE_VERSION } from './globeClient';
 export type GlobeMessage =
   | { type: 'ready' }
   | { type: 'openPosting'; id: string }
-  | { type: 'error'; message: string };
+  | { type: 'error'; message: string; status?: number };
 
 export interface GlobeOptions {
   /**
