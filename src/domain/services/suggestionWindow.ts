@@ -37,14 +37,14 @@ export interface WindowInputs {
 /**
  * Start of the window, as epoch millis.
  *
- * `min`, not `max`, is the whole point. The configured lookback is a *floor* —
- * a weekly publisher always sees at least their week, so photos from earlier in
- * the week that simply weren't chosen stay offerable — and the last post
- * extends it backwards when they are overdue.
+ * The window is "since the last post". The configured lookback only drives the
+ * reminder schedule; here it is the fallback for a publisher who has never
+ * posted, so there is nothing to anchor to.
  *
  * Anchoring to `now - lookbackDays` alone meant a missed reminder swallowed the
- * days in between: open the app two days late and the two oldest days had
- * rolled out of the window, taking exactly the photos the reminder was about.
+ * days in between, and anchoring to the lookback as a floor re-offered photos
+ * from before the last post. Neither matches what the publisher expects: the
+ * photos taken since they last shared.
  */
 export function windowStartMs({
   now,
@@ -53,8 +53,7 @@ export function windowStartMs({
   maxLookbackDays = MAX_LOOKBACK_DAYS,
 }: WindowInputs): number {
   const configuredStart = now - lookbackDays * MS_PER_DAY;
-  const wanted =
-    newestPostedPhotoAt != null ? Math.min(configuredStart, newestPostedPhotoAt) : configuredStart;
+  const wanted = newestPostedPhotoAt ?? configuredStart;
   const floor = now - maxLookbackDays * MS_PER_DAY;
   return Math.max(wanted, floor);
 }
