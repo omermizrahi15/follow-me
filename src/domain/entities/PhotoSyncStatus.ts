@@ -1,7 +1,7 @@
 /**
  * What the device's candidate-photo sync is doing, as the UI needs to describe
  * it. Lives in the domain rather than next to the React store so the copy that
- * renders it can be unit-tested (src/ui is excluded from jest).
+ * renders it can be unit-tested without a React host.
  */
 
 export type SyncPhase =
