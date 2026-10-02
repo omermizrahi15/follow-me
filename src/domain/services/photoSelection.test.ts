@@ -1,4 +1,4 @@
-import { spreadQuality } from './photoSelection';
+import { selectBatch, spreadQuality, type PhotoFacts } from './photoSelection';
 
 
 describe('spreadQuality — making a clustered scale usable', () => {
@@ -77,5 +77,43 @@ describe('spreadQuality — making a clustered scale usable', () => {
     const spread = spreadQuality([0.05, 0.9]);
 
     expect(spread.get(0.05)).not.toBe(0.05);
+  });
+});
+
+describe('selectBatch — category diversity', () => {
+  let n = 0;
+  const photo = (category: string, quality: number, scene = ''): PhotoFacts => ({
+    id: `p${n++}`,
+    category,
+    quality,
+    createdAt: n,
+    scene,
+  });
+  const pick = (photos: PhotoFacts[], enabled: string[], photosPerPost: number): PhotoFacts[] =>
+    selectBatch(photos, f => f, { enabledCategories: enabled, photosPerPost }, new Set());
+
+  it('does not let the dominant category take every slot', () => {
+    const people = Array.from({ length: 10 }, () => photo('people', 0.9));
+    const others = ['food', 'view', 'pets'].map(c => photo(c, 0.7));
+    const result = pick([...people, ...others], ['people', 'food', 'view', 'pets'], 5);
+    const counts = (c: string): number => result.filter(p => p.category === c).length;
+    expect(counts('people')).toBe(2);
+    expect(counts('food')).toBe(1);
+    expect(counts('view')).toBe(1);
+    expect(counts('pets')).toBe(1);
+    expect(result).toHaveLength(5);
+  });
+
+  it('fills remaining slots by score when other categories run out', () => {
+    const people = Array.from({ length: 6 }, () => photo('people', 0.9));
+    const result = pick([...people, photo('food', 0.5)], ['people', 'food'], 5);
+    expect(result).toHaveLength(5);
+    expect(result.filter(p => p.category === 'food')).toHaveLength(1);
+  });
+
+  it('does not reserve slots for categories with no photos', () => {
+    const people = Array.from({ length: 4 }, () => photo('people', 0.9));
+    const result = pick(people, ['people', 'food', 'view', 'pets'], 4);
+    expect(result).toHaveLength(4);
   });
 });
