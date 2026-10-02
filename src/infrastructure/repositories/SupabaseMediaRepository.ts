@@ -15,6 +15,7 @@ interface Database {
           created_at: string;
           posting_id: string | null;
           location: string | null;
+          caption: string | null;
           latitude: number | null;
           longitude: number | null;
           deleted_at: string | null;
@@ -27,6 +28,7 @@ interface Database {
           created_at: string;
           posting_id?: string | null;
           location?: string | null;
+          caption?: string | null;
           latitude?: number | null;
           longitude?: number | null;
           deleted_at?: string | null;
@@ -39,6 +41,7 @@ interface Database {
           created_at?: string;
           posting_id?: string | null;
           location?: string | null;
+          caption?: string | null;
           latitude?: number | null;
           longitude?: number | null;
           deleted_at?: string | null;
@@ -74,6 +77,9 @@ function mediaToRow(media: Media): MediaInsert {
     // setPostingDeleted, not here: writes here only ever carry fresh media.
     ...(media.deletedAt != null ? { deleted_at: media.deletedAt.toISOString() } : {}),
     ...(media.backfilled ? { backfilled: true } : {}),
+    // Same rule for the caption (migration 20240041): named only when there is
+    // one, so a post without a caption never depends on the column existing.
+    ...(media.caption != null ? { caption: media.caption } : {}),
   };
 }
 
@@ -94,6 +100,7 @@ function rowToMedia(row: MediaRow): Media {
     createdAt: new Date(row.created_at),
     ...(row.posting_id != null ? { postingId: row.posting_id } : {}),
     ...(row.location != null ? { location: row.location } : {}),
+    ...(row.caption != null ? { caption: row.caption } : {}),
     ...(coordinate != null ? { coordinate } : {}),
     ...(row.deleted_at != null ? { deletedAt: new Date(row.deleted_at) } : {}),
     ...(row.backfilled === true ? { backfilled: true } : {}),

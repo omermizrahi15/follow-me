@@ -124,6 +124,19 @@ Setup:
      (`follow_me_post_location`)
    - `TWILIO_TEMPLATE_POST_SID` — no place (`follow_me_post`), used by
      auto-post (candidate photos are location-less) and as the fallback
+   - `TWILIO_TEMPLATE_POST_CAPTION_SID` / `TWILIO_TEMPLATE_POST_LOCATION_CAPTION_SID`
+     — the same two posts with the publisher's optional caption (issue #220),
+     `follow_me_post_caption` and `follow_me_post_location_caption`. A template
+     body is fixed, so the caption needs its own pair; each is the body of its
+     caption-less twin with one extra paragraph, `{{caption}}`, directly under
+     the headline. Variable order (asserted by `postTemplate.test.ts`):
+     `follow_me_post_caption` = name · caption · count · galleryUrl · name ·
+     replyLink · media; `follow_me_post_location_caption` = name · place ·
+     caption · count · galleryUrl · name · replyLink · media. **Optional until
+     approved:** while these secrets are unset a captioned post goes out via the
+     plain pair (caption left to the gallery page), so nothing breaks. The
+     caption is flattened to one line for the variable (WhatsApp rejects
+     newlines). Requires migration `20240041_post_caption.sql`.
    - `TWILIO_TEMPLATE_WELCOME_SID` — the new-follower welcome
      (`follow_me_subscriber_welcome_2`, issue #164), read by `subscribe`
    `send-post` / `auto-post` send via the template only when these are set AND

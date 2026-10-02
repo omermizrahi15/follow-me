@@ -24,6 +24,8 @@ export interface FeedPosting {
   createdAt: string;
   /** Place label, e.g. "Lisbon, Portugal". */
   place?: string;
+  /** The publisher's caption (issue #220); absent when they added none. */
+  caption?: string;
   /** Where it was taken; absent when no photo in the batch had a GPS fix. */
   coordinate?: Coordinate;
   /** Cover image shown for the post (falls back to the first media). */
@@ -50,6 +52,7 @@ export function toFeedPosting(dto: FeedPostingDto): FeedPosting {
     createdAt: dto.createdAt,
     media: dto.media.map(m => ({ id: m.id, uri: m.url })),
     ...(dto.location != null ? { place: dto.location } : {}),
+    ...(dto.caption != null ? { caption: dto.caption } : {}),
     ...(dto.coordinate != null ? { coordinate: dto.coordinate } : {}),
     ...(dto.deletedAt != null ? { deletedAt: dto.deletedAt } : {}),
   };

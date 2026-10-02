@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { PlaceField } from '../../components/PlaceField';
+import { CaptionField } from '../../components/CaptionField';
 import { ErrorState } from '../../components/ErrorState';
 import type { Coordinate } from '../../../domain/interfaces';
 import type { PlaceResolution } from '../../hooks/usePlaceResolution';
@@ -23,6 +24,9 @@ interface Props {
   shareProgress: { stage: string; done: number; total: number } | null;
   /** Padding that keeps the input above the keyboard — see useKeyboardBottomPadding. */
   keyboardPadding: number;
+  /** The optional caption sent with the post (issue #220). */
+  caption: string;
+  onCaptionChange: (text: string) => void;
   onConfirm: () => void;
 }
 
@@ -33,7 +37,7 @@ const SOURCE_NOTE: Record<string, string> = {
 };
 
 export function ReviewFooter({
-  place, keptCount, sharing, shareError, shareProgress, keyboardPadding, onConfirm,
+  place, keptCount, sharing, shareError, shareProgress, keyboardPadding, caption, onCaptionChange, onConfirm,
 }: Props): React.JSX.Element {
   return (
     <View style={[styles.footer, keyboardPadding > 0 && { paddingBottom: keyboardPadding }]}>
@@ -57,6 +61,8 @@ export function ReviewFooter({
           {SOURCE_NOTE[place.source]}
         </Text>
       )}
+      <CaptionField value={caption} onChange={onCaptionChange} disabled={sharing} />
+      <View style={styles.captionGap} />
       <TouchableOpacity
         style={[styles.confirmButton, sharing && styles.disabled]}
         onPress={onConfirm}
@@ -94,6 +100,7 @@ const styles = StyleSheet.create({
     marginBottom: spacing.sm,
     paddingHorizontal: spacing.xs,
   },
+  captionGap: { height: spacing.sm },
   placeSourceWarn: { color: '#C87A00' },
   errorNote: { color: colors.danger, fontSize: 13, textAlign: 'center', marginBottom: spacing.sm },
   confirmButton: {

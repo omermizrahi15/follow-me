@@ -412,6 +412,48 @@ describe('ShareMediaUseCase — posting location', () => {
   });
 });
 
+describe('ShareMediaUseCase — caption (issue #220)', () => {
+  it('stamps the publisher\'s caption on every item of the posting', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: multipleItems, caption: 'Made it to the top 🏔️' });
+
+    expect(mediaRepo.all().map(m => m.caption)).toEqual([
+      'Made it to the top 🏔️',
+      'Made it to the top 🏔️',
+      'Made it to the top 🏔️',
+    ]);
+  });
+
+  it('trims and caps what the publisher typed', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: singleItem, caption: `  ${'x'.repeat(500)}  ` });
+
+    expect(mediaRepo.all()[0]?.caption).toHaveLength(280);
+  });
+
+  it.each([null, '', '   \n '])('stores no caption for %p', async caption => {
+    const { useCase, mediaRepo } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: singleItem, caption });
+
+    expect(mediaRepo.all()[0]?.caption).toBeUndefined();
+  });
+
+  it('stores no caption when none is given', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await useCase.share({ ownerId: 'user-1', items: singleItem });
+
+    expect(mediaRepo.all()[0]?.caption).toBeUndefined();
+  });
+
+  it('hands the caption to the notifier so followers receive it', async (): Promise<void> => {
+    const { useCase, subscriberRepo, notifier } = makeSut();
+    await subscriberRepo.save(makeSubscriber('sub-1', 'user-1'));
+    await useCase.share({ ownerId: 'user-1', items: singleItem, caption: 'Hello' });
+
+    expect(notifier.sent[0]?.media[0]?.caption).toBe('Hello');
+  });
+});
+
 describe('ShareMediaUseCase — subscriber filtering', () => {
   it('notifies all active subscribers', async (): Promise<void> => {
     const { useCase, subscriberRepo, notifier } = makeSut();

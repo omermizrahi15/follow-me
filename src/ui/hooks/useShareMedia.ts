@@ -28,6 +28,7 @@ export function useShareMedia(): ShareMediaState & {
     ownerId: string,
     location?: string | null,
     coordinate?: Coordinate,
+    caption?: string | null,
   ) => Promise<void>;
 } {
   const [state, setState] = useState<ShareMediaState>({
@@ -42,6 +43,7 @@ export function useShareMedia(): ShareMediaState & {
     ownerId: string,
     location?: string | null,
     coordinate?: Coordinate,
+    caption?: string | null,
   ): Promise<void> {
     setState({ loading: true, error: null, result: null, progress: null });
     try {
@@ -59,6 +61,8 @@ export function useShareMedia(): ShareMediaState & {
           // Only set when the publisher picked a place because the batch had
           // no GPS; per-photo fixes still win inside the use case.
           ...(coordinate != null ? { coordinate } : {}),
+          // The use case trims and caps it; blank means no caption.
+          ...(caption != null ? { caption } : {}),
         },
         progress => {
           setState(s => ({ ...s, progress }));

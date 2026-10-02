@@ -10,6 +10,15 @@
 //   follow_me_post (no place):
 //     1 name · 2 count · 3 galleryUrl · 4 name · 5 replyLink · 6 media
 //
+// A publisher's caption (issue #220) can't ride in those: an approved template
+// body is fixed, so the caption has its own pair, identical except for one more
+// variable that sits right under the headline:
+//
+//   follow_me_post_location_caption (has place):
+//     1 name · 2 place · 3 caption · 4 count · 5 galleryUrl · 6 name · 7 replyLink · 8 media
+//   follow_me_post_caption (no place):
+//     1 name · 2 caption · 3 count · 4 galleryUrl · 5 name · 6 replyLink · 7 media
+//
 // No imports on purpose — keeps this file jest-importable from src/ tests.
 
 export interface PostTemplateEnv {
@@ -17,6 +26,10 @@ export interface PostTemplateEnv {
   postSid?: string;
   /** ContentSid of the with-location template. */
   postLocationSid?: string;
+  /** ContentSid of the no-location template that carries a caption. */
+  postCaptionSid?: string;
+  /** ContentSid of the with-location template that carries a caption. */
+  postLocationCaptionSid?: string;
 }
 
 export interface PostTemplateInput {
@@ -25,6 +38,8 @@ export interface PostTemplateInput {
   place?: string | null;
   photoCount: number;
   galleryUrl?: string | null;
+  /** The publisher's optional words about the post (issue #220). */
+  caption?: string | null;
   /** The single header image (collage) the template attaches. */
   mediaUrl?: string | null;
 }
@@ -77,6 +92,46 @@ export function buildPostTemplate(env: PostTemplateEnv, input: PostTemplateInput
   const replyLink = replyLinkFor(phone, input.place);
   const count = String(input.photoCount);
   const hasPlace = input.place != null && input.place.trim() !== '';
+  // Flattened like every variable. A caption that is only whitespace is no
+  // caption, so it can't pull a post onto the caption templates.
+  const caption = clean(input.caption ?? '');
+
+  if (caption !== '') {
+    // Both caption SIDs are configured together in practice. When only one is,
+    // keep the caption and let the body drop the place clause — the same trade
+    // the caption-less pair makes below.
+    if (hasPlace && env.postLocationCaptionSid) {
+      return {
+        contentSid: env.postLocationCaptionSid,
+        variables: {
+          '1': name,
+          '2': clean(input.place as string),
+          '3': caption,
+          '4': count,
+          '5': gallery,
+          '6': name,
+          '7': replyLink,
+          '8': media,
+        },
+      };
+    }
+    if (env.postCaptionSid) {
+      return {
+        contentSid: env.postCaptionSid,
+        variables: {
+          '1': name,
+          '2': caption,
+          '3': count,
+          '4': gallery,
+          '5': name,
+          '6': replyLink,
+          '7': media,
+        },
+      };
+    }
+    // No caption template yet (awaiting Meta approval): fall through to the
+    // plain pair, so the post still goes out — the caption stays on the gallery.
+  }
 
   if (hasPlace && env.postLocationSid) {
     return {

@@ -8,6 +8,7 @@ import type {
   INotificationLogger,
   IStorageService,
 } from '../../domain/interfaces';
+import { normalizeCaption } from '../../domain/services/caption';
 import { resolvePostingPlace } from '../services/resolvePostingPlace';
 import { mapInBatches, PHOTO_UPLOAD_BATCH_SIZE } from '../services/mapInBatches';
 import { MediaMapper } from '../mappers/MediaMapper';
@@ -30,6 +31,11 @@ export interface ShareMediaInput {
    * from the items' GPS coordinates.
    */
   location?: string | null;
+  /**
+   * The publisher's optional words about the post (issue #220). Trimmed and
+   * capped here; blank means none. Followers receive it with the photos.
+   */
+  caption?: string | null;
   /**
    * Where the publisher said the posting happened, when they picked a place
    * because their photos carried no GPS. Used only for items that have no fix
@@ -130,6 +136,7 @@ export class ShareMediaUseCase {
     ]);
 
     const createdAt = input.createdAt ?? new Date();
+    const caption = normalizeCaption(input.caption);
     const mediaItems = uploads.map(({ item, url }) =>
       Media.create({
         id: item.mediaId,
@@ -138,6 +145,7 @@ export class ShareMediaUseCase {
         createdAt,
         postingId,
         ...(location != null ? { location } : {}),
+        ...(caption != null ? { caption } : {}),
         // Keep the per-item fix, not just the reverse-geocoded label — the
         // Me-page globe plots the posting at this coordinate (issue #78).
         // Falls back to the place the publisher picked, so a batch of photos

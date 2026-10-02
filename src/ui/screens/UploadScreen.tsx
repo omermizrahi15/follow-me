@@ -25,6 +25,7 @@ import { ErrorState } from '../components/ErrorState';
 import { Photo } from '../components/Photo';
 import { refuseIfOffline } from '../data/writeGuard';
 import { PlaceField } from '../components/PlaceField';
+import { CaptionField } from '../components/CaptionField';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 type Props = {
@@ -64,6 +65,8 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   // Posting place — auto-resolved from the picked photos' EXIF GPS, editable.
   const [place, setPlace] = useState('');
   const [placeLoading, setPlaceLoading] = useState(false);
+  // Optional words sent to followers with the photos (issue #220).
+  const [caption, setCaption] = useState('');
   const placeEditedRef = useRef(false);
   // Set when the publisher picks a suggestion — the coordinate that pins the
   // posting when no photo carried GPS of its own.
@@ -157,7 +160,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           : placeLoading || place === ''
           ? undefined
           : place;
-        await share(items, publisherId, location, pickedCoordinate);
+        await share(items, publisherId, location, pickedCoordinate, caption);
         setDone(true);
       } catch (e: unknown) {
         setError(e);
@@ -331,6 +334,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
                   setPickedCoordinate(coordinate);
                 }}
               />
+              <CaptionField value={caption} onChange={setCaption} disabled={loading} />
               <Text style={styles.followerNote}>
                 {pickedAssets.length > 0 && !hasLocation && !placeLoading
                   ? 'These photos have no location — search for a place above to put this post on your map.'

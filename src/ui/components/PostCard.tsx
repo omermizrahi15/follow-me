@@ -207,6 +207,11 @@ export function PostCard({
             ) : (
               <Text style={styles.place} numberOfLines={1}>{posting.date}</Text>
             )}
+            {posting.caption != null && (
+              <Text style={styles.captionText} numberOfLines={1}>
+                {posting.caption.replace(/\s+/g, ' ')}
+              </Text>
+            )}
           </View>
         </TouchableOpacity>
       </Animated.View>
@@ -246,6 +251,7 @@ const styles = StyleSheet.create({
   placeholder: { alignItems: 'center', justifyContent: 'center' },
   scrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '60%' },
   caption: { position: 'absolute', left: spacing.lg, right: spacing.lg, bottom: spacing.md },
+  captionText: { color: 'rgba(255,255,255,0.92)', fontSize: 13, marginTop: 4 },
   place: { color: '#fff', fontSize: 18, fontWeight: '700', letterSpacing: -0.2 },
   date: {
     color: 'rgba(255,255,255,0.85)',

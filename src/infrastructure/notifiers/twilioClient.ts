@@ -35,6 +35,13 @@ export interface TwilioCreds {
   templatePostSid?: string;
   templatePostLocationSid?: string;
   /**
+   * The caption-carrying pair (issue #220). A template body is fixed, so a
+   * post with a caption needs its own. Unset until Meta approves them, and
+   * posts then go out via the plain pair above, caption left to the gallery.
+   */
+  templatePostCaptionSid?: string;
+  templatePostLocationCaptionSid?: string;
+  /**
    * Approved ContentSid for the new-follower welcome (issue #164). The join
    * page's followers never message us first, so on a production sender the
    * welcome only sends via the template; unset falls back to free-form.
@@ -283,6 +290,8 @@ export function credsFromEnv(env: { get(key: string): string | undefined }): Twi
   const statusCallback = env.get('TWILIO_STATUS_CALLBACK_URL');
   const templatePostSid = env.get('TWILIO_TEMPLATE_POST_SID');
   const templatePostLocationSid = env.get('TWILIO_TEMPLATE_POST_LOCATION_SID');
+  const templatePostCaptionSid = env.get('TWILIO_TEMPLATE_POST_CAPTION_SID');
+  const templatePostLocationCaptionSid = env.get('TWILIO_TEMPLATE_POST_LOCATION_CAPTION_SID');
   const templateWelcomeSid = env.get('TWILIO_TEMPLATE_WELCOME_SID');
   if (apiKeySid != null && apiKeySid !== '') creds.apiKeySid = apiKeySid;
   if (apiKeySecret != null && apiKeySecret !== '') creds.apiKeySecret = apiKeySecret;
@@ -290,6 +299,12 @@ export function credsFromEnv(env: { get(key: string): string | undefined }): Twi
   if (templatePostSid != null && templatePostSid !== '') creds.templatePostSid = templatePostSid;
   if (templatePostLocationSid != null && templatePostLocationSid !== '') {
     creds.templatePostLocationSid = templatePostLocationSid;
+  }
+  if (templatePostCaptionSid != null && templatePostCaptionSid !== '') {
+    creds.templatePostCaptionSid = templatePostCaptionSid;
+  }
+  if (templatePostLocationCaptionSid != null && templatePostLocationCaptionSid !== '') {
+    creds.templatePostLocationCaptionSid = templatePostLocationCaptionSid;
   }
   if (templateWelcomeSid != null && templateWelcomeSid !== '') {
     creds.templateWelcomeSid = templateWelcomeSid;

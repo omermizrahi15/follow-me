@@ -76,6 +76,11 @@
     .card-caption { position: absolute; left: 16px; right: 16px; bottom: 12px; text-align: left; }
     .card-place { color: #fff; font-size: 18px; font-weight: 700; letter-spacing: -0.2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .card-date { color: rgba(255,255,255,0.85); font-size: 11px; font-weight: 600; letter-spacing: 1px; margin-top: 2px; }
+    /* The publisher's caption (issue #220): one quiet line under the date. */
+    .card-text {
+      color: rgba(255,255,255,0.92); font-size: 13px; margin-top: 4px;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
     .card-chip {
       position: absolute; top: 8px; right: 8px;
       display: flex; align-items: center; gap: 3px;
@@ -161,6 +166,14 @@
       display: flex; align-items: center; gap: 6px;
       -webkit-tap-highlight-color: transparent;
     }
+    /* The caption wraps (a story has room for a sentence) but stops at three
+       lines so it can never cover the photo. */
+    .story-caption {
+      margin-top: 10px; text-align: left; color: #fff; font-size: 14px; line-height: 1.35;
+      text-shadow: 0 1px 3px rgba(0,0,0,0.6); white-space: pre-line;
+      display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+    }
+    .story-caption[hidden] { display: none; }
     .story-exit-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .story-exit-icon { flex: none; width: 15px; height: 15px; fill: currentColor; }
     .story-exit-chevron { flex: none; opacity: 0.7; font-size: 15px; line-height: 1; }
@@ -217,6 +230,7 @@
           <span class="story-exit-chevron" aria-hidden="true">›</span>
         </button>
       </div>
+      <div class="story-caption" id="storyCaption" hidden></div>
     </div>
   </div>
 
@@ -460,6 +474,10 @@
       storyDate = formatDate(post.created_at);
       // The story header mirrors the app's: where/when over the photo.
       document.getElementById('storyPlace').textContent = post.place || publisherName;
+      // textContent, never innerHTML: the caption is whatever the publisher typed.
+      const storyCaption = document.getElementById('storyCaption');
+      storyCaption.textContent = post.caption || '';
+      storyCaption.hidden = !post.caption;
       document.title = (post.place || publisherName + "'s photos") + ' — Follow Me';
     }
 
@@ -511,6 +529,13 @@
         dateEl.className = 'card-date';
         dateEl.textContent = date.toUpperCase();
         caption.appendChild(dateEl);
+      }
+      if (post.caption) {
+        const text = document.createElement('div');
+        text.className = 'card-text';
+        // Flattened for the single-line card; the story keeps the line breaks.
+        text.textContent = post.caption.replace(/\s+/g, ' ');
+        caption.appendChild(text);
       }
       card.appendChild(caption);
 
