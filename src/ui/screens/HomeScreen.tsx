@@ -29,6 +29,7 @@ import { RouteGlobe } from '../map/RouteGlobe';
 import { AutoPostingSection } from './sections/AutoPostingSection';
 import { ReviewSuggestionContent } from './ReviewSuggestionScreen';
 import { HistoryBackfillContent } from './HistoryBackfillScreen';
+import { usePostingFrequency } from '../hooks/usePostingFrequency';
 import { FollowersSection } from './sections/FollowersSection';
 import { useInviteLink } from '../hooks/useInviteLink';
 import { useFeed } from '../hooks/useFeed';
@@ -103,7 +104,16 @@ export function HomeScreen(): React.JSX.Element {
   // including a hole in the middle, not just a missing beginning (issue #81).
   // It waits for the whole feed: until it has arrived, every stretch looks
   // empty, and offering to reconstruct a trip already posted would duplicate it.
-  const { hasGaps, gaps, tripStartDate } = useHistoryGaps(profile, postings, feedComplete);
+  // Measured with the publisher's OWN cadence. It was hardcoded to weekly,
+  // which meant a stretch counted as covered as long as it held one post in
+  // seven days however often they actually post.
+  const frequency = usePostingFrequency(publisherId);
+  const { hasGaps, gaps, tripStartDate, gapsFor } = useHistoryGaps(
+    profile,
+    postings,
+    feedComplete,
+    frequency,
+  );
   const [section, setSection] = useState<HomeSection>('me');
   const [showingSuggestions, setShowingSuggestions] = useState(false);
   // Which feed card has its Delete revealed — at most one, the way an iOS
@@ -395,6 +405,7 @@ export function HomeScreen(): React.JSX.Element {
               onDone={() => selectSection('me')}
               initialStartDate={tripStartDate}
               gaps={gaps}
+              gapsFor={gapsFor}
               bottomInset={bottomInset}
             />
           )}

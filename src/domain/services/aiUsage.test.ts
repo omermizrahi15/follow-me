@@ -1,9 +1,11 @@
 import {
   summarizeAiUsage,
   aiUsageCopy,
+  providerChainCopy,
   providerLimitCopy,
   LOW_BUDGET_FRACTION,
 } from './aiUsage';
+import type { ProviderLimits } from '../entities/AiUsage';
 
 const day = '2026-08-28';
 
@@ -141,8 +143,8 @@ describe('providerLimitCopy', () => {
 
     expect(copy?.headline).toBe('groq · qwen/qwen3.6-27b');
     expect(copy?.lines).toEqual([
-      'Requests: 994 of 1000 left · resets in 24h',
-      'Tokens: 2450 of 8000 left · resets in 42s',
+      'Requests: 994 of 1000 today · resets in 24h',
+      'Tokens: 2450 of 8000 this minute · resets in 42s',
       '≈ 2 more photos before the token window refills',
     ]);
   });
@@ -163,5 +165,76 @@ describe('providerLimitCopy', () => {
 
   it('has nothing to say when the provider has never been heard from', () => {
     expect(providerLimitCopy(null)).toBeNull();
+  });
+});
+
+describe('providerLimitCopy — the window each number belongs to', () => {
+  const groq = (over: Partial<ProviderLimits> = {}): ProviderLimits => ({
+    provider: 'groq',
+    model: 'qwen/qwen3.6-27b',
+    requests: { limit: 1000, remaining: 999, resetSeconds: 87 },
+    tokens: { limit: 8000, remaining: 5283, resetSeconds: 21 },
+    observedAt: 0,
+    ...over,
+  });
+
+  // Groq documents that `x-ratelimit-limit-requests` ALWAYS means per-day and
+  // `x-ratelimit-limit-tokens` ALWAYS means per-minute. The reset seconds do
+  // not say so — the daily request window reported a reset of 87 seconds —
+  // so reading the period off the reset is how "1000 requests a day" came to
+  // look like a ceiling that clears in under two minutes.
+  it('labels Groq requests per day and tokens per minute', () => {
+    const copy = providerLimitCopy(groq())!;
+    expect(copy.lines[0]).toContain('999 of 1000 today');
+    expect(copy.lines[1]).toContain('5283 of 8000 this minute');
+  });
+
+  it('says nothing about the period for a provider whose windows we do not know', () => {
+    const copy = providerLimitCopy(groq({ provider: 'gemini', model: 'gemini-3.5-flash' }))!;
+    expect(copy.lines[0]).not.toContain('today');
+    expect(copy.lines[0]).toContain('999 of 1000 left');
+  });
+
+  it('converts the token window into photos, which is the unit a scan is spent in', () => {
+    const copy = providerLimitCopy(groq())!;
+    expect(copy.lines.some(l => l.includes('5 more photos'))).toBe(true);
+  });
+
+  it('names the provider and model so the chain is legible', () => {
+    expect(providerLimitCopy(groq())!.headline).toBe('groq · qwen/qwen3.6-27b');
+  });
+
+  it('has nothing to say about a provider that has never answered', () => {
+    expect(providerLimitCopy(null)).toBeNull();
+  });
+});
+
+describe('providerChainCopy — every provider, not just the last to speak', () => {
+  const limits = (provider: string, remaining: number): ProviderLimits => ({
+    provider,
+    model: `${provider}-model`,
+    requests: { limit: 20, remaining, resetSeconds: null },
+    tokens: null,
+    observedAt: 0,
+  });
+
+  // The bar showed whoever answered LAST, which is the fallback whenever the
+  // leader is spent — so "we grade on Groq" and a bar reading "gemini" were
+  // both true at once and impossible to reconcile from the screen.
+  it('keeps every provider it was given, in order', () => {
+    const copy = providerChainCopy([limits('groq', 5), limits('gemini', 0)]);
+    expect(copy.map(c => c.headline)).toEqual(['groq · groq-model', 'gemini · gemini-model']);
+  });
+
+  it('is empty when no provider has ever answered', () => {
+    expect(providerChainCopy([])).toEqual([]);
+    expect(providerChainCopy(null)).toEqual([]);
+  });
+
+  it('drops nothing for a provider with no windows to report', () => {
+    const bare: ProviderLimits = {
+      provider: 'groq', model: 'm', requests: null, tokens: null, observedAt: 0,
+    };
+    expect(providerChainCopy([bare])).toHaveLength(1);
   });
 });

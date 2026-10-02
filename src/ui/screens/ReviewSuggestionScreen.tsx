@@ -54,7 +54,7 @@ interface Props {
 export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): React.JSX.Element {
   const publisherId = usePublisherId();
   const {
-    phase, found, unique, classified, total, partial, batch, pool, photosPerPost, config,
+    phase, found, unique, classified, total, grading, partial, batch, pool, photosPerPost, config,
     fromCache, cachedAt, stats, error, reload, topUp, toppingUp, canTopUp,
   } = useSuggestedPhotos(publisherId);
   const { share, loading: sharing, error: shareError, progress: shareProgress } = useShareMedia();
@@ -165,7 +165,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
     );
   }
 
-  const isLoading = phase === 'scanning' || phase === 'classifying';
+  const isLoading = phase === 'scanning' || phase === 'deduping' || phase === 'classifying';
   const shortfallNote = scanShortfallNote(stats);
 
   return (
@@ -179,7 +179,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
                   cachedAt != null ? ` ${relativeTime(cachedAt, Date.now())}` : ''
                 }.`
               : scanSummary(batch.length, stats, found)
-            : phase === 'classifying'
+            : phase === 'classifying' || phase === 'deduping'
             ? unique > 0
               ? // Not "N duplicates removed" any more — nothing is removed. Every
                 // photo in the window stays reachable; bursts only affect the
@@ -225,7 +225,17 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
             Only {batch.length} of {photosPerPost} photos found — tap + to look for more, or widen the lookback window in settings.
           </Text>
         )}
-        {phase !== 'error' && <StepBar phase={phase} classified={classified} total={total} />}
+        {phase !== 'error' && (
+          <StepBar
+            phase={phase}
+            found={found}
+            unique={unique}
+            classified={classified}
+            total={total}
+            grading={grading}
+            fromCache={fromCache}
+          />
+        )}
       </View>
 
       {phase === 'error' ? (
@@ -268,11 +278,18 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
               <View style={styles.scanningRow}>
                 <ActivityIndicator color={colors.accent} />
                 <Text style={styles.hint}>
-                  {phase === 'scanning' ? 'Scanning your library…' : 'Looking for great photos…'}
+                  {phase === 'scanning'
+                    ? 'Scanning your library…'
+                    : phase === 'deduping'
+                      ? 'Grouping burst shots…'
+                      : 'Looking for great photos…'}
                 </Text>
               </View>
             )}
-            {phase === 'classifying' && kept.length > 0 && (
+            {/* Follows `grading`, not `phase`: the post appears at twice
+                photos-per-post and `phase` turns `done` there, so keying this
+                off the phase hid the rest of the grading run entirely. */}
+            {grading && kept.length > 0 && (
               <View style={gridStyles.moreSpinner}>
                 <ActivityIndicator size="small" color={colors.accent} />
                 <Text style={[styles.hint, { marginLeft: 8 }]}>

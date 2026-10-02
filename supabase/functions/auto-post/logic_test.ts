@@ -1,5 +1,6 @@
 import { assertEquals, assertThrows } from '@std/assert';
 import {
+  cachedGrade,
   approvalPushContent,
   chunk,
   CLIENT_STALE_MS,
@@ -284,4 +285,66 @@ Deno.test('GRADE_BUDGET_PER_TICK — a whole number of full classify requests', 
   assertEquals(GRADE_BUDGET_PER_TICK % 12, 0);
   // Still bounded: one publisher's backlog must not monopolise a shared tick.
   assertEquals(GRADE_BUDGET_PER_TICK > 0 && GRADE_BUDGET_PER_TICK <= 60, true);
+});
+
+// The server-side grade cache and the face question (issue #137).
+//
+// migration 20240036 cached category/confidence/quality/caption/scene and threw
+// `contains_reference_person` away, so every grade reconstructed from it said
+// "the publisher is not in this photo" — regardless of what the model had
+// actually answered. Under `prefer` the preference silently did nothing; under
+// `only` it filtered the whole batch away. And since the cache is what makes
+// the autonomous poster affordable, the cached path is the normal path.
+const gradedRow = (over: Record<string, unknown> = {}) => ({
+  asset_id: 'a1',
+  category: 'nature',
+  confidence: 0.9,
+  quality: 0.7,
+  caption: 'a photo',
+  scene: 'beach-sunset',
+  graded_at: '2026-08-30T10:00:00Z',
+  contains_reference_person: null,
+  reference_confidence: null,
+  graded_reference: null,
+  ...over,
+});
+
+Deno.test('cachedGrade — an ungraded row is work to do, not a grade', () => {
+  assertEquals(cachedGrade(gradedRow({ graded_at: null }), null), null);
+  assertEquals(cachedGrade(gradedRow({ category: null }), null), null);
+});
+
+Deno.test('cachedGrade — returns the remembered grade when no face is wanted', () => {
+  const grade = cachedGrade(gradedRow(), null);
+  assertEquals(grade?.category, 'nature');
+  assertEquals(grade?.quality, 0.7);
+});
+
+Deno.test('cachedGrade — carries the remembered face answer instead of inventing false', () => {
+  const grade = cachedGrade(
+    gradedRow({ contains_reference_person: true, graded_reference: 'https://cdn/me.jpg' }),
+    'https://cdn/me.jpg',
+  );
+  assertEquals(grade?.contains_reference_person, true);
+});
+
+// A grade bought while looking for NO face says "false" for the trivial reason
+// that nobody looked, which is indistinguishable from a real "not in this one"
+// once stored. Reusing it under `only` hides exactly the photos the feature
+// exists to surface.
+Deno.test('cachedGrade — a grade bought without a face does not answer a face question', () => {
+  assertEquals(cachedGrade(gradedRow(), 'https://cdn/me.jpg'), null);
+});
+
+Deno.test('cachedGrade — a grade bought for a DIFFERENT face is re-graded', () => {
+  const row = gradedRow({ contains_reference_person: true, graded_reference: 'https://cdn/old.jpg' });
+  assertEquals(cachedGrade(row, 'https://cdn/new.jpg'), null);
+});
+
+// The reverse is not true: a grade that knows about a face still answers a run
+// that is not asking about one. The category and quality are unaffected by the
+// extra question, so re-buying them would spend budget for nothing.
+Deno.test('cachedGrade — a face-aware grade still serves a run that is not asking', () => {
+  const row = gradedRow({ contains_reference_person: true, graded_reference: 'https://cdn/me.jpg' });
+  assertEquals(cachedGrade(row, null)?.category, 'nature');
 });

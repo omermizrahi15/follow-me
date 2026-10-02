@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
+import { normaliseCategory } from '../../domain/entities/PhotoClassification';
 import type { IClassificationStore } from '../../domain/interfaces';
 
 /**
@@ -68,7 +69,8 @@ const MAX_ENTRIES = 5_000;
 function toClassification(id: string, g: StoredGrade): PhotoClassification {
   return {
     candidate: { id, uri: g.uri, createdAt: new Date(g.createdAt) },
-    category: g.category,
+    // Stored grades outlive the category list — see normaliseCategory.
+    category: normaliseCategory(g.category),
     confidence: g.confidence,
     quality: g.quality,
     caption: g.caption,

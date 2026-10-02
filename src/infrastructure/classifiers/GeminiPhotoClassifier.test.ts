@@ -481,8 +481,10 @@ describe('GeminiPhotoClassifier — the request ran out of time (issue #174)', (
     // classifier: it says nothing about the photos and nothing about the AI, so
     // it must not abort the scan with an error the way a 500 does.
     const many = Array.from({ length: 24 }, (_, i) => candidate(`p${i}`));
-    // The chunk that answers gets in first, as it does in life: a deadline is
-    // 150 seconds and a healthy round trip is a couple.
+    // The chunks that answer get in first, as they do in life: a deadline is
+    // 150 seconds and a healthy round trip is a couple. Asserted by which
+    // photos come back rather than by how many, so the chunk size stays free
+    // to move with the provider's token budget.
     mockFetch.mockImplementation((url: string, init: { body: string }) => {
       const ids = requestedIds(init.body);
       if (ids.includes('p12')) {
@@ -495,8 +497,11 @@ describe('GeminiPhotoClassifier — the request ran out of time (issue #174)', (
     const sut = makeSut();
 
     const results = await sut.classify(many);
+    const graded = results.map(r => r.candidate.id);
 
-    expect(results).toHaveLength(12);
+    expect(graded).toContain('p0');
+    // Never invented for the chunk that never came back.
+    expect(graded).not.toContain('p12');
     expect(sut.timedOut()).toBe(true);
   });
 

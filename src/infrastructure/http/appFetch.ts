@@ -58,10 +58,10 @@ export const slowFetch = resilientFetch({ timeoutMs: 60_000, retries: 0 });
 
 /**
  * Classification. A deadline of its own because the request is unlike anything
- * else here: it carries up to a dozen downscaled photos — a couple of megabytes
- * of base64 — and the function on the other end spends them over as many
- * sequential model calls as the provider's per-call image limit needs, then
- * falls through to the next provider if the first is out of budget.
+ * else here: it carries a handful of downscaled photos — a hundred-odd KB of
+ * base64 each — and the function on the other end uploads them again to a
+ * vision model, waits out that model's own retries, and falls through to a
+ * second provider for anything the first would not grade.
  *
  * Sixty seconds (the shared slow deadline it used to borrow) is shorter than
  * that on a weak uplink, and giving up early is not free: the function counts

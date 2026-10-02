@@ -2,13 +2,12 @@ import React from 'react';
 import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { AiUsageLevel, AiUsageSummary } from '../../domain/entities/AiUsage';
-import { aiUsageCopy, providerLimitCopy } from '../../domain/services/aiUsage';
-import { showDevTools } from '../data/devTools';
+import { aiUsageCopy, providerChainCopy } from '../../domain/services/aiUsage';
 import { useAiUsage } from '../hooks/useAiUsage';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /**
- * "How much AI have I got left today", on the staging build only.
+ * "How much AI have I got left", in every build.
  *
  * Two different things, shown together because only the pair is the truth:
  *
@@ -16,25 +15,25 @@ import { colors, radius, spacing, typography } from '../theme/theme';
  *   optional ceiling. That ceiling is normally unset now, so this is usually a
  *   count with no denominator. It used to default to 500 and be rendered as a
  *   percentage, which made a number we invented look like the AI's real budget.
- * - What the PROVIDER says the account may still spend — read off its own
- *   response headers on every classify call and kept in `provider_limits`. This
- *   is the wall a scan actually hits, and it was invisible until now.
+ * - What each PROVIDER says the account may still spend — read off its own
+ *   response headers on every classify call and kept in `provider_limits`.
+ *   This is the wall a scan actually hits.
  *
- * Staging-only on purpose. It is an operational read-out for whoever is testing
- * — publishers have no use for a quota they cannot raise, and the wall already
- * explains itself in their words when a scan hits it. Like the dev notification
- * panel, this module is swapped for a stub at resolution time in a production
- * bundle (metro.config.js), so the runtime check below is the second line of
- * defence rather than the only one.
+ * It used to be staging-only, on the reasoning that a publisher has no use for
+ * a quota they cannot raise. That was wrong in the case that matters: the
+ * provider ceilings are what stops a scan, and the free tiers are small enough
+ * (Groq allows 8k tokens a minute — about eight photos — and Gemini twenty
+ * requests a DAY) that hitting them is the normal experience rather than an
+ * edge case. A publisher whose suggestion came back with four photos was being
+ * told nothing at all about why. So it ships everywhere, and the whole chain is
+ * listed rather than whichever provider happened to answer last.
  */
-export function AiUsageBar({ publisherId }: { publisherId: string }): React.JSX.Element | null {
+export function AiUsageCard({ publisherId }: { publisherId: string }): React.JSX.Element | null {
   const usage = useAiUsage(publisherId);
-
-  if (!showDevTools) return null;
 
   return (
     <View testID="ai-usage-bar">
-      <Text style={styles.sectionLabel}>AI budget (staging)</Text>
+      <Text style={styles.sectionLabel}>AI budget</Text>
       <View style={styles.card}>
         <View style={styles.header}>
           <View style={styles.iconWrap}>
@@ -46,35 +45,50 @@ export function AiUsageBar({ publisherId }: { publisherId: string }): React.JSX.
           </View>
           <Body usage={usage} />
         </View>
-        <ProviderLimits summary={usage.data ?? null} />
+        <ProviderChain summary={usage.data ?? null} />
       </View>
     </View>
   );
 }
 
 /**
- * The provider's own ceilings, underneath our count.
+ * Every provider's own ceilings, underneath our count, in the order grading
+ * tries them.
  *
- * Renders nothing at all when the provider has never been heard from. A row of
+ * The whole chain, not one entry. Grading falls through when a provider's
+ * budget is gone, so a single row showed whichever spoke LAST — the fallback —
+ * and a deployment grading on Groq displayed "gemini" from the moment Groq's
+ * daily tokens ran out, with nothing on screen to tell that apart from being
+ * misconfigured. The first row is the one doing the grading; anything below it
+ * is what catches the overflow.
+ *
+ * Renders nothing at all when no provider has ever been heard from. A row of
  * zeros would read as "you have none left", which is the opposite of "we have
  * not been told" — and standing in for an unknown with a plausible number is
  * the exact habit this whole panel is correcting.
  */
-function ProviderLimits({
+function ProviderChain({
   summary,
 }: {
   summary: AiUsageSummary | null;
 }): React.JSX.Element | null {
-  const copy = providerLimitCopy(summary?.provider ?? null);
-  if (copy == null) return null;
+  const chain = providerChainCopy(summary?.providers);
+  if (chain.length === 0) return null;
 
   return (
     <View style={styles.provider} testID="ai-usage-provider">
-      <Text style={styles.providerHeadline}>{copy.headline}</Text>
-      {copy.lines.map(line => (
-        <Text key={line} style={styles.providerLine}>
-          {line}
-        </Text>
+      {chain.map((copy, i) => (
+        <View key={copy.headline} style={i > 0 ? styles.fallback : undefined}>
+          <Text style={styles.providerHeadline}>
+            {copy.headline}
+            {i > 0 && <Text style={styles.providerLine}>  · fallback</Text>}
+          </Text>
+          {copy.lines.map(line => (
+            <Text key={line} style={styles.providerLine}>
+              {line}
+            </Text>
+          ))}
+        </View>
       ))}
     </View>
   );
@@ -176,6 +190,9 @@ const styles = StyleSheet.create({
     gap: 2,
   },
   providerHeadline: { ...typography.caption, color: colors.text, fontWeight: '600' },
+  // A fallback is a different fact from the leader, and reading as one list
+  // is what let "gemini" pass for "what we grade on".
+  fallback: { marginTop: spacing.sm, borderTopWidth: 1, borderTopColor: colors.border, paddingTop: spacing.sm },
   providerLine: { ...typography.caption, color: colors.textSecondary },
   reading: { flex: 1.1, alignItems: 'flex-end' },
   percent: { ...typography.body, fontSize: 15, fontWeight: '700' },

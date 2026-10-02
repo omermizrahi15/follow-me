@@ -20,10 +20,21 @@ import { queryCache } from '../../composition/container';
 export const feedKey = (publisherId: string): string => `feed:${publisherId}`;
 export const profileKey = (publisherId: string): string => `profile:${publisherId}`;
 export const subscribersKey = (publisherId: string): string => `subscribers:${publisherId}`;
+export const postingConfigKey = (publisherId: string): string => `posting-config:${publisherId}`;
 
 /** The feed changed: a post was shared, trashed or restored. */
 export function invalidateFeed(publisherId: string | null): void {
   if (publisherId != null) queryCache.invalidate(feedKey(publisherId));
+}
+
+/**
+ * The auto-posting config changed. Home reads the cadence from it to decide
+ * which stretches of the trip are missing a posting, so a publisher who
+ * switches from weekly to every three days must not keep seeing gaps measured
+ * the old way.
+ */
+export function invalidatePostingConfig(publisherId: string | null): void {
+  if (publisherId != null) queryCache.invalidate(postingConfigKey(publisherId));
 }
 
 /** The profile changed: name, photo or trip start date was saved. */

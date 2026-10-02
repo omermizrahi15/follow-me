@@ -16,6 +16,7 @@ import { saveConfig, scheduleReminder, registerPushToken } from '../../../compos
 import { colors, radius, spacing, typography } from '../../theme/theme';
 import { setPhotoSyncEnabled } from '../../data/photoSyncConsent';
 import { runCandidateSyncQuietly } from '../../data/candidateSync';
+import { invalidatePostingConfig } from '../../data/queries';
 
 type Props = {
   publisherId: string;
@@ -42,6 +43,7 @@ export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: 
         config.setPushToken(token);
         const next = config.buildConfig(token);
         await saveConfig.execute(next);
+        invalidatePostingConfig(publisherId);
         // Accepting the step is the consent: what gets uploaded is stated in
         // full above the button that lands here, rather than in an Alert whose
         // low-friction answer ("Not now") silently broke every automatic
@@ -67,6 +69,7 @@ export function AutoPostingSetupStep({ publisherId, step, totalSteps, onDone }: 
   function handlePreview(): void {
     void (async (): Promise<void> => {
       await saveConfig.execute(config.buildConfig()).catch(() => undefined);
+      invalidatePostingConfig(publisherId);
       setIsPreviewing(true);
     })();
   }

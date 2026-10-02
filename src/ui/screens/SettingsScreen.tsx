@@ -6,7 +6,7 @@ import { useNavigation } from '@react-navigation/native';
 import type { RootNavigationProp } from '../navigation/types';
 import { ScreenHeader } from '../components/ScreenHeader';
 import { useAuth, usePublisherId } from '../context/AuthContext';
-import { AiUsageBar } from '../dev/AiUsageBar';
+import { AiUsageCard } from '../components/AiUsageCard';
 import { PhotoGradeInspectorCard } from '../dev/PhotoGradeInspector';
 import { usePhotoSyncSetting } from '../hooks/usePhotoSyncSetting';
 import { confirmCloudPhotoWipe } from '../data/cloudPhotoWipe';
@@ -174,9 +174,9 @@ export function SettingsScreen(): React.JSX.Element {
           </TouchableOpacity>
         </View>
 
-        {/* Staging (and dev) only — a production bundle resolves this to a stub
-            that renders null, so nothing below it moves. See AiUsageBar. */}
-        <AiUsageBar publisherId={publisherId} />
+        {/* Ships in every build: the provider ceilings are what a scan stops
+            on, and they are small enough to hit on an ordinary afternoon. */}
+        <AiUsageCard publisherId={publisherId} />
         <PhotoGradeInspectorCard publisherId={publisherId} />
 
         <TouchableOpacity testID="settings-sign-out" style={styles.signOutButton} onPress={() => void signOut()}>
