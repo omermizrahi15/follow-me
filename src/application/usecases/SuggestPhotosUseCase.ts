@@ -280,15 +280,9 @@ export class SuggestPhotosUseCase {
   }
 
   /**
-   * The stretch a live suggestion draws from: everything since the last post,
-   * but never less than the configured lookback.
-   *
-   * `min`, not `max`, is the whole point. The lookback is a floor — a weekly
-   * publisher always sees at least their week — and the last post extends it
-   * backwards when they are overdue. Anchoring to `now - lookbackDays` alone
-   * meant a missed reminder silently swallowed the days between: open the app
-   * two days late and the two oldest days of the window had rolled out of it,
-   * taking exactly the photos the reminder was sent about.
+   * The stretch a live suggestion draws from: everything since the last post.
+   * The configured lookback only drives the reminder schedule; it is the
+   * fallback here for a publisher who has never posted.
    *
    * Clamped to MAX_LOOKBACK_DAYS so a long absence can't open an unbounded scan.
    */
