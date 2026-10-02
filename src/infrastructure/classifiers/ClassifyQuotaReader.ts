@@ -51,7 +51,11 @@ export class ClassifyQuotaReader implements IAiUsageReader {
     // ceiling of our own), and demanding a number would reject the honest
     // answer while accepting the invented one.
     if (!Number.isFinite(body?.used)) {
-      throw new Error('classify-photos returned an unreadable usage body');
+      // Say what came back: a stale deployment (405 + an error body), a
+      // mid-deploy blip and a non-JSON body are three different fixes, and the
+      // bare message made all of them the same Sentry issue.
+      const seen = body == null ? 'body was not JSON' : `keys: ${Object.keys(body).join(',') || 'none'}`;
+      throw new Error(`classify-photos returned an unreadable usage body (HTTP ${res.status}, ${seen})`);
     }
 
     const provider = parseProviderLimits(body?.provider);
