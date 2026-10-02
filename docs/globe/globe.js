@@ -304,9 +304,15 @@ window.createRouteGlobe = function (config) {
     map.easeTo({ center: center, duration: 1000, easing: function (n) { return n; } });
   }
 
+  /** Lifts the attribution button to sit above a sheet showing px pixels of itself. */
+  function setAttributionOffset(px) {
+    root.style.setProperty('--attrib-bottom', px + 'px');
+  }
+
   return {
     setRoute: setRoute,
     setBottomPadding: setBottomPadding,
+    setAttributionOffset: setAttributionOffset,
     // Tears the map down. The website uses it to drop the globe when the tile
     // provider starts refusing requests (quota), leaving the feed on its own.
     remove: function () { map.remove(); },

@@ -41,7 +41,13 @@
   }
   /* The globe sits on deep space, like the profile screen it replaces. */
   .globe-stage .maplibregl-ctrl-attrib { font-size: 9px; opacity: 0.6; }
-  .globe-stage .maplibregl-ctrl-bottom-left, .globe-stage .maplibregl-ctrl-bottom-right { bottom: var(--bottom-padding, 0px); }
+  /* The ⓘ rides just above the sheet's top edge (--attrib-bottom, kept in step with
+     the sheet), so it neither floats mid-screen when the sheet is dragged down nor
+     hides behind it. It falls back to the globe's own padding until told. */
+  .globe-stage .maplibregl-ctrl-bottom-left, .globe-stage .maplibregl-ctrl-bottom-right {
+    bottom: calc(var(--attrib-bottom, var(--bottom-padding, 0px)) + 4px);
+    transition: bottom 200ms ease-out;
+  }
   .globe-stage .stop {
     width: 54px; height: 54px; border-radius: 50%;
     border: 3px solid #fff; padding: 0; background: #14324a;
