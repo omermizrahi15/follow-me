@@ -102,9 +102,11 @@ export function isFailureStatus(messageStatus: string): boolean {
  *
  * 21211 invalid 'To' number · 21610 recipient opted out (STOP) ·
  * 21614 not a mobile number · 63003 channel can't find the recipient ·
- * 63024 invalid recipient.
+ * 63024 invalid recipient · 63032 WhatsApp won't deliver to this user (their
+ * number is enrolled in a Meta experiment; every send fails until it ends, so
+ * without this the follower sat "Active" while receiving nothing — issue #203).
  */
-const UNREACHABLE_ERROR_CODES = new Set([21211, 21610, 21614, 63003, 63024]);
+const UNREACHABLE_ERROR_CODES = new Set([21211, 21610, 21614, 63003, 63024, 63032]);
 
 export function isUnreachableErrorCode(errorCode: number | null): boolean {
   return errorCode != null && UNREACHABLE_ERROR_CODES.has(errorCode);
