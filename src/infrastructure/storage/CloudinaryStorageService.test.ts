@@ -163,3 +163,41 @@ describe('CloudinaryStorageService — failure messages', () => {
     );
   });
 });
+
+describe('CloudinaryStorageService — decode concurrency', () => {
+  it('decodes at most 3 photos at once however many uploads are in flight', async () => {
+    let inFlight = 0;
+    let peak = 0;
+    const releases: (() => void)[] = [];
+    mockManipulate.mockImplementation(async () => {
+      inFlight++;
+      peak = Math.max(peak, inFlight);
+      await new Promise<void>(resolve => releases.push(resolve));
+      inFlight--;
+      return { uri: 'file:///cache/resized.jpg', width: 2048, height: 1536 };
+    });
+    for (let i = 0; i < 8; i++) mockSuccess();
+
+    const sut = makeSut();
+    const uploads = Array.from({ length: 8 }, (_, i) => sut.upload(`file:///p${i}.jpg`, `p${i}.jpg`));
+    for (let i = 0; i < 50 && (releases.length > 0 || inFlight > 0 || i < 5); i++) {
+      await new Promise<void>(resolve => setImmediate(resolve));
+      releases.shift()?.();
+    }
+    await Promise.all(uploads);
+
+    expect(peak).toBe(3);
+  });
+
+  it('frees its decode slot when a decode fails', async () => {
+    mockManipulate.mockRejectedValue(new Error('decode failed'));
+    for (let i = 0; i < 6; i++) mockSuccess();
+
+    const sut = makeSut();
+    const urls = await Promise.all(
+      Array.from({ length: 6 }, (_, i) => sut.upload(`file:///p${i}.jpg`, `p${i}.jpg`)),
+    );
+
+    expect(urls).toHaveLength(6);
+  });
+});
