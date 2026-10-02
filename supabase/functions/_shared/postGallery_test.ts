@@ -3,11 +3,26 @@ import { publisherGalleryUrl, savePostGallery } from './postGallery.ts';
 
 interface Upsert { row: Record<string, unknown> }
 
-/** Records every upsert; `failWhen` rejects the ones a real PostgREST would. */
-function fakeSupabase(failWhen: (row: Record<string, unknown>) => boolean = () => false) {
+/**
+ * Records every upsert; `failWhen` rejects the ones a real PostgREST would.
+ * `mediaRows` is what the `media` table holds, for the coordinate lookup.
+ */
+function fakeSupabase(
+  failWhen: (row: Record<string, unknown>) => boolean = () => false,
+  mediaRows: { latitude: number | null; longitude: number | null }[] = [],
+) {
   const upserts: Upsert[] = [];
   const client = {
     from(table: string) {
+      if (table === 'media') {
+        const query = {
+          select: () => query,
+          eq: () => query,
+          not: () => query,
+          limit: () => Promise.resolve({ data: mediaRows, error: null }),
+        };
+        return query;
+      }
       assertEquals(table, 'posts');
       return {
         upsert(row: Record<string, unknown>) {
@@ -90,4 +105,43 @@ Deno.test('publisherGalleryUrl — shares its base with the per-post links', asy
 
   const base = (u: string) => u.split('?')[0];
   assertEquals(base(publisherGalleryUrl('pub-1')), base(postUrl ?? ''));
+});
+
+Deno.test('savePostGallery — stores where the post was taken so followers get the globe', async () => {
+  const { client, upserts } = fakeSupabase();
+
+  await savePostGallery(client, 'pub-1', ['https://a'], 'Lisbon', 'posting-abc', { latitude: 38.7, longitude: -9.1 });
+
+  assertEquals(upserts[0].row.latitude, 38.7);
+  assertEquals(upserts[0].row.longitude, -9.1);
+});
+
+Deno.test('savePostGallery — looks the coordinate up from the posting when the caller has none', async () => {
+  // send-post gets only a posting id from the app; the coordinate is on the
+  // media rows the app stamped with it.
+  const { client, upserts } = fakeSupabase(undefined, [{ latitude: 41.1, longitude: -8.6 }]);
+
+  await savePostGallery(client, 'pub-1', ['https://a'], 'Porto', 'posting-abc');
+
+  assertEquals(upserts[0].row.latitude, 41.1);
+  assertEquals(upserts[0].row.longitude, -8.6);
+});
+
+Deno.test('savePostGallery — omits the coordinate columns when nothing has a location', async () => {
+  const { client, upserts } = fakeSupabase();
+
+  await savePostGallery(client, 'pub-1', ['https://a'], null, 'posting-abc');
+
+  assert(!('latitude' in upserts[0].row));
+  assert(!('longitude' in upserts[0].row));
+});
+
+Deno.test('savePostGallery — still returns a link against a database without the coordinate columns', async () => {
+  const { client, upserts } = fakeSupabase(row => 'latitude' in row);
+
+  const url = await savePostGallery(client, 'pub-1', ['https://a'], null, 'posting-abc', { latitude: 1, longitude: 2 });
+
+  assert(url != null);
+  assert(!('latitude' in upserts.at(-1)!.row));
+  assertEquals(upserts.at(-1)!.row.posting_id, 'posting-abc');
 });

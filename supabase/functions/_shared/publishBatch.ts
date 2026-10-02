@@ -78,7 +78,14 @@ export async function publishBatch(
 
   // The posting id goes onto the gallery row too, so trashing this post later
   // hides it from followers and not just from the publisher's own feed.
-  const galleryUrl = await savePostGallery(supabase, publisherId, urls, place, postingId);
+  const galleryUrl = await savePostGallery(
+    supabase,
+    publisherId,
+    urls,
+    place,
+    postingId,
+    photos.find(p => p.coordinate != null)?.coordinate ?? null,
+  );
   const caption = composeAutoPostBody(
     name,
     phone,

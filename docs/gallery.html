@@ -20,6 +20,11 @@
   rather than being a bare ✕: a follower arriving from WhatsApp has no reason to
   guess that closing one post reveals every other one (issue #160).
 
+  The feed opens on the travel globe (issue #200) — the same one the publisher
+  sees in the app. Its rendering code is not written here: docs/globe/ is
+  generated from the app's own sources by scripts/build-web-globe.js. Posts with
+  a coordinate become photo markers; tapping one opens that post's story.
+
   Reads Supabase REST with the anon key (public by design; posts and
   publisher_profile have anon SELECT policies). Hosted here because Supabase
   serves Edge Function & Storage HTML as text/plain (anti-phishing), so it
@@ -31,6 +36,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="robots" content="noindex">
   <title>Photos — Follow Me</title>
+  <link rel="stylesheet" href="globe/globe.css">
   <style>
     /* Tokens mirror the app's theme.ts so the web feed reads as the same product. */
     :root {
@@ -82,6 +88,15 @@
       background: rgba(0,0,0,0.45); color: #fff;
       border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 600;
     }
+    /* The travel globe (issue #200). The stage's own look comes from the shared
+       globe.css; this only sizes it into the page and rounds it like a card. */
+    .globe-hero {
+      position: relative; margin-top: 16px; height: min(100vw - 32px, 440px);
+      border-radius: var(--radius-lg); overflow: hidden; background: #05070f;
+      /* A finger that starts on the globe pans it; the page scrolls everywhere else. */
+      touch-action: pan-y;
+    }
+    .globe-hero .globe-stage { position: absolute; inset: 0; }
     .empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); font-size: 14px; }
 
     /* ---------- story viewer (issue #67) ---------- */
@@ -171,6 +186,11 @@
   <div class="page">
     <!-- Feed: every post by the publisher, newest first. -->
     <section id="feedView" hidden>
+      <!-- The travel globe: one photo marker per located post, joined by the
+           route. Hidden until at least one post has a place on the map. -->
+      <div class="globe-hero" id="globeHero" role="region" aria-label="Map of where these photos were taken" hidden>
+        <div class="globe-stage" id="globeStage"><div class="globe-glow"></div><div class="globe-map"></div></div>
+      </div>
       <div class="profile">
         <div class="profile-avatar" id="feedAvatar"></div>
         <div class="profile-text">
@@ -220,6 +240,7 @@
     </div>
   </div>
 
+  <script src="globe/globe.js"></script>
   <script>
     // One page, two backends. A post lives in whichever Supabase project
     // created it, and the staging app links here too — this file used to query
@@ -238,6 +259,19 @@
         key: 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzenZydm54ZHV3cHlteWFidmNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MDgwNDcsImV4cCI6MjA5ODk4NDA0N30.ey2NHiMJ07q5iwZuVMTWpGjABfHhz6s8XRTiIfhMtVk',
       },
     };
+
+    // Satellite imagery for the globe needs a MapTiler key. It ships in this
+    // public page whatever we do, so it is protected the way MapTiler intends:
+    // restrict it to this site's origin in the MapTiler dashboard (Account →
+    // Keys → Allowed HTTP origins). Left empty, the globe falls back to
+    // MapLibre's free demo tiles — flat vector land, no imagery — like the app
+    // does without EXPO_PUBLIC_MAPTILER_KEY.
+    const MAPTILER_KEY = '';
+    function globeStyleUrl() {
+      return MAPTILER_KEY === ''
+        ? 'https://demotiles.maplibre.org/style.json'
+        : 'https://api.maptiler.com/maps/hybrid/style.json?key=' + encodeURIComponent(MAPTILER_KEY);
+    }
 
     // Repointed by resolveProject() before anything else is fetched.
     let SUPABASE_URL = PROJECTS.production.url;
@@ -518,6 +552,77 @@
       return card;
     }
 
+    // ---------- travel globe (issue #200) ----------
+    // The same route the app draws: every post that carries a coordinate, oldest
+    // first, joined by great-circle legs. The geometry (travelRoute.js) and the
+    // renderer (globe.js) are generated from the app's code, not rewritten.
+    /** Markers are 54 CSS px; ask the CDN for a 2×-density square, like the app. */
+    const MARKER_PX = 108;
+    let globe = null;
+    let globeLoading = false;
+    let globeRouteKey = '';
+
+    function validCoordinate(lat, lon) {
+      return typeof lat === 'number' && typeof lon === 'number' &&
+        Number.isFinite(lat) && Number.isFinite(lon) && Math.abs(lat) <= 90 && Math.abs(lon) <= 180;
+    }
+
+    function routeInputs() {
+      return [...postsById.values()]
+        .filter(post => validCoordinate(post.latitude, post.longitude))
+        .map(post => ({
+          id: post.id,
+          createdAt: post.created_at,
+          date: formatDate(post.created_at),
+          thumbUrl: post.media_urls[0] ? sizedUrl(post.media_urls[0], MARKER_PX) : null,
+          coordinate: { latitude: post.latitude, longitude: post.longitude },
+          place: post.place || null,
+        }));
+    }
+
+    /** Draws the globe, or swaps the new route into the one already drawn. */
+    async function syncGlobe() {
+      const hero = document.getElementById('globeHero');
+      const inputs = routeInputs();
+      // Nothing to plot (no GPS on any post, or an older post set): no globe at
+      // all rather than an empty planet.
+      if (inputs.length === 0) { hero.hidden = true; return; }
+      try {
+        const { buildTravelRoute } = await import('./globe/travelRoute.js');
+        const route = buildTravelRoute(inputs);
+        const key = JSON.stringify(route);
+        hero.hidden = false;
+        if (globe != null) {
+          if (key !== globeRouteKey) { globeRouteKey = key; globe.setRoute(route); }
+          return;
+        }
+        if (globeLoading) return;
+        globeLoading = true;
+        await window.loadMapLibre();
+        globeRouteKey = key;
+        globe = window.createRouteGlobe({
+          root: document.getElementById('globeStage'),
+          route,
+          styleUrl: globeStyleUrl(),
+          bottomPadding: 0,
+          // The page scrolls; the wheel belongs to it. Zoom is on the buttons.
+          scrollZoom: false,
+          zoomControls: true,
+          post(message) {
+            if (message.type === 'openPosting') openPost(message.id);
+            if (message.type === 'error') console.warn('[globe]', message.message);
+          },
+        });
+        globeLoading = false;
+        // Posts may have landed while the library was loading.
+        void syncGlobe();
+      } catch (_) {
+        // The feed is the product; a blocked CDN or no WebGL must not touch it.
+        globeLoading = false;
+        hero.hidden = true;
+      }
+    }
+
     function renderFeed() {
       feedView.hidden = false;
       statusEl.hidden = true;
@@ -528,6 +633,8 @@
       document.getElementById('feedCount').textContent =
         posts.length + ' post' + (posts.length === 1 ? '' : 's');
       document.getElementById('feedEmpty').hidden = posts.length > 0;
+
+      void syncGlobe();
 
       // Cards are rebuilt only when the post set changed; coming back from a
       // post reuses the DOM that is already there.
