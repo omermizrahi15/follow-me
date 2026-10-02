@@ -1,6 +1,7 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
 import { normaliseCategory } from '../../domain/entities/PhotoClassification';
+import type { ClassificationFailureKind } from '../../domain/services/reviewCopy';
 import type { FaceReference, IPhotoClassifier } from '../../domain/interfaces';
 import { classifyFetch } from '../http/appFetch';
 import { RequestTimeoutError } from '../http/resilientFetch';
@@ -40,6 +41,8 @@ export class ClassificationFailedError extends Error {
     readonly candidateId: string,
     message: string,
     override readonly cause?: unknown,
+    /** What went wrong, so the app can say so (issue #202). */
+    readonly kind?: ClassificationFailureKind,
   ) {
     super(message);
     this.name = 'ClassificationFailedError';
@@ -444,6 +447,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       ...(reference != null ? { reference: { url: reference.url } } : {}),
     });
     let lastNetworkError: unknown;
+    let lastServerError: unknown;
     let networkAttempts = 0;
     let rateLimitWaits = 0;
     let busyWaits = 0;
@@ -472,7 +476,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       // for the refresh to land is what the situation actually calls for.
       if (bearer == null) {
         if (authWaits >= GeminiPhotoClassifier.MAX_AUTH_WAITS) {
-          throw new ClassificationFailedError(c.id, 'not signed in — cannot classify photos');
+          throw new ClassificationFailedError(c.id, 'not signed in — cannot classify photos', undefined, 'auth');
         }
         authWaits++;
         await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS, this.runOver.signal);
@@ -597,10 +601,17 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       }
 
       if (!res.ok) {
-        throw new ClassificationFailedError(
-          c.id,
-          `classify-photos returned ${res.status}: ${await res.text().catch(() => '<unreadable body>')}`,
-        );
+        const detail = `classify-photos returned ${res.status}: ${await res.text().catch(() => '<unreadable body>')}`;
+        // A 5xx is usually one bad moment on the function, not a verdict on
+        // this request — retry once like a dropped connection (issue #202).
+        if (res.status >= 500 && networkAttempts < GeminiPhotoClassifier.MAX_ATTEMPTS) {
+          lastServerError = new Error(detail);
+          await sleep(GeminiPhotoClassifier.RETRY_DELAY_MS, this.runOver.signal);
+          continue;
+        }
+        const kind: ClassificationFailureKind =
+          res.status >= 500 ? 'server' : res.status === 401 || res.status === 403 ? 'auth' : 'rejected';
+        throw new ClassificationFailedError(c.id, detail, undefined, kind);
       }
 
       let parsed: { classifications?: RawClassification[] };
@@ -609,7 +620,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       } catch (err) {
         // A 200 we cannot parse is a broken contract, not a flaky upload — a
         // retry would just produce the same unusable body.
-        throw new ClassificationFailedError(c.id, 'classify-photos returned an unreadable body', err);
+        throw new ClassificationFailedError(c.id, 'classify-photos returned an unreadable body', err, 'unusable');
       }
 
       // Map grades back by id rather than by position: the server drops any
@@ -636,7 +647,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       }
 
       if (graded.length === 0) {
-        throw new ClassificationFailedError(c.id, 'classify-photos returned no grades for this batch');
+        throw new ClassificationFailedError(c.id, 'classify-photos returned no grades for this batch', undefined, 'unusable');
       }
       return graded;
     }
@@ -644,7 +655,8 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     throw new ClassificationFailedError(
       c.id,
       `classify-photos unreachable after ${GeminiPhotoClassifier.MAX_ATTEMPTS} attempts`,
-      lastNetworkError,
+      lastServerError ?? lastNetworkError,
+      lastServerError != null ? 'server' : 'network',
     );
   }
 }

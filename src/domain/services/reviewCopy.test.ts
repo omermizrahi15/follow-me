@@ -1,4 +1,4 @@
-import { emptyRoundNote, scanShortfallNote, scanSummary } from './reviewCopy';
+import { classificationFailureMessage, emptyRoundNote, scanShortfallNote, scanSummary } from './reviewCopy';
 import type { ScanStats } from './reviewCopy';
 
 const stats = (over: Partial<ScanStats> = {}): ScanStats => ({
@@ -131,5 +131,23 @@ describe('scanShortfallNote', () => {
 
   it('stays quiet with no stats at all', () => {
     expect(scanShortfallNote(null)).toBeNull();
+  });
+});
+
+describe('classificationFailureMessage (issue #202)', () => {
+  it.each([
+    ['network', /connection/i],
+    ['server', /on our side|server/i],
+    ['auth', /sign in/i],
+    ['rejected', /couldn.t|could not/i],
+    ['unusable', /answer/i],
+  ] as const)('says something specific for %s', (kind, pattern) => {
+    const message = classificationFailureMessage(kind);
+    expect(message).toMatch(pattern);
+    expect(message).not.toMatch(/Could not reach the photo AI/);
+  });
+
+  it('falls back to the generic line for an unknown failure', () => {
+    expect(classificationFailureMessage(undefined)).toMatch(/Could not reach the photo AI/);
   });
 });
