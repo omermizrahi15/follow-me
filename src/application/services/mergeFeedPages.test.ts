@@ -6,6 +6,7 @@ function posting(id: string, mediaIds: string[]): FeedPostingDto {
     id,
     createdAt: '2026-06-18T10:00:00.000Z',
     location: null,
+    caption: null,
     coordinate: null,
     deletedAt: null,
     media: mediaIds.map(m => ({ id: m, url: `https://cdn.example.com/${m}.jpg` })),

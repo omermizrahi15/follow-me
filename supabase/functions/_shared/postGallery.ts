@@ -61,6 +61,11 @@ async function postId(publisherId: string, mediaUrls: string[]): Promise<string>
  * `postingId` is the batch id the same send stamps on its `media` rows. It is
  * what lets the publisher deleting a post hide it from followers: without it
  * the two tables share no key, and trashed posts stayed visible in the gallery.
+ *
+ * `caption` is the publisher's own words (issue #220), shown under the photos
+ * on the gallery page. Like `posting_id` it is a column an environment may not
+ * have yet, so it is only named when there is one, and dropped before anything
+ * else when the write is rejected.
  */
 export async function savePostGallery(
   supabase: SupabaseClient,
@@ -68,20 +73,25 @@ export async function savePostGallery(
   mediaUrls: string[],
   place: string | null = null,
   postingId: string | null = null,
+  caption: string | null = null,
 ): Promise<string | null> {
   try {
     const id = await postId(publisherId, mediaUrls);
     const row = { id, publisher_id: publisherId, media_urls: mediaUrls, place };
-    let { error } = await supabase
-      .from('posts')
-      .upsert(postingId != null ? { ...row, posting_id: postingId } : row);
-    // `posting_id` arrives with migration 20240032. Against an environment the
-    // migration hasn't reached, naming the column 400s the upsert and every
-    // message loses its gallery link — so fall back to the row without it. The
-    // post is then untrashable until the migration runs, which beats sending
-    // linkless messages in the meantime.
-    if (error != null && postingId != null) {
-      ({ error } = await supabase.from('posts').upsert(row));
+    const withPosting = postingId != null ? { ...row, posting_id: postingId } : row;
+    const withCaption = caption != null ? { ...withPosting, caption } : withPosting;
+    // Newest columns first, so each step down gives up only the latest
+    // migration's column. `posting_id` arrives with 20240032 and `caption` with
+    // 20240041. Against an environment a migration hasn't reached, naming its
+    // column 400s the upsert and every message loses its gallery link — so fall
+    // back to the row without it. The post is then missing that enhancement
+    // (untrashable, or uncaptioned) until the migration runs, which beats
+    // sending linkless messages in the meantime.
+    const attempts = [withCaption, withPosting, row].filter((r, i, all) => all.indexOf(r) === i);
+    let error: { message: string } | null = null;
+    for (const attempt of attempts) {
+      ({ error } = await supabase.from('posts').upsert(attempt));
+      if (error == null) break;
     }
     if (error != null) throw new Error(error.message);
     return `${galleryBaseUrl()}?id=${id}`;

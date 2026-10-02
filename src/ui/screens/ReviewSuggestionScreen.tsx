@@ -62,6 +62,8 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
   // sheet where KeyboardAvoidingView mis-measures — see the hook doc).
   const keyboardPadding = useKeyboardBottomPadding();
   const [done, setDone] = useState(false);
+  // Per post: cleared once a post is sent, so the next leg of a split starts bare.
+  const [caption, setCaption] = useState('');
 
   // Chained, not circular: the grid decides which photos are in the post, the
   // place is resolved from those photos' GPS, and the split offer needs that
@@ -114,7 +116,8 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
       const location = place.locationForPost();
       if (__DEV__) console.log(`[share] place: ${JSON.stringify(location)}`);
       try {
-        await share(items, publisherId, location, place.pickedCoordinate ?? place.gpsCoordinate);
+        await share(items, publisherId, location, place.pickedCoordinate ?? place.gpsCoordinate, caption);
+        setCaption('');
         // Posted — this batch is spent; next visit should compute a fresh one.
         void SuggestionCache.clear(publisherId).catch(() => undefined);
 
@@ -130,7 +133,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
         /* surfaced via shareError */
       }
     })();
-  }, [kept, share, publisherId, place, split, showLeg]);
+  }, [kept, share, publisherId, place, split, showLeg, caption]);
 
   if (done) {
     return (
@@ -307,6 +310,8 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
               shareError={shareError}
               shareProgress={shareProgress}
               keyboardPadding={keyboardPadding}
+              caption={caption}
+              onCaptionChange={setCaption}
               onConfirm={handleConfirm}
             />
           )}

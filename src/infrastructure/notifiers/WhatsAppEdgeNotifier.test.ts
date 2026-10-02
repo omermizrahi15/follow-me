@@ -63,6 +63,27 @@ describe('WhatsAppEdgeNotifier', () => {
     });
   });
 
+  it('sends the posting caption so followers receive it (issue #220)', async (): Promise<void> => {
+    const media = Media.create({
+      id: 'media-1',
+      ownerId: 'user-1',
+      url: 'https://cdn.test/a.jpg',
+      createdAt: new Date(),
+      caption: 'Made it to the top 🏔️',
+    });
+    await new WhatsAppEdgeNotifier(FN_URL, KEY).notify(makeSubscriber(), [media]);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ caption: 'Made it to the top 🏔️' });
+  });
+
+  it('omits the caption field when the post has none', async (): Promise<void> => {
+    await new WhatsAppEdgeNotifier(FN_URL, KEY).notify(makeSubscriber(), [makeMedia()]);
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).not.toHaveProperty('caption');
+  });
+
   it('authenticates with the anon key', async (): Promise<void> => {
     const notifier = new WhatsAppEdgeNotifier(FN_URL, KEY);
     await notifier.notify(makeSubscriber(), [makeMedia()]);

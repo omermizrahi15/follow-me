@@ -180,10 +180,14 @@ Deno.test('credsFromEnv — maps required vars; includes optionals only when pre
   full.set('TWILIO_STATUS_CALLBACK_URL', 'https://cb');
   full.set('TWILIO_TEMPLATE_POST_SID', 'HXp');
   full.set('TWILIO_TEMPLATE_POST_LOCATION_SID', 'HXl');
+  full.set('TWILIO_TEMPLATE_POST_CAPTION_SID', 'HXpc');
+  full.set('TWILIO_TEMPLATE_POST_LOCATION_CAPTION_SID', 'HXlc');
   const c2 = credsFromEnv({ get: (k: string) => full.get(k) });
   assertEquals(c2.apiKeySid, 'SK');
   assertEquals(c2.apiKeySecret, 'sek');
   assertEquals(c2.statusCallback, 'https://cb');
   assertEquals(c2.templatePostSid, 'HXp');
   assertEquals(c2.templatePostLocationSid, 'HXl');
+  assertEquals(c2.templatePostCaptionSid, 'HXpc');
+  assertEquals(c2.templatePostLocationCaptionSid, 'HXlc');
 });

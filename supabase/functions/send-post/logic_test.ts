@@ -36,3 +36,25 @@ Deno.test('validateSendPost — rejects non-https or non-string media URLs', () 
   if (!bad.ok) assert(bad.error.includes('https'));
   assertEquals(validateSendPost({ publisherId: 'p', to: '+1', mediaUrls: ['https://a', 42] }).ok, false);
 });
+
+// Issue #220 — the optional caption is untrusted input, so it is cleaned here
+// the same way the app cleans it before sending.
+Deno.test('validateSendPost — passes a caption through, trimmed', () => {
+  const r = validateSendPost({ publisherId: 'p', to: '+1', mediaUrls: ['https://a'], caption: '  Made it 🏔️  ' });
+  assert(r.ok);
+  if (r.ok) assertEquals(r.value.caption, 'Made it 🏔️');
+});
+
+Deno.test('validateSendPost — a blank or non-string caption is no caption', () => {
+  for (const caption of ['', '  \n ', 42, null, undefined]) {
+    const r = validateSendPost({ publisherId: 'p', to: '+1', mediaUrls: ['https://a'], caption });
+    assert(r.ok);
+    if (r.ok) assertEquals(r.value.caption, undefined);
+  }
+});
+
+Deno.test('validateSendPost — caps an over-long caption', () => {
+  const r = validateSendPost({ publisherId: 'p', to: '+1', mediaUrls: ['https://a'], caption: 'x'.repeat(1000) });
+  assert(r.ok);
+  if (r.ok) assertEquals(r.value.caption?.length, 280);
+});

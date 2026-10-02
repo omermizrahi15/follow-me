@@ -92,6 +92,71 @@ describe('buildPostTemplate', () => {
     });
   });
 
+  // Issue #220: a template body is fixed, so a caption needs its own pair of
+  // templates with an extra variable. The caption-less pair stays as it was.
+  describe('caption (issue #220)', () => {
+    const CAPTION_ENV = {
+      ...ENV,
+      postCaptionSid: 'HXpostCap',
+      postLocationCaptionSid: 'HXpostLocCap',
+    };
+
+    it('uses the location+caption template, caption right after the place', () => {
+      const t = buildPostTemplate(CAPTION_ENV, { ...BASE, place: 'Lisbon', caption: 'Pastel de nata ✨' });
+      expect(t?.contentSid).toBe('HXpostLocCap');
+      expect(t?.variables).toEqual({
+        '1': 'Uri Shiber',
+        '2': 'Lisbon',
+        '3': 'Pastel de nata ✨',
+        '4': '2',
+        '5': 'https://pages.dev/gallery.html?id=abc',
+        '6': 'Uri Shiber',
+        '7': composeReplyLink(BASE.publisherPhone, 'Lisbon'),
+        '8': 'https://cdn/collage.jpg',
+      });
+    });
+
+    it('uses the no-place caption template when the post has no place', () => {
+      const t = buildPostTemplate(CAPTION_ENV, { ...BASE, place: null, caption: 'Pastel de nata ✨' });
+      expect(t?.contentSid).toBe('HXpostCap');
+      expect(t?.variables).toEqual({
+        '1': 'Uri Shiber',
+        '2': 'Pastel de nata ✨',
+        '3': '2',
+        '4': 'https://pages.dev/gallery.html?id=abc',
+        '5': 'Uri Shiber',
+        '6': composeReplyLink(BASE.publisherPhone, null),
+        '7': 'https://cdn/collage.jpg',
+      });
+    });
+
+    it('flattens line breaks in the caption (WhatsApp rejects them in variables)', () => {
+      const t = buildPostTemplate(CAPTION_ENV, { ...BASE, place: null, caption: 'Day one\n\nDay   two' });
+      expect(t?.variables['2']).toBe('Day one Day two');
+    });
+
+    it('uses the caption-less templates when there is no caption', () => {
+      expect(buildPostTemplate(CAPTION_ENV, { ...BASE, place: 'Lisbon' })?.contentSid).toBe('HXpostLoc');
+      expect(buildPostTemplate(CAPTION_ENV, { ...BASE, place: null, caption: null })?.contentSid).toBe('HXpost');
+      expect(buildPostTemplate(CAPTION_ENV, { ...BASE, place: null, caption: '  \n ' })?.contentSid).toBe('HXpost');
+    });
+
+    it('degrades to the caption-less template when the caption SIDs are not configured', () => {
+      const t = buildPostTemplate(ENV, { ...BASE, place: 'Lisbon', caption: 'Pastel de nata ✨' });
+      expect(t?.contentSid).toBe('HXpostLoc');
+      expect(Object.keys(t?.variables ?? {})).toHaveLength(7);
+    });
+
+    it('falls back to the no-place caption template when only that SID is configured', () => {
+      const t = buildPostTemplate(
+        { postSid: 'HXpost', postCaptionSid: 'HXpostCap' },
+        { ...BASE, place: 'Lisbon', caption: 'Hi' },
+      );
+      expect(t?.contentSid).toBe('HXpostCap');
+      expect(t?.variables['2']).toBe('Hi');
+    });
+  });
+
   it('returns null (→ free-form fallback) when no template SIDs are configured', () => {
     expect(buildPostTemplate({}, { ...BASE, place: 'Tel Aviv' })).toBeNull();
   });

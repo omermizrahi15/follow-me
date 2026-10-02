@@ -6,6 +6,11 @@ export interface MediaProps {
   url: string;
   createdAt: Date;
   location?: string;
+  /**
+   * The publisher's own words about the posting (issue #220). Carried by every
+   * item of the batch, like `location`, so any one of them can speak for it.
+   */
+  caption?: string;
   /** Where the photo was taken — what the Me-page globe plots. */
   coordinate?: Coordinate;
   /** Groups the items shared together in one send — the feed's "posting". */
@@ -34,6 +39,7 @@ export class Media {
   get url(): string { return this.props.url; }
   get createdAt(): Date { return this.props.createdAt; }
   get location(): string | undefined { return this.props.location; }
+  get caption(): string | undefined { return this.props.caption; }
   get coordinate(): Coordinate | undefined { return this.props.coordinate; }
   get postingId(): string | undefined { return this.props.postingId; }
   get deletedAt(): Date | undefined { return this.props.deletedAt; }

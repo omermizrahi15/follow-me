@@ -17,6 +17,8 @@ export interface FeedPostingDto {
   id: string;
   createdAt: string; // ISO string of the newest item in the posting
   location: string | null;
+  /** The publisher's own words about the posting; null when they added none. */
+  caption: string | null;
   /** Where the posting is plotted on the Me-page globe; null when no item has GPS. */
   coordinate: Coordinate | null;
   /** ISO string when the posting sits in the trash; null while it is live. */

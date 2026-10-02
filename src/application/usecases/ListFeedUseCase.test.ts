@@ -75,6 +75,18 @@ describe('ListFeedUseCase — grouping by postingId', () => {
     expect(feed[0]?.location).toBeNull();
   });
 
+  it('carries the caption of the posting, null when it has none (issue #220)', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    await mediaRepo.save(makeMedia('m1', { postingId: 'post-a' }));
+    await mediaRepo.save(makeMedia('m2', { postingId: 'post-a', caption: 'Made it 🏔️' }));
+    await mediaRepo.save(makeMedia('m3', { postingId: 'post-b' }));
+
+    const { postings: feed } = await useCase.list('user-1');
+
+    expect(feed.find(p => p.id === 'post-a')?.caption).toBe('Made it 🏔️');
+    expect(feed.find(p => p.id === 'post-b')?.caption).toBeNull();
+  });
+
   it('only returns the requested publisher media', async (): Promise<void> => {
     const { useCase, mediaRepo } = makeSut();
     await mediaRepo.save(makeMedia('mine', { postingId: 'post-a' }));

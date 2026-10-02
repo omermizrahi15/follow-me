@@ -5,7 +5,8 @@
  * subscriber over WhatsApp. Called by the app once per subscriber after the
  * publisher confirms a post — Twilio credentials stay server-side (issue #24).
  *
- * Body: { publisherId: string, to: string (phone), mediaUrls: string[] }
+ * Body: { publisherId: string, to: string (phone), mediaUrls: string[],
+ *         place?: string, postingId?: string, caption?: string }
  *
  * TODO(#24): verify the caller's Supabase JWT matches publisherId instead of
  * trusting the body (dev-grade, same posture as classify-photos).
@@ -48,7 +49,7 @@ function json(body: unknown, status = 200): Response {
 Deno.serve(async req => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
-  let body: { publisherId?: string; to?: string; mediaUrls?: string[]; place?: string; postingId?: string };
+  let body: { publisherId?: string; to?: string; mediaUrls?: string[]; place?: string; postingId?: string; caption?: string };
   try {
     body = await req.json();
   } catch {
@@ -57,18 +58,26 @@ Deno.serve(async req => {
 
   const validation = validateSendPost(body);
   if (!validation.ok) return json({ error: validation.error }, 400);
-  const { publisherId, to, mediaUrls, place, postingId } = validation.value;
+  const { publisherId, to, mediaUrls, place, postingId, caption: postCaption } = validation.value;
 
   const { name, phone } = await publisherIdentity(supabase, publisherId);
   // One posts row per batch (the id is a hash of publisher + urls), so the
   // per-subscriber calls upsert the same row — including the posting id that
   // lets a later delete hide it from followers.
-  const galleryUrl = await savePostGallery(supabase, publisherId, mediaUrls, place ?? null, postingId ?? null);
+  const galleryUrl = await savePostGallery(
+    supabase,
+    publisherId,
+    mediaUrls,
+    place ?? null,
+    postingId ?? null,
+    postCaption ?? null,
+  );
   const caption = composeAutoPostBody(
     name,
     phone,
     galleryUrl != null ? { url: galleryUrl, photoCount: mediaUrls.length } : null,
     place,
+    postCaption,
   );
 
   // Preferred path: the whole batch as ONE message — a Cloudinary-composed
@@ -93,8 +102,21 @@ Deno.serve(async req => {
     // window). Falls back to a free-form caption send when templates aren't
     // configured (sandbox / pre-approval).
     const template = buildPostTemplate(
-      { postSid: TWILIO.templatePostSid, postLocationSid: TWILIO.templatePostLocationSid },
-      { publisherName: name, publisherPhone: phone, place, photoCount: mediaUrls.length, galleryUrl, mediaUrl: collage },
+      {
+        postSid: TWILIO.templatePostSid,
+        postLocationSid: TWILIO.templatePostLocationSid,
+        postCaptionSid: TWILIO.templatePostCaptionSid,
+        postLocationCaptionSid: TWILIO.templatePostLocationCaptionSid,
+      },
+      {
+        publisherName: name,
+        publisherPhone: phone,
+        place,
+        photoCount: mediaUrls.length,
+        galleryUrl,
+        mediaUrl: collage,
+        caption: postCaption,
+      },
     );
     try {
       const { sid } = template != null

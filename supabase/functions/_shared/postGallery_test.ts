@@ -67,6 +67,49 @@ Deno.test('savePostGallery — still returns a link against a database without p
   assert(!('posting_id' in upserts[1].row));
 });
 
+// Issue #220 — the publisher's caption rides on the same row the gallery reads.
+Deno.test('savePostGallery — stores the caption on the row', async () => {
+  const { client, upserts } = fakeSupabase();
+
+  await savePostGallery(client, 'pub-1', ['https://a'], 'Lisbon', 'posting-abc', 'Pastel de nata');
+
+  assertEquals(upserts.length, 1);
+  assertEquals(upserts[0].row.caption, 'Pastel de nata');
+});
+
+Deno.test('savePostGallery — omits the caption column entirely when there is none', async () => {
+  const { client, upserts } = fakeSupabase();
+
+  await savePostGallery(client, 'pub-1', ['https://a'], null, 'posting-abc', null);
+
+  assert(!('caption' in upserts[0].row));
+});
+
+Deno.test('savePostGallery — a database without caption still gets the posting id and a link', async () => {
+  // Migration 20240041 may not have reached this environment. The caption is
+  // an enhancement: losing it must not cost the gallery link, nor the posting
+  // id that lets the post be trashed.
+  const { client, upserts } = fakeSupabase(row => 'caption' in row);
+
+  const url = await savePostGallery(client, 'pub-1', ['https://a'], 'Lisbon', 'posting-abc', 'Pastel de nata');
+
+  assert(url != null);
+  assertEquals(upserts.length, 2);
+  assert(!('caption' in upserts[1].row));
+  assertEquals(upserts[1].row.posting_id, 'posting-abc');
+});
+
+Deno.test('savePostGallery — falls all the way back to the bare row on an old database', async () => {
+  const { client, upserts } = fakeSupabase(row => 'caption' in row || 'posting_id' in row);
+
+  const url = await savePostGallery(client, 'pub-1', ['https://a'], 'Lisbon', 'posting-abc', 'Pastel de nata');
+
+  assert(url != null);
+  const last = upserts[upserts.length - 1].row;
+  assert(!('caption' in last) && !('posting_id' in last));
+  assertEquals(last.place, 'Lisbon');
+});
+
 Deno.test('savePostGallery — returns null rather than blocking the send when the write fails', async () => {
   const { client } = fakeSupabase(() => true);
 
