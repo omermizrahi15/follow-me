@@ -20,10 +20,12 @@
   rather than being a bare ✕: a follower arriving from WhatsApp has no reason to
   guess that closing one post reveals every other one (issue #160).
 
-  The feed opens on the travel globe (issue #200) — the same one the publisher
-  sees in the app. Its rendering code is not written here: docs/globe/ is
-  generated from the app's own sources by scripts/build-web-globe.js. Posts with
-  a coordinate become photo markers; tapping one opens that post's story.
+  The feed is the app's Me page (issue #200): the travel globe fills the screen
+  behind a draggable bottom sheet holding the profile and the post cards, with
+  the same snap heights (20% / 42% / 84%). The globe's rendering code is not
+  written here — docs/globe/ is generated from the app's own sources by
+  scripts/build-web-globe.js. Posts with a coordinate become photo markers;
+  tapping one opens that post's story.
 
   Reads Supabase REST with the anon key (public by design; posts and
   publisher_profile have anon SELECT policies). Hosted here because Supabase
@@ -53,6 +55,10 @@
     body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--text); }
     [hidden] { display: none !important; }
     .page { max-width: 560px; margin: 0 auto; padding: 0 16px 40px; }
+    /* The feed owns the whole viewport (its children are fixed); the section
+       itself is just a frame that lets clicks through to the globe. */
+    #feedView { position: fixed; inset: 0; z-index: 1; pointer-events: none; }
+    #feedView > * { pointer-events: auto; }
     .status { text-align: center; padding: 60px 20px; color: var(--text-secondary); font-size: 15px; }
     footer { text-align: center; padding-bottom: 32px; color: var(--text-muted); font-size: 12px; }
 
@@ -88,15 +94,43 @@
       background: rgba(0,0,0,0.45); color: #fff;
       border-radius: 999px; padding: 3px 8px; font-size: 11px; font-weight: 600;
     }
-    /* The travel globe (issue #200). The stage's own look comes from the shared
-       globe.css; this only sizes it into the page and rounds it like a card. */
-    .globe-hero {
-      position: relative; margin-top: 16px; height: min(100vw - 32px, 440px);
-      border-radius: var(--radius-lg); overflow: hidden; background: #05070f;
-      /* A finger that starts on the globe pans it; the page scrolls everywhere else. */
-      touch-action: pan-y;
-    }
+    /* ---------- Me page: globe behind a draggable sheet (issue #200) ---------- */
+    /* Mirrors HomeScreen: the globe is the background, a header floats over it,
+       and the sheet is always SHEET_H tall, slid down with a transform to show
+       less of itself — so dragging never triggers layout. */
+    body.feed { background: #05070f; overflow: hidden; }
+    .globe-hero { position: fixed; inset: 0; z-index: 1; background: #05070f; }
     .globe-hero .globe-stage { position: absolute; inset: 0; }
+    .app-scrim {
+      pointer-events: none !important; position: fixed; z-index: 2; top: 0; left: 0; right: 0; height: 92px;
+      background: linear-gradient(rgba(8,12,18,0.55), transparent); pointer-events: none;
+    }
+    .app-header {
+      position: fixed; z-index: 3; top: max(env(safe-area-inset-top), 0px); left: 24px; right: 24px;
+      padding-top: 8px; display: flex; align-items: center; gap: 8px; pointer-events: none !important;
+    }
+    .app-header img { width: 40px; height: 30px; object-fit: contain; filter: brightness(0) invert(1); }
+    .app-header span { color: #fff; font-size: 22px; font-weight: 700; letter-spacing: -0.4px; }
+    .sheet {
+      position: fixed; z-index: 5; bottom: 0; left: 0; right: 0; margin: 0 auto;
+      width: min(100%, 560px); height: var(--sheet-h, 84vh);
+      background: #fff; border-radius: 32px 32px 0 0; overflow: hidden;
+      box-shadow: 0 8px 20px rgba(28,27,25,0.1);
+      display: flex; flex-direction: column;
+      will-change: transform;
+    }
+    .sheet.settling { transition: transform 320ms cubic-bezier(0.2, 0.9, 0.3, 1.02); }
+    .sheet-handle-area {
+      flex: none; display: flex; justify-content: center; padding: 12px 0 8px;
+      cursor: grab; touch-action: none; -webkit-tap-highlight-color: transparent;
+    }
+    .sheet-handle-area:active { cursor: grabbing; }
+    .sheet-handle { width: 40px; height: 5px; border-radius: 999px; background: #E2E8F0; }
+    .sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px; }
+    .sheet-body .profile { padding: 0 0 32px; }
+    .sheet-body .profile-avatar { width: 64px; height: 64px; border: 2px solid var(--accent); background: #E6EEF3; }
+    .sheet-body .profile-name { font-size: 17px; font-weight: 600; letter-spacing: 0; }
+    .sheet-body footer { padding: 16px 0 0; }
     .empty { text-align: center; padding: 48px 16px; color: var(--text-secondary); font-size: 14px; }
 
     /* ---------- story viewer (issue #67) ---------- */
@@ -184,28 +218,32 @@
 </head>
 <body>
   <div class="page">
-    <!-- Feed: every post by the publisher, newest first. -->
-    <section id="feedView" hidden>
-      <!-- The travel globe: one photo marker per located post, joined by the
-           route. Hidden until at least one post has a place on the map. -->
-      <div class="globe-hero" id="globeHero" role="region" aria-label="Map of where these photos were taken" hidden>
-        <div class="globe-stage" id="globeStage"><div class="globe-glow"></div><div class="globe-map"></div></div>
-      </div>
-      <div class="profile">
-        <div class="profile-avatar" id="feedAvatar"></div>
-        <div class="profile-text">
-          <div class="profile-name" id="feedName"></div>
-          <div class="profile-meta" id="feedCount"></div>
-        </div>
-      </div>
-      <div id="feedList"></div>
-      <p class="empty" id="feedEmpty" hidden>No posts yet.</p>
-    </section>
-
     <p class="status" id="status" hidden></p>
   </div>
-  <footer>Shared with Follow Me</footer>
 
+  <!-- Feed (the app's Me page): every post by the publisher, newest first. -->
+  <section id="feedView" hidden>
+    <div class="globe-hero" id="globeHero" role="region" aria-label="Map of where these photos were taken">
+      <div class="globe-stage" id="globeStage"><div class="globe-glow"></div><div class="globe-map"></div></div>
+    </div>
+    <div class="app-scrim"></div>
+    <div class="app-header"><img src="join/logo.png" alt=""><span>Follow Me</span></div>
+    <div class="sheet" id="sheet">
+      <div class="sheet-handle-area" id="sheetHandle" role="separator" aria-label="Drag to resize the post list"><div class="sheet-handle"></div></div>
+      <div class="sheet-body" id="sheetBody">
+        <div class="profile">
+          <div class="profile-avatar" id="feedAvatar"></div>
+          <div class="profile-text">
+            <div class="profile-name" id="feedName"></div>
+            <div class="profile-meta" id="feedCount"></div>
+          </div>
+        </div>
+        <div id="feedList"></div>
+        <p class="empty" id="feedEmpty" hidden>No posts yet.</p>
+        <footer>Shared with Follow Me</footer>
+      </div>
+    </div>
+  </section>
   <div class="story" id="story" hidden>
     <img id="storyImage" alt="photo">
     <!-- Stands in while a photo is arriving, and stays if it never does. The
@@ -331,6 +369,7 @@
 
     function fail(message) {
       feedView.hidden = true;
+      document.body.classList.remove('feed');
       closeStoryOverlay();
       statusEl.textContent = message;
       statusEl.hidden = false;
@@ -581,15 +620,11 @@
     /** Draws the globe, or swaps the new route into the one already drawn. */
     async function syncGlobe() {
       const hero = document.getElementById('globeHero');
-      const inputs = routeInputs();
-      // Nothing to plot (no GPS on any post, or an older post set): no globe at
-      // all rather than an empty planet.
-      if (inputs.length === 0) { hero.hidden = true; return; }
       try {
         const { buildTravelRoute } = await import('./globe/travelRoute.js');
-        const route = buildTravelRoute(inputs);
+        // No located posts is still a globe, as in the app: the planet, no stops.
+        const route = buildTravelRoute(routeInputs());
         const key = JSON.stringify(route);
-        hero.hidden = false;
         if (globe != null) {
           if (key !== globeRouteKey) { globeRouteKey = key; globe.setRoute(route); }
           return;
@@ -602,10 +637,8 @@
           root: document.getElementById('globeStage'),
           route,
           styleUrl: globeStyleUrl(),
-          bottomPadding: 0,
-          // The page scrolls; the wheel belongs to it. Zoom is on the buttons.
-          scrollZoom: false,
-          zoomControls: true,
+          // The app centres the planet in the band above the resting sheet.
+          bottomPadding: sheetSnaps().medium,
           post(message) {
             if (message.type === 'openPosting') openPost(message.id);
             if (message.type === 'error') console.warn('[globe]', message.message);
@@ -621,8 +654,72 @@
       }
     }
 
+    // ---------- draggable sheet (HomeScreen's) ----------
+    // Same model as the app: the sheet is always FULL tall and slid down with a
+    // transform to show less of itself, snapping to a peek / the Me-page height /
+    // near-full. Only the handle drags; the body scrolls on its own.
+    const sheet = document.getElementById('sheet');
+    const sheetHandle = document.getElementById('sheetHandle');
+    function sheetSnaps() {
+      const h = window.innerHeight;
+      return { small: Math.round(h * 0.2), medium: Math.round(h * 0.42), full: Math.round(h * 0.84) };
+    }
+    let sheetVisible = sheetSnaps().medium;   // where it came to rest
+    let sheetOffset = 0;                       // current translateY
+    const offsetFor = visible => sheetSnaps().full - visible;
+    const clampOffset = offset => Math.min(offsetFor(sheetSnaps().small), Math.max(0, offset));
+
+    function placeSheet(visible, animate) {
+      const snaps = sheetSnaps();
+      sheet.style.setProperty('--sheet-h', snaps.full + 'px');
+      sheetVisible = visible;
+      sheetOffset = offsetFor(visible);
+      sheet.classList.toggle('settling', animate);
+      sheet.style.transform = 'translateY(' + sheetOffset + 'px)';
+    }
+
+    let grab = null;
+    sheetHandle.addEventListener('pointerdown', e => {
+      sheetHandle.setPointerCapture(e.pointerId);
+      sheet.classList.remove('settling');
+      // Grabbing mid-spring continues from where the sheet actually is.
+      const live = new DOMMatrix(getComputedStyle(sheet).transform).m42;
+      grab = { y: e.clientY, offset: live, t: performance.now(), lastY: e.clientY, lastT: performance.now(), vy: 0 };
+    });
+    sheetHandle.addEventListener('pointermove', e => {
+      if (grab == null) return;
+      const now = performance.now();
+      if (now > grab.lastT) grab.vy = (e.clientY - grab.lastY) / (now - grab.lastT); // px/ms, down is positive
+      grab.lastY = e.clientY; grab.lastT = now;
+      sheetOffset = clampOffset(grab.offset + (e.clientY - grab.y));
+      sheet.style.transform = 'translateY(' + sheetOffset + 'px)';
+    });
+    function releaseSheet() {
+      if (grab == null) return;
+      const snaps = sheetSnaps();
+      const stops = [snaps.small, snaps.medium, snaps.full];
+      const cur = snaps.full - sheetOffset;
+      let target;
+      // The app's thresholds: a flick (|vy| > 0.5 px/ms) goes to the next snap
+      // in its direction, a slow drag to the nearest.
+      if (grab.vy < -0.5) target = stops.find(h => h > cur + 4) ?? snaps.full;
+      else if (grab.vy > 0.5) target = [...stops].reverse().find(h => h < cur - 4) ?? snaps.small;
+      else target = stops.reduce((a, b) => (Math.abs(b - cur) < Math.abs(a - cur) ? b : a));
+      grab = null;
+      placeSheet(target, true);
+    }
+    sheetHandle.addEventListener('pointerup', releaseSheet);
+    sheetHandle.addEventListener('pointercancel', releaseSheet);
+    window.addEventListener('resize', () => {
+      placeSheet(sheetVisible === sheetSnaps().medium ? sheetSnaps().medium : sheetVisible, false);
+      if (globe != null) globe.setBottomPadding(sheetSnaps().medium);
+    });
+
     function renderFeed() {
+      const wasHidden = feedView.hidden;
       feedView.hidden = false;
+      document.body.classList.add('feed');
+      if (wasHidden) placeSheet(sheetSnaps().medium, false);
       statusEl.hidden = true;
       document.title = publisherName + ' — Follow Me';
 

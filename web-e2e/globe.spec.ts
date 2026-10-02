@@ -100,13 +100,14 @@ test.describe('travel globe', () => {
     await expect(hero(page)).toBeVisible();
   });
 
-  test('no globe when none of the posts has a location', async ({ page }) => {
+  test('with no located posts it is still the planet, as in the app', async ({ page }) => {
     await mock(page, [NO_GPS]);
     await page.goto(`/gallery.html?u=${PUBLISHER}`);
 
     await expect(page.locator('.card')).toHaveCount(1);
-    await expect(hero(page)).toBeHidden();
-    await expect(page.locator('script[src*="maplibre"]')).toHaveCount(0);
+    await expect(hero(page)).toBeVisible();
+    await expect(page.locator('#globeStage canvas')).toBeVisible();
+    await expect(markers(page)).toHaveCount(0);
   });
 
   test('a deep-linked post still shows the globe once the feed is reached', async ({ page }) => {
@@ -127,6 +128,7 @@ test.describe('travel globe', () => {
 
     await expect(page.locator('.card')).toHaveCount(1);
     await expect(hero(page)).toBeHidden();
+    await expect(page.locator('#sheet')).toBeVisible();
   });
 
   test('the map library is the pinned build with its integrity hash', async ({ page }) => {
@@ -137,5 +139,57 @@ test.describe('travel globe', () => {
     const script = page.locator('script[src*="maplibre-gl"]');
     await expect(script).toHaveAttribute('src', /maplibre-gl@5\.\d+\.\d+\//);
     await expect(script).toHaveAttribute('integrity', /^sha384-/);
+  });
+
+  // The draggable Me sheet (HomeScreen): rests at 42% of the screen, drags to
+  // a peek (20%) or near-full (84%).
+  test.describe('draggable sheet', () => {
+    const visibleHeight = (page: Page) =>
+      page.evaluate(() => window.innerHeight - document.getElementById('sheet')!.getBoundingClientRect().top);
+
+    async function drag(page: Page, dy: number): Promise<void> {
+      const box = (await page.locator('#sheetHandle').boundingBox())!;
+      const x = box.x + box.width / 2;
+      const y = box.y + box.height / 2;
+      await page.mouse.move(x, y);
+      await page.mouse.down();
+      // Slow steps: the release must read as a drag, not a flick.
+      for (let i = 1; i <= 10; i++) {
+        await page.mouse.move(x, y + (dy * i) / 10);
+        await page.waitForTimeout(40);
+      }
+      await page.waitForTimeout(250);
+      await page.mouse.up();
+      await page.waitForTimeout(500);
+    }
+
+    test('rests at the Me-page height', async ({ page }) => {
+      await mock(page, [LISBON]);
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      await expect(page.locator('.card')).toHaveCount(1);
+      const h = page.viewportSize()!.height;
+      expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.42))).toBeLessThan(3);
+    });
+
+    test('dragging up opens it nearly full, dragging down parks it as a peek', async ({ page }) => {
+      await mock(page, [LISBON]);
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      const h = page.viewportSize()!.height;
+
+      await drag(page, -(h * 0.5));
+      expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.84))).toBeLessThan(3);
+
+      await drag(page, h * 0.8);
+      expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.2))).toBeLessThan(3);
+    });
+
+    test('the globe keeps its place behind the sheet', async ({ page }) => {
+      await mock(page, [LISBON]);
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      await expect(markers(page)).toHaveCount(1);
+      const box = (await hero(page).boundingBox())!;
+      // Full-bleed behind the sheet, not a card above it.
+      expect(box.height).toBe(page.viewportSize()!.height);
+    });
   });
 });
