@@ -10,11 +10,12 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import * as ImagePicker from 'expo-image-picker';
+import type * as ImagePicker from 'expo-image-picker';
 import type { RootNavigationProp } from '../navigation/types';
 import { coordinatesForPickedAssets } from '../../domain/services/pickedAssetCoordinates';
 import type { Coordinate } from '../../domain/interfaces';
 import { mediaLibraryAssetLocation, resolvePlaceForCoordinates } from '../../composition/container';
+import { pickPhotosFromLibrary } from '../data/photoPicker';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { useSubscribers } from '../hooks/useSubscribers';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
@@ -53,6 +54,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
    * (issue #145). Re-stamped only when the publisher picks different photos.
    */
   const selectionIdRef = useRef(Date.now().toString(36));
+  const [picking, setPicking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);
   // The raw failure, so the copy can tell a dead connection from a broken
@@ -109,19 +111,19 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   }, [pickedAssets]);
 
   function handlePickMedia(): void {
+    // The picker closes before it hands the photos back, so without this the
+    // screen sat unchanged for the seconds the library took to prepare them.
+    if (picking) return;
     void (async (): Promise<void> => {
-      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (!permission.granted) return;
-      const picked = await ImagePicker.launchImageLibraryAsync({
-        mediaTypes: ImagePicker.MediaTypeOptions.Images,
-        allowsMultipleSelection: true,
-        quality: 0.8,
-        // EXIF carries the photos' GPS — it names the posting's place in the feed.
-        exif: true,
-      });
-      if (!picked.canceled) {
-        selectionIdRef.current = Date.now().toString(36);
-        setPickedAssets(picked.assets);
+      setPicking(true);
+      try {
+        const assets = await pickPhotosFromLibrary();
+        if (assets != null) {
+          selectionIdRef.current = Date.now().toString(36);
+          setPickedAssets(assets);
+        }
+      } finally {
+        setPicking(false);
       }
     })();
   }
@@ -250,12 +252,24 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
         {pickedAssets.length === 0 ? (
           /* Empty state — one big centered picker target. */
           <View style={styles.emptyState}>
-            <TouchableOpacity testID="upload-pick-photos" style={styles.pickButton} onPress={handlePickMedia} activeOpacity={0.8}>
+            <TouchableOpacity
+              testID="upload-pick-photos"
+              style={styles.pickButton}
+              onPress={handlePickMedia}
+              disabled={picking}
+              activeOpacity={0.8}
+            >
               <View style={styles.pickIcon}>
-                <Ionicons name="images-outline" size={30} color={colors.accent} />
+                {picking ? (
+                  <ActivityIndicator testID="upload-picking" color={colors.accent} />
+                ) : (
+                  <Ionicons name="images-outline" size={30} color={colors.accent} />
+                )}
               </View>
-              <Text style={styles.pickTitle}>Select photos</Text>
-              <Text style={styles.pickHint}>Choose from your library</Text>
+              <Text style={styles.pickTitle}>{picking ? 'Preparing your photos…' : 'Select photos'}</Text>
+              <Text style={styles.pickHint}>
+                {picking ? 'They’ll appear here in a moment' : 'Choose from your library'}
+              </Text>
             </TouchableOpacity>
           </View>
         ) : (
@@ -271,13 +285,18 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
                 testID="upload-change-photos"
                 style={styles.changeButton}
                 onPress={handlePickMedia}
+                disabled={picking}
                 activeOpacity={0.7}
                 accessibilityRole="button"
                 accessibilityLabel="Change photos"
                 accessibilityHint="Replaces the current selection"
               >
-                <Ionicons name="swap-horizontal" size={15} color={colors.accent} />
-                <Text style={styles.changeButtonText}>Change photos</Text>
+                {picking ? (
+                  <ActivityIndicator testID="upload-picking" size="small" color={colors.accent} />
+                ) : (
+                  <Ionicons name="swap-horizontal" size={15} color={colors.accent} />
+                )}
+                <Text style={styles.changeButtonText}>{picking ? 'Preparing…' : 'Change photos'}</Text>
               </TouchableOpacity>
             </View>
 
