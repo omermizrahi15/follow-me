@@ -59,6 +59,16 @@ describe('ClassifyQuotaReader', () => {
 
     await expect(makeSut(() => Promise.resolve('jwt')).read()).rejects.toThrow(/unreadable|unexpected/i);
   });
+
+  it('says what the unreadable body was, so the Sentry event is diagnosable', async () => {
+    // "Unreadable" alone can't tell a function that predates the GET handler
+    // from a mid-deploy blip from a body that was not JSON at all.
+    mockFetch.mockResolvedValue(jsonResponse({ error: 'Method not allowed' }));
+    await expect(makeSut(() => Promise.resolve('jwt')).read()).rejects.toThrow(/HTTP 200.*keys: error/s);
+
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: () => Promise.reject(new SyntaxError('bad')) });
+    await expect(makeSut(() => Promise.resolve('jwt')).read()).rejects.toThrow(/not JSON/);
+  });
 });
 
 
