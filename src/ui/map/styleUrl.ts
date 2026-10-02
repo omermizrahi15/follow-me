@@ -14,7 +14,7 @@
 
 const MAPTILER_KEY = (process.env.EXPO_PUBLIC_MAPTILER_KEY as string | undefined) ?? '';
 
-/** Vector satellite + labels — the Polarsteps-like look. */
+/** Vector satellite + labels. */
 const MAPTILER_HYBRID = 'https://api.maptiler.com/maps/hybrid/style.json';
 /** No key: MapLibre's public demo style. Works, but no imagery. */
 const DEMO_STYLE = 'https://demotiles.maplibre.org/style.json';

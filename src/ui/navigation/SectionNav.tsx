@@ -22,8 +22,7 @@ const ITEMS: { key: HomeSection; label: string; active: IconName; inactive: Icon
 /**
  * A tab's column. Fixed rather than a share of the screen, because the bar is
  * anchored to the left edge and sized by its tabs (issue #159): the capsule
- * ends where the last tab does instead of stretching across the width and
- * leaving the space the search button used to hold sitting empty.
+ * ends where the last tab does instead of stretching across the width.
  */
 const SLOT_W = 72;
 /** The icon's row within a tab. */
@@ -31,9 +30,8 @@ const ICON_H = 28;
 /** Glass inset around the row of tabs. */
 const PAD = 8;
 /**
- * Breathing room between the selected halo and the edges of its slot. Small,
- * because on the bar this copies the halo all but fills its column — a wide
- * lozenge under the whole tab, not a badge tucked behind the icon.
+ * Breathing room between the selected chip and the edges of its slot. Small, so
+ * the chip reads as a lozenge under the whole tab, not a badge behind the icon.
  */
 const PILL_INSET = 3;
 /** Caption line box under each icon. */
@@ -41,7 +39,7 @@ const LABEL_H = 14;
 /** Gap between an icon and its caption. */
 const LABEL_GAP = 2;
 /**
- * The selected halo wraps the whole tab — icon and caption together — rather
+ * The selected chip wraps the whole tab — icon and caption together — rather
  * than sitting behind the icon alone, which read as a highlight the label had
  * been left out of.
  */
@@ -70,32 +68,29 @@ interface Props {
  * only switches which content the bottom sheet shows (Me / Auto-posting /
  * Followers) while the feed stays put behind it.
  *
- * Shaped like the Polarsteps bar: a capsule with a soft shadow, a big icon over
- * a small caption, and every tab in the same deep navy — the selected one is
- * marked only by a pale lozenge that fills its column and slides between tabs
- * as the selection moves. Deliberately *not* a two-colour bar: dimming the
- * unselected tabs was what made this read as a generic widget rather than that
- * bar.
+ * A frosted capsule with a soft shadow, an icon over a small caption per tab.
+ * The selection is a solid navy chip with a white icon and caption that slides
+ * between tabs as the selection moves; unselected tabs are muted slate, so the
+ * active one is unmistakable at a glance (issue #205 — the earlier all-navy,
+ * pale-halo treatment was too close to another app's bar).
  *
- * Where it parts company with that bar is the glass (issue #159). That one is
- * opaque white; this one is genuinely frosted — the wash over the blur is light
+ * The glass is genuinely frosted (issue #159): the wash over the blur is light
  * enough that the sheet's content passing underneath shows through as colour
  * and shape, which is the whole point of putting a blur here at all.
  *
  * The bar is sized by its tabs and anchored to the left of whatever it is
- * placed in, rather than spanning the screen: the right-hand end of the
- * reference bar is a search button, and with no search to offer, a full-width
- * capsule would just be a row of icons with a third of itself left blank.
+ * placed in, rather than spanning the screen — a full-width capsule would just
+ * be a row of icons with a third of itself left blank.
  */
 export function SectionNav({ active, onChange, showHistory = false }: Props): React.JSX.Element {
   const items = ITEMS.filter(item => item.key !== 'history' || showHistory);
   const index = Math.max(0, items.findIndex(item => item.key === active));
 
-  // Fills its slot bar a small inset, so the halo reads as a lozenge under the
+  // Fills its slot bar a small inset, so the chip reads as a lozenge under the
   // whole tab rather than a badge tucked behind the icon.
   const pillW = SLOT_W - PILL_INSET * 2;
 
-  // Slides the pill to the selected tab. A transform, so it runs on the UI
+  // Slides the chip to the selected tab. A transform, so it runs on the UI
   // thread and stays smooth while the sheet behind it is still settling.
   const slide = useRef(new Animated.Value(index * SLOT_W)).current;
   useEffect(() => {
@@ -135,10 +130,13 @@ export function SectionNav({ active, onChange, showHistory = false }: Props): Re
                 <Ionicons
                   name={isActive ? item.active : item.inactive}
                   size={24}
-                  color={colors.ink}
+                  color={isActive ? colors.onAccent : colors.textSecondary}
                 />
               </View>
-              <Text style={styles.label} numberOfLines={1}>
+              <Text
+                style={[styles.label, { color: isActive ? colors.onAccent : colors.textSecondary }]}
+                numberOfLines={1}
+              >
                 {item.label}
               </Text>
             </Pressable>
@@ -184,20 +182,18 @@ const styles = StyleSheet.create({
     top: PAD,
     height: PILL_H,
     borderRadius: radius.pill,
-    backgroundColor: colors.navPill,
+    backgroundColor: colors.accent,
   },
   // A fixed column each: the bar takes its width from the tabs, so they can't
   // in turn take theirs from the bar. Long labels ellipsize inside the column
   // rather than widening it and pushing the row out of square.
   tab: { width: SLOT_W, alignItems: 'center', gap: LABEL_GAP },
   icon: { height: ICON_H, alignItems: 'center', justifyContent: 'center' },
-  // Same weight and colour selected or not — the lozenge behind the tab is what
-  // marks the selection, exactly as on the bar this copies.
+  // Colour is set per tab at render time (white on the chip, slate elsewhere).
   label: {
     fontSize: 11,
     lineHeight: LABEL_H,
     fontWeight: '600',
     letterSpacing: -0.1,
-    color: colors.ink,
   },
 });

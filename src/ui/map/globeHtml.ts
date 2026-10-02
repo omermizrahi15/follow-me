@@ -1,3 +1,5 @@
+import { ROUTE_STYLE, MARKER_STYLE } from './routeStyle';
+
 /**
  * MapLibre GL JS version loaded inside the WebView. Pinned exactly (never a
  * range) — the page is the app's UI, so the bytes it runs must not change
@@ -115,8 +117,8 @@ export function buildGlobeHtml({ routeLiteral, styleUrl, bottomPadding }: GlobeO
   .maplibregl-ctrl-attrib { font-size: 9px; opacity: 0.6; }
   .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right { bottom: var(--bottom-padding); }
   .stop {
-    width: 54px; height: 54px; border-radius: 50%;
-    border: 3px solid #fff; padding: 0; background: #14324a;
+    width: ${MARKER_STYLE.sizePx}px; height: ${MARKER_STYLE.sizePx}px; border-radius: ${MARKER_STYLE.radiusPx}px;
+    border: ${MARKER_STYLE.borderPx}px solid ${MARKER_STYLE.borderColor}; padding: 0; background: #14324a;
     box-shadow: 0 2px 10px rgba(0,0,0,0.45);
     overflow: hidden; cursor: pointer; -webkit-tap-highlight-color: transparent;
     transition: transform 120ms ease-out;
@@ -230,19 +232,18 @@ export function buildGlobeHtml({ routeLiteral, styleUrl, bottomPadding }: GlobeO
 
     map.addSource('route', { type: 'geojson', data: routeFeatures() });
 
-    // A dark casing under the white route. Without it a white dashed line
-    // disappears over pale terrain (shallow sea, desert, snow) — the route has
-    // to stay legible whatever the imagery underneath happens to be.
+    // A dark casing under the route. Without it a light line disappears over
+    // pale terrain (shallow sea, desert, snow) — the route has to stay legible
+    // whatever the imagery underneath happens to be.
     map.addLayer({
       id: 'route-casing',
       type: 'line',
       source: 'route',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#0b1a2b',
-        'line-width': 4,
-        'line-opacity': 0.35,
-        'line-dasharray': [1.5, 2],
+        'line-color': '${ROUTE_STYLE.casingColor}',
+        'line-width': ${ROUTE_STYLE.casingWidth},
+        'line-opacity': ${ROUTE_STYLE.casingOpacity},
       },
     });
 
@@ -252,10 +253,9 @@ export function buildGlobeHtml({ routeLiteral, styleUrl, bottomPadding }: GlobeO
       source: 'route',
       layout: { 'line-cap': 'round', 'line-join': 'round' },
       paint: {
-        'line-color': '#ffffff',
-        'line-width': 2,
-        'line-opacity': 0.9,
-        'line-dasharray': [1.5, 2],
+        'line-color': '${ROUTE_STYLE.color}',
+        'line-width': ${ROUTE_STYLE.width},
+        'line-opacity': ${ROUTE_STYLE.opacity},
       },
     });
 

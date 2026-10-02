@@ -1,8 +1,8 @@
 /**
  * Central design tokens for the app.
  *
- * Light, warm, photo-forward look inspired by Polarsteps: off-white
- * backgrounds, charcoal text, a single coral accent, soft rounded cards.
+ * Light, photo-forward look: cool off-white backgrounds, near-black slate
+ * text, a single deep-navy accent, soft rounded cards.
  *
  * Screens and components should pull every colour, spacing and radius value
  * from here rather than hardcoding hex strings, so the look stays consistent
@@ -36,15 +36,8 @@ export const colors = {
   /** Text/icon colour to use on top of the accent. */
   onAccent: '#FFFFFF',
 
-  /** Same deep blue, used for the floating nav icons & labels — every tab,
-   *  selected or not. Only the halo below marks the selection. */
+  /** Same deep blue as the accent, for ink-on-light chips and icons. */
   ink: '#0E3A53',
-  /** Halo behind the selected nav tab (its icon and caption together). A wash
-   *  rather than a solid chip: the bar it sits in is frosted glass, and an
-   *  opaque grey lozenge on top of that read as a sticker laid over the glass
-   *  instead of part of it. Kept faint so it never competes with the navy icon
-   *  standing on it. */
-  navPill: 'rgba(14,58,83,0.13)',
   /** Wash laid over the nav bar's blur — a tint, not a fill. Light enough that
    *  whatever passes beneath the bar still shows through as blurred colour;
    *  above roughly 0.7 the glass reads as plain white. Distinct from `frosted`
