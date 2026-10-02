@@ -97,6 +97,12 @@ export interface BackfillHistoryResult {
    */
   rateLimited: boolean;
   /**
+   * True when a request outlived its deadline. A third wall with a third
+   * remedy: not tomorrow and not in a moment, but on a better connection
+   * (issue #174).
+   */
+  timedOut: boolean;
+  /**
    * What killed the run, or null when nothing did.
    *
    * Returned rather than thrown, and that is the point. A backfill is minutes
@@ -129,7 +135,10 @@ export interface BackfillHistoryResult {
 export class BackfillHistoryUseCase {
   constructor(
     private readonly suggestPhotos: Pick<SuggestPhotosUseCase, 'execute'>,
-    private readonly classifier: Pick<IPhotoClassifier, 'quotaExhausted' | 'rateLimited'>,
+    private readonly classifier: Pick<
+      IPhotoClassifier,
+      'quotaExhausted' | 'rateLimited' | 'timedOut'
+    >,
   ) {}
 
   /**
@@ -174,6 +183,7 @@ export class BackfillHistoryUseCase {
     let scannedWindows = 0;
     let quotaExhausted = false;
     let rateLimited = false;
+    let timedOut = false;
     let failure: unknown = null;
 
     for (const [i, window] of plan.windows.entries()) {
@@ -236,8 +246,16 @@ export class BackfillHistoryUseCase {
         rateLimited = true;
         break;
       }
+
+      // And again for a window that ran out of time. The next one would travel
+      // over the same connection and stall the same way, at a full deadline a
+      // window — which is minutes of a progress bar for nothing.
+      if (this.classifier.timedOut?.() === true) {
+        timedOut = true;
+        break;
+      }
     }
 
-    return { drafts, plan, scannedWindows, quotaExhausted, rateLimited, failure };
+    return { drafts, plan, scannedWindows, quotaExhausted, rateLimited, timedOut, failure };
   }
 }

@@ -356,6 +356,22 @@ describe('BackfillHistoryUseCase — classification quota', () => {
     expect(scannedWindows).toBe(1);
   });
 
+  it('stops when a window ran out of time, and keeps what it reconstructed', async () => {
+    // A deadline that passed is the connection, and the next window travels
+    // over the same one. Banking the finished stretches beats grinding the rest
+    // against a stall that costs a full deadline each (issue #174).
+    const { useCase, classifier, library } = makeSut();
+    classifier.timedOutFromCallIndex = 2;
+
+    const { drafts, timedOut, quotaExhausted, scannedWindows } = await useCase.execute(input);
+
+    expect(timedOut).toBe(true);
+    expect(quotaExhausted).toBe(false);
+    expect(scannedWindows).toBe(2);
+    expect(library.requestedWindows).toHaveLength(2);
+    expect(draftIds(drafts)).toEqual([['week1']]);
+  });
+
   it('does not flag exhaustion when the classifier never reports it', async () => {
     const { useCase } = makeSut();
     const { quotaExhausted, scannedWindows } = await useCase.execute(input);

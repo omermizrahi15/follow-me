@@ -7,6 +7,7 @@ const stats = (over: Partial<ScanStats> = {}): ScanStats => ({
   unreadable: 0,
   quotaExhausted: false,
   rateLimited: false,
+  timedOut: false,
   ...over,
 });
 
@@ -77,6 +78,16 @@ describe('scanSummary', () => {
   });
 });
 
+describe('emptyRoundNote — the round ran out of time', () => {
+  it('names the connection rather than the budget or the provider', () => {
+    // Reported as its own reason so the advice can be the right one: this is
+    // not a wall that lifts by waiting, and it is not the day being over.
+    const note = emptyRoundNote('slow', 12);
+    expect(note).toMatch(/too long/);
+    expect(note).not.toMatch(/tomorrow/);
+  });
+});
+
 describe('scanShortfallNote', () => {
   it('blames the daily budget first — it is the one the publisher cannot retry', () => {
     expect(scanShortfallNote(stats({ graded: 12, unreadable: 3, quotaExhausted: true }))).toMatch(
@@ -92,6 +103,18 @@ describe('scanShortfallNote', () => {
     expect(scanShortfallNote(stats({ graded: 40, rateLimited: true, quotaExhausted: true }))).toMatch(
       /limit ran out/,
     );
+  });
+
+  it('blames the connection when the scan ran out of time, and ranks it under both walls', () => {
+    // A deadline that passed is the publisher's uplink, not their budget and
+    // not the provider's mood — and unlike either, it is worth retrying on a
+    // better connection rather than at a better time (issue #174).
+    expect(scanShortfallNote(stats({ graded: 40, timedOut: true }))).toMatch(
+      /took too long after 40 photos/,
+    );
+    expect(
+      scanShortfallNote(stats({ graded: 40, timedOut: true, rateLimited: true })),
+    ).toMatch(/was busy after 40 photos/);
   });
 
   it('explains unreadable originals as iCloud downloads', () => {
