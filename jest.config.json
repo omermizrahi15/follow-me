@@ -1,10 +1,12 @@
 {
   "testEnvironment": "node",
+  "maxWorkers": "50%",
+  "workerIdleMemoryLimit": "512MB",
   "setupFiles": [
     "./jest.setup.ts"
   ],
   "transform": {
-    "^.+\\.ts$": [
+    "^.+\\.tsx?$": [
       "ts-jest",
       {
         "tsconfig": {
@@ -15,6 +17,7 @@
   },
   "moduleFileExtensions": [
     "ts",
+    "tsx",
     "js"
   ],
   "roots": [
@@ -23,7 +26,6 @@
   ],
   "testPathIgnorePatterns": [
     "\\.integration\\.test\\.ts$",
-    "\\.e2e\\.ts$",
-    "src/ui/"
+    "\\.e2e\\.ts$"
   ]
 }
