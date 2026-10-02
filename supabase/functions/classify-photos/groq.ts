@@ -32,14 +32,20 @@ const ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
  * makes the pure helpers in here untestable without granting the test suite
  * environment access, for a value only the factory ever needs.
  */
-const DEFAULT_GROQ_MODEL = 'qwen/qwen3.6-27b';
+/**
+ * Groq retired qwen/qwen3.6-27b on 2026-09-14 and every request to it has
+ * failed since — the app's "could not reach the photo AI" (issue #202).
+ * Fallback to Gemini hid it. Check console.groq.com/docs/deprecations when
+ * changing this.
+ */
+const DEFAULT_GROQ_MODEL = 'qwen/qwen3.8-27b';
 
 /**
  * Documented ceiling for this model. The reference portrait counts towards it,
  * which is why the caller subtracts it rather than assuming five photos fit.
  *
  * Note that images per call is NOT what bounds this provider in practice.
- * Measured free-tier limits for qwen3.6-27b are 30 requests/minute and 1000/day
+ * Measured free-tier limits for its predecessor qwen3.6-27b were 30 requests/minute and 1000/day
  * — generous — against 8k tokens/minute and 200k/day, which an image eats about
  * a thousand of. Tokens are the ceiling; the per-call image count only decides
  * how lumpily they are spent. See the usage logging in classify().

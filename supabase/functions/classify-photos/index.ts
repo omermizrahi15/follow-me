@@ -60,7 +60,7 @@
  *      GEMINI_API_KEY (required for gemini), GEMINI_MODEL (optional,
  *        default gemini-3.5-flash)
  *      GROQ_API_KEY (required for groq), GROQ_MODEL (optional,
- *        default qwen/qwen3.6-27b)
+ *        default qwen/qwen3.8-27b)
  *      SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (auto-injected).
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';

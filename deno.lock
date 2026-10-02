@@ -39,6 +39,8 @@
     "packageJson": {
       "dependencies": [
         "npm:@bacons/apple-targets@0.2",
+        "npm:@expo/prebuild-config@~54.0.9",
+        "npm:@expo/vector-icons@^15.0.3",
         "npm:@playwright/test@^1.61.1",
         "npm:@react-native-async-storage/async-storage@2.2.0",
         "npm:@react-native-community/netinfo@11.4.1",
@@ -58,9 +60,11 @@
         "npm:eslint@8",
         "npm:expo-background-task@~1.0.10",
         "npm:expo-blur@~15.0.8",
+        "npm:expo-constants@~18.0.14",
         "npm:expo-contacts@~15.0.11",
         "npm:expo-dev-client@~6.0.21",
         "npm:expo-file-system@~19.0.23",
+        "npm:expo-font@~14.0.12",
         "npm:expo-image-manipulator@~14.0.8",
         "npm:expo-image-picker@~17.0.11",
         "npm:expo-image@~3.0.11",
