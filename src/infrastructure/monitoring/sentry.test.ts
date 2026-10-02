@@ -1,5 +1,6 @@
 import * as Sentry from '@sentry/react-native';
 import { initErrorMonitoring, monitored, reportError } from './sentry';
+import { RequestTimeoutError } from '../http/resilientFetch';
 import type * as SentryModule from './sentry';
 
 jest.mock('@sentry/react-native', () => ({
@@ -60,6 +61,25 @@ describe('reportError', () => {
     const boom = new Error('supabase down');
     reportError(boom, 'share_photo');
     expect(captureException).toHaveBeenCalledWith(boom, { tags: { operation: 'share_photo' } });
+  });
+
+  // Issue #195: a read that timed out after its retries is the user's signal,
+  // not a defect; filing it at `error` level opened a GitHub issue per blip.
+  it.each([
+    new RequestTimeoutError('https://x.supabase.co/rest/v1/subscribers', 15000),
+    new TypeError('Network request failed'),
+  ])('downgrades a connectivity failure to a warning: %s', err => {
+    reportError(err, 'list_subscribers');
+    expect(captureException).toHaveBeenCalledWith(err, {
+      level: 'warning',
+      tags: { operation: 'list_subscribers' },
+    });
+  });
+
+  it('keeps server failures at error level', () => {
+    const err = new Error('Request failed (503)');
+    reportError(err, 'list_subscribers');
+    expect(captureException).toHaveBeenCalledWith(err, { tags: { operation: 'list_subscribers' } });
   });
 });
 

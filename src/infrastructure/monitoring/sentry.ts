@@ -1,4 +1,5 @@
 import * as Sentry from '@sentry/react-native';
+import { classifyFailure } from '../../domain/services/networkError';
 
 // Static references only — Expo inlines EXPO_PUBLIC_* at bundle time and a
 // dynamic `process.env[key]` lookup would be undefined at runtime (see
@@ -30,9 +31,21 @@ export function initErrorMonitoring(): void {
 /** Wraps the root component so React render errors are captured too. */
 export const withErrorMonitoring = Sentry.wrap;
 
-/** Report a caught error, tagged with the operation that failed. */
+/**
+ * Report a caught error, tagged with the operation that failed.
+ *
+ * A timeout or dropped connection is already retried and shown to the user
+ * (issue #145); it says something about their signal, not our code. It is still
+ * recorded, but as a warning — `error` level is what files a GitHub issue
+ * (issue #195).
+ */
 export function reportError(error: unknown, operation: string): void {
-  Sentry.captureException(error, { tags: { operation } });
+  const kind = classifyFailure(error);
+  const connectivity = kind === 'timeout' || kind === 'offline';
+  Sentry.captureException(error, {
+    ...(connectivity ? { level: 'warning' as const } : {}),
+    tags: { operation },
+  });
 }
 
 /**
