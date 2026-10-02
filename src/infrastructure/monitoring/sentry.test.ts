@@ -1,6 +1,5 @@
 import * as Sentry from '@sentry/react-native';
-import { initErrorMonitoring, monitored, reportError } from './sentry';
-import { RequestTimeoutError } from '../http/resilientFetch';
+import { downgradeNetworkNoise, initErrorMonitoring, monitored, reportError } from './sentry';
 import type * as SentryModule from './sentry';
 
 jest.mock('@sentry/react-native', () => ({
@@ -47,6 +46,7 @@ describe('initErrorMonitoring', () => {
           environment: 'production',
           tracesSampleRate: 0,
           sendDefaultPii: false,
+          beforeSend: fresh.downgradeNetworkNoise,
         });
       } finally {
         if (previous == null) delete process.env.EXPO_PUBLIC_APP_VARIANT;
@@ -61,25 +61,6 @@ describe('reportError', () => {
     const boom = new Error('supabase down');
     reportError(boom, 'share_photo');
     expect(captureException).toHaveBeenCalledWith(boom, { tags: { operation: 'share_photo' } });
-  });
-
-  // Issue #195: a read that timed out after its retries is the user's signal,
-  // not a defect; filing it at `error` level opened a GitHub issue per blip.
-  it.each([
-    new RequestTimeoutError('https://x.supabase.co/rest/v1/subscribers', 15000),
-    new TypeError('Network request failed'),
-  ])('downgrades a connectivity failure to a warning: %s', err => {
-    reportError(err, 'list_subscribers');
-    expect(captureException).toHaveBeenCalledWith(err, {
-      level: 'warning',
-      tags: { operation: 'list_subscribers' },
-    });
-  });
-
-  it('keeps server failures at error level', () => {
-    const err = new Error('Request failed (503)');
-    reportError(err, 'list_subscribers');
-    expect(captureException).toHaveBeenCalledWith(err, { tags: { operation: 'list_subscribers' } });
   });
 });
 
@@ -133,5 +114,34 @@ describe('monitored', () => {
       expect.objectContaining({ message: 'wipe failed' }),
       { tags: { operation: 'delete_uploaded_photos' } },
     );
+  });
+});
+
+describe('downgradeNetworkNoise', () => {
+  const eventWith = (value: string, type = 'TypeError'): Sentry.ErrorEvent =>
+    ({ level: 'error', exception: { values: [{ type, value }] } }) as Sentry.ErrorEvent;
+
+  it('downgrades a failed fetch to a warning so it stops filing bug issues', () => {
+    const out = downgradeNetworkNoise(eventWith('Network request failed'));
+    expect(out.level).toBe('warning');
+  });
+
+  it('also downgrades our own request timeout', () => {
+    const out = downgradeNetworkNoise(eventWith('Request timed out after 15000ms: x', 'RequestTimeoutError'));
+    expect(out.level).toBe('warning');
+  });
+
+  it('matches the wrapped form the repositories report', () => {
+    const out = downgradeNetworkNoise(eventWith('TypeError: Network request failed', 'Error'));
+    expect(out.level).toBe('warning');
+  });
+
+  it('leaves real errors at error level', () => {
+    const out = downgradeNetworkNoise(eventWith('Cannot read property x of undefined'));
+    expect(out.level).toBe('error');
+  });
+
+  it('never drops the event', () => {
+    expect(downgradeNetworkNoise({ level: 'error' } as Sentry.ErrorEvent)).not.toBeNull();
   });
 });

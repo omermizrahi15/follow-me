@@ -1,5 +1,4 @@
 import * as Sentry from '@sentry/react-native';
-import { classifyFailure } from '../../domain/services/networkError';
 
 // Static references only — Expo inlines EXPO_PUBLIC_* at bundle time and a
 // dynamic `process.env[key]` lookup would be undefined at runtime (see
@@ -16,6 +15,21 @@ const variant = process.env.EXPO_PUBLIC_APP_VARIANT as string | undefined;
 export const monitoringEnabled =
   Boolean(dsn) && !__DEV__ && (variant === 'staging' || variant === 'production');
 
+const NETWORK_NOISE = /Network request failed|^Request timed out after /;
+
+/**
+ * A phone losing signal is not a bug in the app (issues #173, #175, #176, #178,
+ * #179): fetch is already retried and time-boxed, and what escapes is the
+ * connection being genuinely down. Kept as a warning rather than dropped so the
+ * frequency stays visible, but below the `error` level that files GitHub issues.
+ */
+export function downgradeNetworkNoise<E extends Sentry.ErrorEvent>(event: E): E {
+  const isNetworkNoise = event.exception?.values?.some(
+    v => v.value != null && NETWORK_NOISE.test(v.value.replace(/^\w*Error: /, '')),
+  );
+  return isNetworkNoise === true ? { ...event, level: 'warning' } : event;
+}
+
 /** Must run before the root component mounts (called at the top of App.js). */
 export function initErrorMonitoring(): void {
   Sentry.init({
@@ -25,27 +39,16 @@ export function initErrorMonitoring(): void {
     // Errors and crashes only — no performance tracing, no PII.
     tracesSampleRate: 0,
     sendDefaultPii: false,
+    beforeSend: downgradeNetworkNoise,
   });
 }
 
 /** Wraps the root component so React render errors are captured too. */
 export const withErrorMonitoring = Sentry.wrap;
 
-/**
- * Report a caught error, tagged with the operation that failed.
- *
- * A timeout or dropped connection is already retried and shown to the user
- * (issue #145); it says something about their signal, not our code. It is still
- * recorded, but as a warning — `error` level is what files a GitHub issue
- * (issue #195).
- */
+/** Report a caught error, tagged with the operation that failed. */
 export function reportError(error: unknown, operation: string): void {
-  const kind = classifyFailure(error);
-  const connectivity = kind === 'timeout' || kind === 'offline';
-  Sentry.captureException(error, {
-    ...(connectivity ? { level: 'warning' as const } : {}),
-    tags: { operation },
-  });
+  Sentry.captureException(error, { tags: { operation } });
 }
 
 /**
