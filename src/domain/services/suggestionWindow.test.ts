@@ -26,15 +26,24 @@ describe('windowStartMs', () => {
     expect(daysBack(start)).toBe(9);
   });
 
-  it('treats the lookback as a floor, never a ceiling', () => {
-    // Posted an hour ago. Photos from earlier in the week that simply weren't
-    // chosen must stay offerable, so the window does not collapse to an hour.
+  it('starts at the last post even when it is more recent than the lookback', () => {
+    // Posted an hour ago on a weekly cadence: the lookback only drives the
+    // reminder schedule, so the window is "since the last post", not 7 days.
     const start = windowStartMs({
       now: NOW,
       lookbackDays: 7,
       newestPostedPhotoAt: NOW - 60 * 60 * 1000,
     });
-    expect(daysBack(start)).toBe(7);
+    expect(NOW - start).toBe(60 * 60 * 1000);
+  });
+
+  it('starts at the last post when it is within the lookback', () => {
+    const start = windowStartMs({
+      now: NOW,
+      lookbackDays: 7,
+      newestPostedPhotoAt: NOW - 3 * DAY,
+    });
+    expect(daysBack(start)).toBe(3);
   });
 
   it('clamps a long absence so it cannot open an unbounded scan', () => {

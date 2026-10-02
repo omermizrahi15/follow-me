@@ -311,12 +311,10 @@ describe('PhotoSelectionService — ranking within a category', () => {
 });
 
 describe('PhotoSelectionService — diversity', () => {
-  it('lets a much better category win the post outright', () => {
-    // The old round-robin guaranteed nature a slot per round regardless of how
-    // much better the food photos were, which is precisely the behaviour the
-    // grades were supposed to decide. Variety is now the scene cap's job, not
-    // the category's — these all have distinct scenes, so nothing holds the
-    // strong photos back.
+  it('caps the dominant category so a weaker one still gets slots', () => {
+    // Issue #207: diversity across the publisher's categories is a cap applied
+    // after scoring. Five food photos no longer take all five slots when nature
+    // has photos to offer; the cap is ceil(5 / 2 categories) = 3 each.
     const cfg = config({ enabledCategories: ['nature', 'food'] });
     const batch = service.selectBatch(
       [
@@ -330,7 +328,7 @@ describe('PhotoSelectionService — diversity', () => {
       ],
       cfg,
     );
-    expect(ids(batch)).toEqual(['f1', 'f2', 'f3', 'f4', 'f5']);
+    expect(ids(batch)).toEqual(['f1', 'f2', 'f3', 'v1', 'v2']);
   });
 
   it('falls back to a single category when only one is present', () => {
