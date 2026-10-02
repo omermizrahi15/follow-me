@@ -183,6 +183,39 @@ test.describe('travel globe', () => {
       expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.2))).toBeLessThan(3);
     });
 
+    test('the last post can be scrolled fully into view, whatever height the sheet rests at', async ({ page }) => {
+      // The sheet hangs off the bottom of the screen, so without padding the
+      // end of the list is laid out below the viewport and can never be reached.
+      const many = Array.from({ length: 8 }, (_, i) =>
+        post(`p${i}`, `2026-0${i + 1}-10T10:00:00.000Z`, `Place ${i}`, [10 + i, 20 + i]),
+      );
+      await mock(page, many);
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      await expect(page.locator('.card')).toHaveCount(8);
+
+      await page.locator('#sheetBody').evaluate(el => { el.scrollTop = el.scrollHeight; });
+      const bottom = await page.locator('.card').last().evaluate(el => el.getBoundingClientRect().bottom);
+      expect(bottom).toBeLessThanOrEqual(page.viewportSize()!.height);
+    });
+
+    test('the arrow keys move the sheet between its snap heights', async ({ page }) => {
+      await mock(page, [LISBON]);
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      await expect(page.locator('.card')).toHaveCount(1);
+      const h = page.viewportSize()!.height;
+
+      await page.locator('#sheetHandle').focus();
+      await page.keyboard.press('ArrowUp');
+      await page.waitForTimeout(500);
+      expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.84))).toBeLessThan(3);
+      await expect(page.locator('#sheetHandle')).toHaveAttribute('aria-valuetext', 'Fully open');
+
+      await page.keyboard.press('ArrowDown');
+      await page.keyboard.press('ArrowDown');
+      await page.waitForTimeout(500);
+      expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.2))).toBeLessThan(3);
+    });
+
     test('the globe keeps its place behind the sheet', async ({ page }) => {
       await mock(page, [LISBON]);
       await page.goto(`/gallery.html?u=${PUBLISHER}`);

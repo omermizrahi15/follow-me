@@ -63,8 +63,8 @@ async function postId(publisherId: string, mediaUrls: string[]): Promise<string>
  * the two tables share no key, and trashed posts stayed visible in the gallery.
  *
  * `coordinate` is where the batch was taken: it places the post on the globe
- * the gallery shows followers. When the caller has none it is looked up from
- * the posting's media rows.
+ * the gallery shows followers, rounded to ~11 km first because the row is
+ * public. When the caller has none it is looked up from the posting's media rows.
  */
 export async function savePostGallery(
   supabase: SupabaseClient,
@@ -76,7 +76,8 @@ export async function savePostGallery(
 ): Promise<string | null> {
   try {
     const id = await postId(publisherId, mediaUrls);
-    const where = coordinate ?? (postingId != null ? await postingCoordinate(supabase, publisherId, postingId) : null);
+    const exact = coordinate ?? (postingId != null ? await postingCoordinate(supabase, publisherId, postingId) : null);
+    const where = exact != null ? blurCoordinate(exact) : null;
     const row = { id, publisher_id: publisherId, media_urls: mediaUrls, place };
     // Each column the environment might not have yet is dropped in turn rather
     // than failing the upsert: a missing column must cost a feature (an
@@ -98,6 +99,17 @@ export async function savePostGallery(
     console.error('savePostGallery failed:', err);
     return null;
   }
+}
+
+/**
+ * Rounds to one decimal place (~11 km). `posts` is readable by anyone holding
+ * the public anon key, so the exact fix the photo's GPS recorded — possibly the
+ * publisher's home — must never be stored there. A marker on a globe, next to a
+ * city-level place label, needs nothing finer.
+ */
+function blurCoordinate(c: { latitude: number; longitude: number }): { latitude: number; longitude: number } {
+  const blur = (n: number): number => Math.round(n * 10) / 10;
+  return { latitude: blur(c.latitude), longitude: blur(c.longitude) };
 }
 
 /**

@@ -5,6 +5,11 @@
 -- they read `posts` through the anon key, so the coordinate has to live there
 -- too for docs/gallery.html to draw the same globe.
 --
+-- Stored BLURRED (one decimal, ~11 km). `posts` is readable by anyone holding the
+-- public anon key, and the exact fix a photo recorded can be the publisher's
+-- home; a marker on a globe next to a city-level label needs nothing finer.
+-- savePostGallery rounds the same way on write.
+--
 -- Nullable: posts whose photos carried no GPS fix, and every row that predates
 -- this column until the backfill below, are simply left off the globe.
 
@@ -15,8 +20,8 @@ alter table posts add column if not exists longitude double precision;
 -- first located photo wins, the same rule the app's feed applies when it groups
 -- a posting (ListFeedUseCase).
 update posts p
-set latitude = m.latitude,
-    longitude = m.longitude
+set latitude = round(m.latitude::numeric, 1)::double precision,
+    longitude = round(m.longitude::numeric, 1)::double precision
 from (
   select distinct on (owner_id, posting_id) owner_id, posting_id, latitude, longitude
   from media

@@ -125,8 +125,11 @@
       cursor: grab; touch-action: none; -webkit-tap-highlight-color: transparent;
     }
     .sheet-handle-area:active { cursor: grabbing; }
+    .sheet-handle-area:focus-visible { outline: 2px solid var(--accent); outline-offset: -4px; border-radius: 16px; }
     .sheet-handle { width: 40px; height: 5px; border-radius: 999px; background: #E2E8F0; }
-    .sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px; }
+    /* The sheet is always full height and slid down, so the part below the screen is
+       real. The padding (set in placeSheet) lifts the end of the list back into view. */
+    .sheet-body { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; padding: 0 24px var(--sheet-inset, 0px); }
     .sheet-body .profile { padding: 0 0 32px; }
     .sheet-body .profile-avatar { width: 64px; height: 64px; border: 2px solid var(--accent); background: #E6EEF3; }
     .sheet-body .profile-name { font-size: 17px; font-weight: 600; letter-spacing: 0; }
@@ -229,7 +232,7 @@
     <div class="app-scrim"></div>
     <div class="app-header"><img src="join/logo.png" alt=""><span>Follow Me</span></div>
     <div class="sheet" id="sheet">
-      <div class="sheet-handle-area" id="sheetHandle" role="separator" aria-label="Drag to resize the post list"><div class="sheet-handle"></div></div>
+      <div class="sheet-handle-area" id="sheetHandle" role="slider" tabindex="0" aria-label="Post list height" aria-orientation="vertical" aria-valuetext="Half open"><div class="sheet-handle"></div></div>
       <div class="sheet-body" id="sheetBody">
         <div class="profile">
           <div class="profile-avatar" id="feedAvatar"></div>
@@ -676,6 +679,12 @@
       sheetOffset = offsetFor(visible);
       sheet.classList.toggle('settling', animate);
       sheet.style.transform = 'translateY(' + sheetOffset + 'px)';
+      // Everything below the fold is laid-out sheet, so pad the list past it (and
+      // past the phone's home indicator) or the last posts sit off-screen.
+      sheet.style.setProperty('--sheet-inset', (sheetOffset + 16) + 'px');
+      const snapsNow = sheetSnaps();
+      sheetHandle.setAttribute('aria-valuetext',
+        visible <= snapsNow.small ? 'Peeking' : visible >= snapsNow.full ? 'Fully open' : 'Half open');
     }
 
     let grab = null;
@@ -708,6 +717,16 @@
       grab = null;
       placeSheet(target, true);
     }
+    // Keyboard: the handle is a slider, so arrows step through the same snaps.
+    sheetHandle.addEventListener('keydown', e => {
+      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return;
+      e.preventDefault();
+      const snaps = sheetSnaps();
+      const stops = [snaps.small, snaps.medium, snaps.full];
+      const index = stops.reduce((best, h, i) => (Math.abs(h - sheetVisible) < Math.abs(stops[best] - sheetVisible) ? i : best), 0);
+      const next = Math.min(stops.length - 1, Math.max(0, index + (e.key === 'ArrowUp' ? 1 : -1)));
+      placeSheet(stops[next], true);
+    });
     sheetHandle.addEventListener('pointerup', releaseSheet);
     sheetHandle.addEventListener('pointercancel', releaseSheet);
     window.addEventListener('resize', () => {

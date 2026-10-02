@@ -145,3 +145,24 @@ Deno.test('savePostGallery — still returns a link against a database without t
   assert(!('latitude' in upserts.at(-1)!.row));
   assertEquals(upserts.at(-1)!.row.posting_id, 'posting-abc');
 });
+
+Deno.test('savePostGallery — blurs the coordinate: posts is world-readable, so no exact GPS', async () => {
+  // The gallery needs a marker on a planet, not a street address. A photo taken
+  // at home must not publish the home's coordinates to anyone holding the
+  // (public) anon key.
+  const { client, upserts } = fakeSupabase();
+
+  await savePostGallery(client, 'pub-1', ['https://a'], 'Lisbon', null, { latitude: 38.722252, longitude: -9.139337 });
+
+  assertEquals(upserts[0].row.latitude, 38.7);
+  assertEquals(upserts[0].row.longitude, -9.1);
+});
+
+Deno.test('savePostGallery — blurs a looked-up coordinate the same way', async () => {
+  const { client, upserts } = fakeSupabase(undefined, [{ latitude: 41.14961, longitude: -8.61099 }]);
+
+  await savePostGallery(client, 'pub-1', ['https://a'], 'Porto', 'posting-abc');
+
+  assertEquals(upserts[0].row.latitude, 41.1);
+  assertEquals(upserts[0].row.longitude, -8.6);
+});
