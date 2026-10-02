@@ -110,6 +110,34 @@
     .no-globe .sheet-body { overflow: visible; padding: 20px 16px 40px; }
     .no-globe .sheet-body .profile { padding: 8px 0 20px; }
 
+    /* ---------- the teaser: planet peeking over the sheet, map loads on demand ---------- */
+    /* The page opens on the posts. Only the top of a planet shows above the sheet
+       (pure CSS — no map, no tiles), with a pill to open it. The real globe loads
+       the first time a follower asks for it, by tapping the pill or dragging the
+       sheet down, so people who only came for the photos never cost a map load. */
+    .planet-peek {
+      position: absolute; left: 50%; top: 104px; width: 150vw; height: 150vw; max-width: 1400px; max-height: 1400px;
+      transform: translateX(-50%); border-radius: 50%; pointer-events: none;
+      background: radial-gradient(circle at 50% 8%, #2b6aa6 0%, #12365f 38%, #07152b 70%, #050b18 100%);
+      box-shadow: 0 0 0 1px rgba(120,195,255,0.5), 0 0 24px 4px rgba(80,170,255,0.7), 0 0 80px 24px rgba(45,130,245,0.35);
+      transition: opacity 500ms ease;
+    }
+    .globe-hero .globe-stage { opacity: 0; transition: opacity 500ms ease; }
+    .globe-hero.ready .globe-stage { opacity: 1; }
+    .globe-hero.ready .planet-peek { opacity: 0; }
+    .map-pill {
+      position: fixed; z-index: 4; left: 50%; bottom: calc(var(--sheet-top-gap, 130px) + 14px);
+      transform: translateX(-50%); display: flex; align-items: center; gap: 8px;
+      padding: 9px 16px 9px 12px; border-radius: 999px; font: inherit; font-size: 14px; font-weight: 600;
+      color: #fff; cursor: pointer; white-space: nowrap;
+      background: rgba(255,255,255,0.16); border: 1px solid rgba(255,255,255,0.4);
+      -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
+      transition: opacity 250ms ease; -webkit-tap-highlight-color: transparent;
+    }
+    .map-pill svg { width: 18px; height: 18px; fill: none; stroke: currentColor; stroke-width: 1.7; }
+    .map-pill.away { opacity: 0; visibility: hidden; pointer-events: none; transition: opacity 250ms ease, visibility 0s 250ms; }
+    .no-globe .map-pill, .no-globe .planet-peek { display: none; }
+
     /* ---------- Me page: globe behind a draggable sheet (issue #200) ---------- */
     /* Mirrors HomeScreen: the globe is the background, a header floats over it,
        and the sheet is always SHEET_H tall, slid down with a transform to show
@@ -243,8 +271,13 @@
   <!-- Feed (the app's Me page): every post by the publisher, newest first. -->
   <section id="feedView" hidden>
     <div class="globe-hero" id="globeHero" role="region" aria-label="Map of where these photos were taken">
+      <div class="planet-peek" id="planetPeek"></div>
       <div class="globe-stage" id="globeStage"><div class="globe-glow"></div><div class="globe-map"></div></div>
     </div>
+    <button class="map-pill" id="mapPill" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3c3 3.2 3 14.8 0 18M12 3c-3 3.2-3 14.8 0 18"/></svg>
+      <span id="mapPillText">See where they’ve been</span>
+    </button>
     <div class="app-scrim"></div>
     <div class="app-header"><img src="join/logo.png" alt=""><span>Follow Me</span></div>
     <div class="sheet" id="sheet">
@@ -618,6 +651,8 @@
     let globeLoading = false;
     let globeRouteKey = '';
     let globeDisabled = false;
+    /** Set by the first request to see the map — nothing loads before it. */
+    let globeWanted = false;
 
     /**
      * Drops the globe and shows the feed on its own. Used when the map provider
@@ -655,6 +690,11 @@
     /** Draws the globe, or swaps the new route into the one already drawn. */
     async function syncGlobe() {
       if (globeDisabled) return;
+      // The pill's label can be written without the map: how many places there are.
+      const places = routeInputs().length;
+      document.getElementById('mapPillText').textContent =
+        places > 0 ? 'See ' + places + ' place' + (places === 1 ? '' : 's') + ' on the map' : 'See the map';
+      if (!globeWanted) return;
       try {
         const { buildTravelRoute } = await import('./globe/travelRoute.js');
         // No located posts is still a globe, as in the app: the planet, no stops.
@@ -680,6 +720,7 @@
           // The app centres the planet in the band above the resting sheet.
           bottomPadding: sheetSnaps().medium,
           post(message) {
+            if (message.type === 'ready') document.getElementById('globeHero').classList.add('ready');
             if (message.type === 'openPosting') openPost(message.id);
             if (message.type === 'error') {
               console.warn('[globe]', message.message);
@@ -723,10 +764,26 @@
       // Everything below the fold is laid-out sheet, so pad the list past it (and
       // past the phone's home indicator) or the last posts sit off-screen.
       sheet.style.setProperty('--sheet-inset', (sheetOffset + 16) + 'px');
+      // The pill rides just above the sheet's top edge, and goes once the map is
+      // in view. Asking for the map (any rest below fully open) loads it.
+      document.body.style.setProperty('--sheet-top-gap', visible + 'px');
+      document.getElementById('mapPill').classList.toggle('away', visible < sheetSnaps().full - 4);
+      if (visible < sheetSnaps().full - 4) wantGlobe();
       const snapsNow = sheetSnaps();
       sheetHandle.setAttribute('aria-valuetext',
         visible <= snapsNow.small ? 'Peeking' : visible >= snapsNow.full ? 'Fully open' : 'Half open');
     }
+
+    /** First request to see the map: from here on the globe is drawn. */
+    function wantGlobe() {
+      if (globeWanted) return;
+      globeWanted = true;
+      void syncGlobe();
+    }
+    document.getElementById('mapPill').addEventListener('click', () => {
+      wantGlobe();
+      placeSheet(sheetSnaps().medium, true);
+    });
 
     let grab = null;
     sheetHandle.addEventListener('pointerdown', e => {
@@ -771,7 +828,8 @@
     sheetHandle.addEventListener('pointerup', releaseSheet);
     sheetHandle.addEventListener('pointercancel', releaseSheet);
     window.addEventListener('resize', () => {
-      placeSheet(sheetVisible === sheetSnaps().medium ? sheetSnaps().medium : sheetVisible, false);
+      const snaps = sheetSnaps();
+      placeSheet(sheetVisible >= snaps.full - 4 ? snaps.full : sheetVisible, false);
       if (globe != null) globe.setBottomPadding(sheetSnaps().medium);
     });
 
@@ -779,7 +837,8 @@
       const wasHidden = feedView.hidden;
       feedView.hidden = false;
       document.body.classList.add('feed');
-      if (wasHidden) placeSheet(sheetSnaps().medium, false);
+      // Opens on the posts; the planet is a teaser until asked for.
+      if (wasHidden) placeSheet(sheetSnaps().full, false);
       statusEl.hidden = true;
       document.title = publisherName + ' — Follow Me';
 

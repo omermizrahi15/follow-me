@@ -61,13 +61,62 @@ async function mock(page: Page, posts: unknown[]): Promise<void> {
   );
 }
 
+/** The page opens on the posts; the map loads when asked for. */
+const reveal = (page: Page) => page.locator('#mapPill').click();
 const hero = (page: Page) => page.locator('#globeHero');
 const markers = (page: Page) => page.locator('#globeStage .stop');
 
 test.describe('travel globe', () => {
+  test.describe('teaser (before the map is asked for)', () => {
+    test('opens on the posts, with the planet only peeking and no map loaded', async ({ page }) => {
+      const requested: string[] = [];
+      page.on('request', r => requested.push(r.url()));
+      await mock(page, [LISBON, PORTO, NO_GPS]);
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      await expect(page.locator('.card')).toHaveCount(3);
+
+      const h = page.viewportSize()!.height;
+      const visible = await page.evaluate(() => window.innerHeight - document.getElementById('sheet')!.getBoundingClientRect().top);
+      expect(Math.abs(visible - Math.round(h * 0.84))).toBeLessThan(3);
+      await expect(page.locator('#planetPeek')).toBeVisible();
+      await expect(page.locator('#mapPill')).toHaveText('See 2 places on the map');
+      // Nothing for the map has been fetched: no library, no style, no tiles.
+      await page.waitForTimeout(500);
+      expect(requested.filter(u => /unpkg|maplibre|maptiler/.test(u))).toEqual([]);
+    });
+
+    test('the pill opens the map and then gets out of the way', async ({ page }) => {
+      await mock(page, [LISBON, PORTO]);
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      await expect(page.locator('#mapPill')).toBeVisible();
+
+      await reveal(page);
+
+      await expect(markers(page)).toHaveCount(2);
+      await expect(page.locator('#globeHero')).toHaveClass(/ready/);
+      await expect(page.locator('#mapPill')).toBeHidden();
+    });
+
+    test('dragging the sheet down also loads the map', async ({ page }) => {
+      await mock(page, [LISBON]);
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      await expect(page.locator('.card')).toHaveCount(1);
+      const box = (await page.locator('#sheetHandle').boundingBox())!;
+      const x = box.x + box.width / 2;
+      await page.mouse.move(x, box.y + 10);
+      await page.mouse.down();
+      for (let i = 1; i <= 10; i++) { await page.mouse.move(x, box.y + 10 + i * 20); await page.waitForTimeout(40); }
+      await page.waitForTimeout(250);
+      await page.mouse.up();
+
+      await expect(markers(page)).toHaveCount(1);
+    });
+  });
+
   test('the feed opens on the globe, with one photo marker per located post', async ({ page }) => {
     await mock(page, [LISBON, PORTO, NO_GPS]);
     await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
 
     await expect(hero(page)).toBeVisible();
     // The post without GPS is on the feed but not on the map.
@@ -79,6 +128,7 @@ test.describe('travel globe', () => {
   test('markers are named for their place and carry the cover photo', async ({ page }) => {
     await mock(page, [LISBON, PORTO]);
     await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
 
     await expect(page.getByRole('button', { name: 'Lisbon, Portugal', exact: true }).first()).toBeAttached();
     await expect(markers(page).first().locator('img')).toHaveAttribute('src', /img\.test\/post-/);
@@ -87,6 +137,7 @@ test.describe('travel globe', () => {
   test('tapping a marker plays that post as a story, and back returns to the globe', async ({ page }) => {
     await mock(page, [LISBON, PORTO]);
     await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
     await expect(markers(page)).toHaveCount(2);
 
     await page.getByRole('button', { name: 'Porto, Portugal', exact: true }).first().dispatchEvent('click');
@@ -103,6 +154,7 @@ test.describe('travel globe', () => {
   test('with no located posts it is still the planet, as in the app', async ({ page }) => {
     await mock(page, [NO_GPS]);
     await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
 
     await expect(page.locator('.card')).toHaveCount(1);
     await expect(hero(page)).toBeVisible();
@@ -116,6 +168,7 @@ test.describe('travel globe', () => {
     await expect(page.locator('#story')).toBeVisible();
 
     await page.goBack();
+    await reveal(page);
 
     await expect(hero(page)).toBeVisible();
     await expect(markers(page)).toHaveCount(2);
@@ -125,6 +178,7 @@ test.describe('travel globe', () => {
     await mock(page, [LISBON]);
     await page.route('https://unpkg.com/**', route => route.abort());
     await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
 
     await expect(page.locator('.card')).toHaveCount(1);
     await expect(hero(page)).toBeHidden();
@@ -151,6 +205,7 @@ test.describe('travel globe', () => {
         route.fulfill({ status: 403, contentType: 'application/json', body: '{"message":"quota"}' }),
       );
       await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
 
       await expect(page.locator('.card')).toHaveCount(2);
       await expectPlainFeed(page);
@@ -168,6 +223,7 @@ test.describe('travel globe', () => {
       );
       await page.route('https://tiles.test/**', route => route.fulfill({ status: 429, body: 'quota' }));
       await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
 
       await expect(page.locator('body')).toHaveClass(/no-globe/);
       await expectPlainFeed(page);
@@ -177,6 +233,7 @@ test.describe('travel globe', () => {
       await mock(page, [LISBON]);
       await page.route(/demotiles\.maplibre\.org|api\.maptiler\.com\/maps/, route => route.fulfill({ status: 429, body: '' }));
       await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
       await page.locator('.card').first().click();
 
       await expect(page.locator('#story')).toBeVisible();
@@ -188,6 +245,7 @@ test.describe('travel globe', () => {
   test('the map library is the pinned build with its integrity hash', async ({ page }) => {
     await mock(page, [LISBON]);
     await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
     await expect(markers(page)).toHaveCount(1);
 
     const script = page.locator('script[src*="maplibre-gl"]');
@@ -198,8 +256,11 @@ test.describe('travel globe', () => {
   // The draggable Me sheet (HomeScreen): rests at 42% of the screen, drags to
   // a peek (20%) or near-full (84%).
   test.describe('draggable sheet', () => {
-    const visibleHeight = (page: Page) =>
-      page.evaluate(() => window.innerHeight - document.getElementById('sheet')!.getBoundingClientRect().top);
+    // Lets the sheet's settle animation (~320 ms) finish before measuring.
+    const visibleHeight = async (page: Page) => {
+      await page.waitForTimeout(450);
+      return page.evaluate(() => window.innerHeight - document.getElementById('sheet')!.getBoundingClientRect().top);
+    };
 
     async function drag(page: Page, dy: number): Promise<void> {
       const box = (await page.locator('#sheetHandle').boundingBox())!;
@@ -220,6 +281,7 @@ test.describe('travel globe', () => {
     test('rests at the Me-page height', async ({ page }) => {
       await mock(page, [LISBON]);
       await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
       await expect(page.locator('.card')).toHaveCount(1);
       const h = page.viewportSize()!.height;
       expect(Math.abs((await visibleHeight(page)) - Math.round(h * 0.42))).toBeLessThan(3);
@@ -228,6 +290,7 @@ test.describe('travel globe', () => {
     test('dragging up opens it nearly full, dragging down parks it as a peek', async ({ page }) => {
       await mock(page, [LISBON]);
       await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
       const h = page.viewportSize()!.height;
 
       await drag(page, -(h * 0.5));
@@ -245,6 +308,7 @@ test.describe('travel globe', () => {
       );
       await mock(page, many);
       await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
       await expect(page.locator('.card')).toHaveCount(8);
 
       await page.locator('#sheetBody').evaluate(el => { el.scrollTop = el.scrollHeight; });
@@ -255,6 +319,7 @@ test.describe('travel globe', () => {
     test('the arrow keys move the sheet between its snap heights', async ({ page }) => {
       await mock(page, [LISBON]);
       await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
       await expect(page.locator('.card')).toHaveCount(1);
       const h = page.viewportSize()!.height;
 
@@ -273,6 +338,7 @@ test.describe('travel globe', () => {
     test('the globe keeps its place behind the sheet', async ({ page }) => {
       await mock(page, [LISBON]);
       await page.goto(`/gallery.html?u=${PUBLISHER}`);
+    await reveal(page);
       await expect(markers(page)).toHaveCount(1);
       const box = (await hero(page).boundingBox())!;
       // Full-bleed behind the sheet, not a card above it.
