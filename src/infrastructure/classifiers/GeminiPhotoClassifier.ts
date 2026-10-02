@@ -1,7 +1,9 @@
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoCategory, PhotoClassification } from '../../domain/entities/PhotoClassification';
+import { normaliseCategory } from '../../domain/entities/PhotoClassification';
 import type { FaceReference, IPhotoClassifier } from '../../domain/interfaces';
-import { slowFetch } from '../http/appFetch';
+import { classifyFetch } from '../http/appFetch';
+import { RequestTimeoutError } from '../http/resilientFetch';
 import { sleep } from '../timers';
 
 /** Wire shape sent to the classify-photos Edge Function for one photo. */
@@ -135,25 +137,45 @@ interface RawClassification {
  */
 export class GeminiPhotoClassifier implements IPhotoClassifier {
   /**
-   * Maximum Edge Function calls in flight at once. Uses a sliding window so a
-   * slow photo never blocks other slots — as soon as one finishes, the next
-   * starts, keeping CONCURRENCY calls running at all times. Kept moderate:
-   * each request uploads a multi-MB base64 body, and too many concurrent
-   * uploads saturate a phone connection ("Network request failed").
+   * Maximum Edge Function calls in flight at once — now one.
+   *
+   * It was four, and four was never throughput. Tokens are what bounds photo
+   * grading: Groq's free tier allows 8,000 a MINUTE and an image costs about a
+   * thousand, so the ceiling is roughly eight photos a minute however many
+   * requests are in the air. Four concurrent requests of twelve photos put
+   * ~48,000 tokens against an 8,000 budget — six times over in the first
+   * second of every scan. All four 429'd, the run fell through to Gemini's
+   * twenty-requests-a-DAY, and grading was finished for the day before the
+   * publisher had seen a photo.
+   *
+   * Worse, parallelism decided how much work was in flight when the wall was
+   * hit, and everything in flight was lost. This is the same conclusion
+   * auto-post reached on the server side (CLASSIFY_CONCURRENCY = 1): progress
+   * comes from the grade cache and from staying inside the budget, never from
+   * firing more requests at a closed door.
    */
-  private static readonly CONCURRENCY = 4;
+  private static readonly CONCURRENCY = 1;
 
   /**
-   * Photos per request — and per Gemini call, since classify-photos now grades
-   * a whole request in one.
+   * Photos per request — sized so one request is one provider call.
    *
-   * Grading used to send one photo per request, which meant a 237-photo library
-   * spent 237 slots from a free tier that allows five per MINUTE: about forty
-   * minutes of waiting before the publisher saw a suggestion. Twelve photos to
-   * a call divides that by twelve. Must not exceed classify-photos'
-   * MAX_PHOTOS_PER_REQUEST, which answers 400 above it.
+   * It was twelve, chosen when the binding constraint was Gemini's five
+   * REQUESTS per minute and batching was the whole answer. The provider chain
+   * now leads with Groq, whose ceiling is tokens rather than requests: 8,000 a
+   * minute against about a thousand per image. Twelve photos is ~12,000 tokens
+   * — half as much again as a whole minute's budget — and classify-photos
+   * splits it into three provider calls, so a single request could not succeed
+   * under the free tier no matter how patiently it was retried.
+   *
+   * Five fits inside both: one provider call (Groq's maxImagesPerCall) and
+   * ~5,000 tokens, comfortably under the window. Fewer photos per request is
+   * not fewer photos per minute — the token budget was always the divisor —
+   * it just stops each request being dead on arrival.
+   *
+   * Must not exceed classify-photos' MAX_PHOTOS_PER_REQUEST, which answers 400
+   * above it.
    */
-  private static readonly CHUNK_SIZE = 12;
+  private static readonly CHUNK_SIZE = 5;
 
   /**
    * How many times a chunk waits for a usable session token before giving up.
@@ -212,6 +234,13 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
      * this class, and the composition root is where implementations get chosen.
      */
     private readonly onQuotaExhausted?: (photosInRun: number) => void,
+    /**
+     * Called once per run when a request outlives its deadline. Injected for
+     * the same reason as the quota hook, and for a sharper one: handling the
+     * stall is what stops it reaching Sentry as a crash, and a wall nothing
+     * reports is a wall nobody can count (issue #174).
+     */
+    private readonly onTimedOut?: (photosInRun: number) => void,
   ) {}
 
   /**
@@ -229,6 +258,14 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
    * tomorrow", and conflating the two is the whole of issue #141.
    */
   private hitRateLimit = false;
+
+  /**
+   * Set when a request outlived its deadline. A third wall, kept apart from
+   * the other two for the same reason they are kept apart from each other: the
+   * remedy differs. This one is the publisher's connection — nothing about
+   * their budget, and nothing about the AI.
+   */
+  private hitTimeout = false;
 
   /**
    * When the next request may go out, as an epoch ms. Shared by every in-flight
@@ -253,13 +290,17 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
     return this.hitRateLimit;
   }
 
+  timedOut(): boolean {
+    return this.hitTimeout;
+  }
+
   /**
    * Whether the run has hit a wall that every remaining photo would hit too.
-   * Once either is set, further requests are wasted round trips — stop feeding
-   * the queue and keep what has already been graded.
+   * Once any of them is set, further requests are wasted round trips — stop
+   * feeding the queue and keep what has already been graded.
    */
   private stopped(): boolean {
-    return this.hitQuota || this.hitRateLimit;
+    return this.hitQuota || this.hitRateLimit || this.hitTimeout;
   }
 
   /** Hold every worker back until `seconds` from now. */
@@ -283,6 +324,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
   ): Promise<PhotoClassification[]> {
     this.hitQuota = false;
     this.hitRateLimit = false;
+    this.hitTimeout = false;
     this.rateLimitedUntil = 0;
     this.runSize = candidates.length;
     this.runOver = new AbortController();
@@ -440,7 +482,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       networkAttempts++;
       let res: Response;
       try {
-        res = await slowFetch(this.functionUrl, {
+        res = await classifyFetch(this.functionUrl, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -450,6 +492,25 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
           body,
         });
       } catch (err) {
+        // Out of time rather than refused. Neither retried nor thrown:
+        // classify-photos counts the photos against the day's budget on the way
+        // in, so re-sending the chunk pays for it twice while the publisher
+        // gets one answer at most — and a slow uplink is not a fault the scan
+        // should die on. Soft-stop it like the throttle wall; the grades
+        // already in hand are real, and a rescan resumes from the cache
+        // (issue #174).
+        if (err instanceof RequestTimeoutError) {
+          // Reported once per run, like the quota wall and for the same reason:
+          // a deadline that passes trips every request in flight, and four
+          // identical events per scan would bury the number worth knowing.
+          if (!this.hitTimeout) {
+            this.hitTimeout = true;
+            this.onTimedOut?.(this.runSize);
+          }
+          console.warn(`classify-photos timed out for ${c.id}`);
+          return [];
+        }
+
         // Network-level failure (upload dropped mid-flight) — retry once, then
         // give up and let it surface.
         lastNetworkError = err;
@@ -563,7 +624,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
         if (raw == null) continue;
         graded.push({
           candidate,
-          category: raw.category,
+          category: normaliseCategory(raw.category),
           confidence: raw.confidence,
           quality: raw.quality,
           caption: raw.caption,

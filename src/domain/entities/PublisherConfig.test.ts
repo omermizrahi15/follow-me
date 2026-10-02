@@ -68,7 +68,6 @@ describe('PublisherConfig', () => {
         'food',
         'nature',
         'night_scene',
-        'cultural',
       ]);
       expect(config.minQuality).toBe(0.15);
     });

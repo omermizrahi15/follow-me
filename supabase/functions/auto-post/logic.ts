@@ -248,3 +248,79 @@ export function gradingDecision(input: GradingInput): GradingDecision {
 
   return gradedCount > 0 ? { kind: 'select' } : { kind: 'give-up', reason: 'grading-failed' };
 }
+
+/**
+ * A candidate row as the grade cache stores it (migration 20240036, extended by
+ * 20240039). Only the grading columns — the caller holds the rest.
+ */
+export interface CachedGradeRow {
+  asset_id: string;
+  category: string | null;
+  confidence: number | null;
+  quality: number | null;
+  caption: string | null;
+  scene: string | null;
+  graded_at: string | null;
+  contains_reference_person: boolean | null;
+  reference_confidence: number | null;
+  graded_reference: string | null;
+}
+
+/** The grade this row remembers, in the shape classify-photos answers in. */
+export interface RememberedGrade {
+  id: string;
+  category: string;
+  confidence: number;
+  quality: number;
+  caption: string;
+  scene: string;
+  contains_reference_person?: boolean;
+  reference_confidence?: number;
+}
+
+/**
+ * The remembered grade for a candidate, or null when it must be graded afresh.
+ *
+ * `wantedReference` is the face this run is asking about — the publisher's
+ * profile photo URL, or null when the preference is off and no reference is
+ * sent at all.
+ *
+ * A grade is only reusable when it answers the question being asked. The
+ * category and quality never change with the reference, but the face answer
+ * does, and a grade bought while looking for NO face reports `false` for the
+ * trivial reason that nobody looked. Stored, that is indistinguishable from a
+ * real "the publisher is not in this photo" — and under `only` it filters away
+ * exactly the photos the feature exists to surface. So a run that wants a face
+ * accepts only a grade bought against that same face.
+ *
+ * The reverse is deliberately allowed: a face-aware grade still serves a run
+ * that is not asking about a face, because nothing else about it differs and
+ * re-buying it would spend the AI budget for nothing.
+ *
+ * Mirrors the device's own rule — see ClassificationCache.answersReference.
+ */
+export function cachedGrade(
+  row: CachedGradeRow,
+  wantedReference: string | null,
+): RememberedGrade | null {
+  if (row.graded_at == null || row.category == null) return null;
+  if (wantedReference != null && row.graded_reference !== wantedReference) return null;
+
+  return {
+    id: row.asset_id,
+    category: row.category,
+    confidence: row.confidence ?? 0,
+    quality: row.quality ?? 0,
+    caption: row.caption ?? '',
+    scene: row.scene ?? '',
+    // Only stated when it was actually asked. `undefined` keeps the shape
+    // identical to a classify response that carried no reference, so nothing
+    // downstream has to know whether a grade came from the model or the cache.
+    ...(row.contains_reference_person != null
+      ? {
+          contains_reference_person: row.contains_reference_person,
+          reference_confidence: row.reference_confidence ?? 0,
+        }
+      : {}),
+  };
+}

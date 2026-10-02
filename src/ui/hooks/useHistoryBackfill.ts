@@ -116,6 +116,14 @@ interface State {
   config: PublisherConfig | null;
   /** The caught failure, kept whole so the screen can name the cause (#145). */
   error: unknown;
+  /**
+   * A failure that stopped the scan while some stretches were already
+   * reconstructed. Distinct from `error`, which is the run producing nothing at
+   * all: this one goes to review WITH the timeline, and the banner sits above
+   * it. A backfill is minutes of work, and dropping six finished postings
+   * because the seventh window lost the network is the wrong trade.
+   */
+  scanError: unknown;
 }
 
 const INITIAL: State = {
@@ -134,6 +142,7 @@ const INITIAL: State = {
   failedCount: 0,
   config: null,
   error: null,
+  scanError: null,
 };
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -342,11 +351,20 @@ export function useHistoryBackfill(publisherId: string): State & {
         );
 
 
+        // A run that died before reconstructing anything has nothing to review,
+        // so it is a plain failure. One that died partway has a timeline worth
+        // showing, and the failure rides along with it as a banner.
+        if (result.failure != null && result.drafts.length === 0) {
+          setState(s => ({ ...s, phase: 'error', error: result.failure }));
+          return;
+        }
+
         setState(s => ({
           ...s,
           phase: 'review',
           plan: result.plan,
           quotaExhausted: result.quotaExhausted,
+          scanError: result.failure,
           error: null,
         }));
 
@@ -410,7 +428,7 @@ export function useHistoryBackfill(publisherId: string): State & {
           return [];
         }
 
-        const { classified, suggestions, consumed, quotaExhausted, rateLimited } =
+        const { classified, suggestions, consumed, quotaExhausted, rateLimited, timedOut } =
           await suggestPhotos.classifyMore(queue, config, 1);
         const left = queue.slice(consumed);
         pending.current.set(posting.id, left);
@@ -430,12 +448,14 @@ export function useHistoryBackfill(publisherId: string): State & {
               ? 'Today’s photo analysis is used up — try again tomorrow'
               : rateLimited
                 ? 'The photo AI is busy — tap again in a moment'
-                : 'Nothing else in these days';
+                : timedOut
+                  ? 'The photo AI took too long — check your connection and tap again'
+                  : 'Nothing else in these days';
             return {
               ...p,
               draft: { ...p.draft, pool: [...p.draft.pool, ...classified] },
               canAddMore: !exhausted,
-              ...(exhausted || rateLimited ? { note } : {}),
+              ...(exhausted || rateLimited || timedOut ? { note } : {}),
             };
           }),
         }));

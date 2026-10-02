@@ -291,6 +291,66 @@ describe('SuggestPhotosUseCase', () => {
 
       expect(gradedWhenAnnounced).toBe(config().photosPerPost * 2);
     });
+
+    // The reveal is the point. Photos land in the grid one at a time as they
+    // are graded, and the screen only switches to the fixed, swappable post
+    // when `onBatchReady` fires — so announcing before a single grade has been
+    // bought skips the whole of it. Remembered grades made that the normal
+    // case: a rescan of a window that is only PART graded had enough in hand to
+    // announce at once, and the photos still being graded appeared silently.
+    it('does not announce before grading starts when there is grading to do', async () => {
+      const { candidates, byId } = window(40);
+      const grades = store();
+      // Enough remembered to clear the announce threshold on their own.
+      await grades.save(candidates.slice(0, 20).map(c => byId.get(c.id)!), '');
+
+      const useCase = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        new FakePhotoClassifier(byId),
+        new FakeSentPhotoTracker(),
+        undefined,
+        grades,
+      );
+
+      let gradedWhenAnnounced = -1;
+      let seen = 0;
+      await useCase.execute(config(), {
+        onScanning() {},
+        onScanned() {},
+        onClassifying() { seen++; },
+        onBatchReady() { if (gradedWhenAnnounced < 0) gradedWhenAnnounced = seen; },
+      });
+
+      expect(gradedWhenAnnounced).toBeGreaterThan(0);
+    });
+
+    // The other half of the same rule: with every grade already in hand there
+    // is nothing to reveal, and making the publisher wait for a scan that has
+    // no work to do would be worse than the problem.
+    it('announces immediately when the whole window is already graded', async () => {
+      const { candidates, byId } = window(12);
+      const grades = store();
+      await grades.save(candidates.map(c => byId.get(c.id)!), '');
+
+      const useCase = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        new FakePhotoClassifier(byId),
+        new FakeSentPhotoTracker(),
+        undefined,
+        grades,
+      );
+
+      let announcedBeforeAnyGrading = false;
+      let seen = 0;
+      await useCase.execute(config(), {
+        onScanning() {},
+        onScanned() {},
+        onClassifying() { seen++; },
+        onBatchReady() { announcedBeforeAnyGrading = seen === 0; },
+      });
+
+      expect(announcedBeforeAnyGrading).toBe(true);
+    });
   });
 
   it('excludes already-sent photos reported by the tracker', async () => {
@@ -352,6 +412,11 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       // this queue ran the same discarding rule, so a photo dropped once was
       // unreachable by the "+", by a swap, and by a rescan alike. It is ordered
       // behind the burst leader now, not deleted.
+      //
+      // The leader is `a-burst`, the LATER frame: with no file size or
+      // favourite flag to tell them apart, the settled shot at the end of a
+      // held shutter beats the one taken while the phone was still coming up
+      // (see burstRanking).
       const moment = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
       const library = new FakeMediaLibrary([
         { id: 'a', uri: 'https://cdn.test/a.jpg', createdAt: moment },
@@ -361,7 +426,7 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
 
       const pending = await useCase.pendingCandidates(config());
 
-      expect(pending.map(c => c.id)).toEqual(['a', 'a-burst']);
+      expect(pending.map(c => c.id)).toEqual(['a-burst', 'a']);
     });
 
     /**
@@ -464,6 +529,24 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       expect(result.suggestions).toEqual([]);
       // One wave attempted, then it gives up instead of walking the window.
       expect(classifier.callCount).toBe(1);
+    });
+
+    it('stops after one wave when the request ran out of time', async () => {
+      // Every remaining wave would travel over the same connection and stall
+      // the same way, and each stall now costs a full deadline — walking the
+      // window would leave the publisher holding a "+" for minutes (issue #174).
+      const { candidates, byId } = wave('p', 12);
+      const classifier = new FakePhotoClassifier(byId);
+      classifier.timedOutFromCallIndex = 1;
+      const useCase = useCaseWith(new FakeMediaLibrary(), classifier);
+
+      const result = await useCase.classifyMore(candidates, config());
+
+      expect(result.timedOut).toBe(true);
+      expect(result.quotaExhausted).toBe(false);
+      expect(classifier.callCount).toBe(1);
+      // Not "capped": the round hit a wall, it did not run out of patience.
+      expect(result.cappedEarly).toBe(false);
     });
 
     it('honours a larger want by running more waves', async () => {
@@ -572,6 +655,28 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
       expect(stats.unreadable).toBe(0);
     });
 
+    it('reports a scan that ran out of time as its own wall, not as a spent budget', async () => {
+      // Issue #174: a request that outlived its deadline used to abort the scan
+      // with an error, and the publisher was told nothing had been analysed —
+      // while the grades bought before it sat in the cache. Same soft stop as
+      // the other two walls, and a third reason so the advice can be right.
+      const classifier = new FakePhotoClassifier();
+      classifier.timedOutFromCallIndex = 1;
+
+      const { stats } = await new SuggestPhotosUseCase(
+        new FakeMediaLibrary([candidate('p1'), candidate('p2')]),
+        classifier,
+        new FakeSentPhotoTracker(),
+      ).execute(config());
+
+      expect(stats.timedOut).toBe(true);
+      expect(stats.quotaExhausted).toBe(false);
+      expect(stats.rateLimited).toBe(false);
+      // Never attempted is not unreadable — the same lie the quota wall used to
+      // tell, which sent publishers chasing an iCloud download.
+      expect(stats.unreadable).toBe(0);
+    });
+
     it('reports zeroes rather than nothing for an empty window', async () => {
       const { stats } = await new SuggestPhotosUseCase(
         new FakeMediaLibrary([]),
@@ -586,6 +691,7 @@ describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', ()
         unreadable: 0,
         quotaExhausted: false,
         rateLimited: false,
+        timedOut: false,
       });
     });
   });

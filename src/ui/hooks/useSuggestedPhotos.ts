@@ -15,8 +15,16 @@ import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 export type { SuggestStats };
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
+import type { SuggestionPhase } from '../../domain/services/suggestionProgress';
 
-export type SuggestPhase = 'loading' | 'scanning' | 'classifying' | 'done' | 'error';
+/**
+ * Mirrors `SuggestionPhase` in the domain, which is where the step model that
+ * reads it lives. `deduping` is the beat between the library scan and the first
+ * grade — collapsing bursts, loading remembered grades, resolving the face to
+ * match. It was previously folded into `scanning`, which is why the app looked
+ * like it went straight from finding photos to having a post.
+ */
+export type SuggestPhase = SuggestionPhase;
 
 /**
  * Why a top-up came back empty. The distinction matters: only `exhausted`,
@@ -30,8 +38,12 @@ export type SuggestPhase = 'loading' | 'scanning' | 'classifying' | 'done' | 'er
  * the round stops early either way — but it clears in seconds rather than at
  * midnight, so it keeps the "+" alive and asks the publisher to try again
  * shortly (issue #141).
+ *
+ * `slow` is a request that outlived its deadline. It stops the round like the
+ * other two, but the advice is neither "tomorrow" nor "in a moment": the photos
+ * did not make it across, so the thing to change is the connection (issue #174).
  */
-export type TopUpReason = 'exhausted' | 'quota' | 'busy' | 'capped' | 'failed';
+export type TopUpReason = 'exhausted' | 'quota' | 'busy' | 'capped' | 'failed' | 'slow';
 
 /** Outcome of one "give me another photo" request. */
 export interface TopUpResult {
@@ -53,6 +65,14 @@ interface State {
   classified: number;
   /** Total photos being classified (= unique). */
   total: number;
+  /**
+   * The classifier is still working. NOT the same as `phase !== 'done'`: the
+   * post becomes previewable at twice photos-per-post and `phase` turns `done`
+   * there, while the rest of the window keeps grading behind it. Anything that
+   * reports grading progress has to read this instead, or it will call the
+   * stage finished a fifth of the way through (see `suggestionProgress`).
+   */
+  grading: boolean;
   /**
    * The AI-*selected* photos accumulated so far during classification — this is
    * the running batch (result of selectBatch on everything classified up to now),
@@ -94,6 +114,7 @@ const INITIAL: State = {
   unique: 0,
   classified: 0,
   total: 0,
+  grading: false,
   partial: [],
   batch: [],
   pool: [],
@@ -214,7 +235,11 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
             setState(s => ({ ...s, phase: 'scanning' }));
           },
           onScanned(found, unique) {
-            setState(s => ({ ...s, found, unique }));
+            // The scan is in; what follows is burst grouping, the remembered
+            // grades and the face to match — a real beat, and previously an
+            // invisible one that made the run look like it jumped from
+            // "finding photos" to "here's your post".
+            setState(s => ({ ...s, found, unique, phase: s.phase === 'done' ? 'done' : 'deduping' }));
           },
           onClassifying(index, total, currentBatch) {
             setState(s => ({
@@ -224,6 +249,9 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
               phase: s.phase === 'done' ? 'done' : 'classifying',
               classified: index,
               total,
+              // True until the classifier stops, which is well after the post
+              // appears. The step bar reads this rather than `phase`.
+              grading: true,
               partial: currentBatch,
             }));
           },
@@ -234,7 +262,10 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
           },
         });
 
-        setState(s => ({ ...s, phase: 'done', classified: 0, total: 0, partial: [], batch, pool, fromCache: false, cachedAt: null, stats, error: null }));
+        // `classified`/`total` are deliberately NOT reset here: they are the
+        // finished tally ("72 of 72"), and blanking them left the grading step
+        // with nothing to show for the minutes it just spent.
+        setState(s => ({ ...s, phase: 'done', grading: false, partial: [], batch, pool, fromCache: false, cachedAt: null, stats, error: null }));
 
         // Persist the scan result so reopening the screen (or tapping the
         // reminder) shows this batch instantly instead of rescanning.
@@ -260,7 +291,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
               'Could not reach the photo AI, so nothing was analysed. Your photos are untouched — try again in a moment.',
             )
           : e;
-        setState(s => ({ ...s, phase: 'error', error }));
+        setState(s => ({ ...s, phase: 'error', grading: false, error }));
       }
     })();
   }, [publisherId]);
@@ -289,7 +320,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         // Built once per scan, then walked down: the library query is the slow
         // part and the window doesn't move while the screen is open.
         pendingRef.current ??= await suggestPhotos.pendingCandidates(config, knownRef.current);
-        const { classified, suggestions, consumed, quotaExhausted, rateLimited } =
+        const { classified, suggestions, consumed, quotaExhausted, rateLimited, timedOut } =
           await suggestPhotos.classifyMore(pendingRef.current, config);
         pendingRef.current = pendingRef.current.slice(consumed);
 
@@ -316,9 +347,11 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
                 ? 'quota'
                 : rateLimited
                   ? 'busy'
-                  : exhausted
-                    ? 'exhausted'
-                    : 'capped',
+                  : timedOut
+                    ? 'slow'
+                    : exhausted
+                      ? 'exhausted'
+                      : 'capped',
           attempted: consumed,
         };
       } catch {

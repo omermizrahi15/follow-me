@@ -13,7 +13,8 @@
  * whole feature. See the grade inspector in the app.
  *
  * Also: GET /classify-photos → { "used", "limit": number | null, "day",
- *                                "provider": ProviderLimits | null }
+ *                                "provider": ProviderLimits | null,
+ *                                "providers": ProviderLimits[] }
  * — the caller's own spend, and what the AI provider says the ACCOUNT may still
  * spend. Same auth as the POST. `limit` is our own optional cost brake and is
  * null unless CLASSIFY_DAILY_QUOTA is set; it used to default to 500 photos a
@@ -30,8 +31,9 @@
  * come back false/0. Nothing about the reference is stored here — it is fetched
  * per request, used in one prompt, and forgotten.
  *
- * The single place provider specifics live. It holds GEMINI_API_KEY (never shipped
- * in the app) and asks Gemini Flash to classify each photo into one of the rule
+ * The single place provider specifics live. It holds the provider API keys
+ * (never shipped in the app) and asks whichever vision model VISION_PROVIDER
+ * names — Groq first by default — to classify each photo into one of the rule
  * categories. Photos may be passed as a public URL (the function fetches the bytes)
  * or as base64 (the app reads local library photos this way, avoiding an upload
  * just to classify). Swapping providers means rewriting only this file.
@@ -54,7 +56,7 @@
  * switching vendors never needs an app release.
  *
  * Env: VISION_PROVIDER (optional, comma-separated chain tried in order,
- *        e.g. "groq,gemini" — default "gemini")
+ *        e.g. "groq,gemini" — default "groq,gemini")
  *      GEMINI_API_KEY (required for gemini), GEMINI_MODEL (optional,
  *        default gemini-3.5-flash)
  *      GROQ_API_KEY (required for groq), GROQ_MODEL (optional,
@@ -73,7 +75,9 @@ import {
   pairBatchResults,
   parseClassification,
   quotaSnapshot,
+  pacingWaitSeconds,
   type RefusalReason,
+  requestedProviders,
 } from './logic.ts';
 import { geminiProvider } from './gemini.ts';
 import { groqProvider } from './groq.ts';
@@ -116,6 +120,16 @@ const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: 
  * across many images in one context, not the transport.
  */
 const MAX_PHOTOS_PER_REQUEST = 12;
+
+/**
+ * Longest this function will hold a request open waiting for a token window.
+ *
+ * A per-minute window refills in under a minute, so the common pause is a few
+ * seconds and worth taking inline — a round trip costs more than the wait. A
+ * long one is not: the caller is holding a connection, and the app's own
+ * rate-limit handling already waits and resumes without one.
+ */
+const MAX_INLINE_PACING_SECONDS = 20;
 /**
  * Our own per-user photos-per-day ceiling — and now OFF unless someone sets it.
  *
@@ -193,27 +207,63 @@ For each image:
 Choose exactly one category:
 - selfie_with_view: one or more people in frame with a scenic/landscape background — selfie, posed, or candid alike.
 - sunset_sunrise: dominant subject is a golden-hour, sunrise, or sunset sky (with or without people).
-- architecture: buildings, bridges, streets, or urban scenes without focus on nature or people.
+- architecture: buildings, bridges, streets, or urban scenes without focus on nature or people — including museums, temples, churches and historic sites.
 - selfie_with_people: people are the subject — group shot, portrait, or candid; no notable scenery.
 - food: a dish, drink, or meal is the primary subject.
 - nature: forests, beaches, wildlife, plants — natural scenes where people are not the subject.
 - night_scene: night photography, city lights, stars, or dark-sky shots.
-- cultural: museums, art, religious or historical sites, traditions, or performances.
 - other: anything else — screenshots, documents, receipts, memes, blurry/unusable images.
 
 Also rate:
 - confidence: 0..1, how certain you are of the category.
-- quality: 0..1, photographic quality (sharpness, exposure, composition; low for blurry/dark/cluttered).
+
+Then judge the photograph on FOUR separate scales. Judge each one on its own —
+a photo can be beautifully composed and hopelessly blurred, and it must score
+high on one and low on the other rather than "about average" on both.
+
+- sharpness: 0..1. Focus and motion blur ONLY. Ignore the subject entirely.
+    0.0-0.2  smeared; nothing in the frame resolves
+    0.3-0.4  visibly soft, or the subject is blurred while the background is sharp
+    0.5-0.6  acceptable at a glance, mushy at full size
+    0.7-0.8  properly sharp on the subject
+    0.9-1.0  crisp to the edges, fine detail intact
+- exposure: 0..1. Light ONLY — brightness, contrast, colour.
+    0.0-0.2  black or blown out; unrecoverable
+    0.3-0.4  badly under/over exposed, heavy colour cast
+    0.5-0.6  flat, dull, or grey but usable
+    0.7-0.8  well exposed with detail in highlights and shadows
+    0.9-1.0  beautiful light — golden hour, dramatic, deliberate
+- composition: 0..1. Framing ONLY.
+    0.0-0.2  subject cut off, wildly tilted, chaotic
+    0.3-0.4  cluttered or careless framing
+    0.5-0.6  centred and unremarkable
+    0.7-0.8  clean framing, level horizon, subject placed well
+    0.9-1.0  genuinely well composed — leading lines, depth, balance
+- appeal: 0..1. Would someone stop scrolling? The only subjective one.
+    0.0-0.2  a screenshot, a receipt, a photo of nothing
+    0.3-0.4  mundane — a parked car, a plain wall, a duplicate of a better shot
+    0.5-0.6  pleasant but ordinary
+    0.7-0.8  a photo worth sharing with friends
+    0.9-1.0  striking; the best photo of the trip
+
+USE THE WHOLE OF EACH SCALE. Scores from a set of real holiday photos should
+range widely — some below 0.3 and some above 0.85. If you find yourself putting
+most photos between 0.6 and 0.8, you are not looking hard enough: go back and
+push the worst ones down and the best ones up. Within the images in THIS
+request, no two photos should carry identical scores on every scale unless they
+are genuinely indistinguishable, and you must be able to say which is the best
+of them and which is the worst.
+
 - caption: a short, friendly caption (max ~8 words).
 - scene: a 2-4 word kebab-case slug describing WHERE or WHAT — the primary location
   or subject of the photo, ignoring who is in it (e.g. "beach-sunset", "restaurant-dinner",
   "mountain-trail", "old-city-market"). Two photos of the same place MUST share the same
   slug. Prefer generic location terms over unique details so similar shots collide.
-- reason: ONE short sentence (max 25 words) saying why THIS photo got THIS category and
-  THIS quality — name what you actually saw. Be concrete and specific: "subject is
-  motion-blurred and the horizon is tilted" or "crisp golden-hour light, clean
-  composition, sharp on the couple". Never restate the scores back as words, never
-  hedge, and never describe a photo you were not shown.
+- reason: ONE short sentence (max 25 words) saying why THIS photo got THESE scores —
+  name what you actually saw. Be concrete and specific: "subject is motion-blurred and
+  the horizon is tilted" or "crisp golden-hour light, clean composition, sharp on the
+  couple". Never restate the scores back as words, never hedge, and never describe a
+  photo you were not shown.
 
 Respond with JSON only.`;
 
@@ -221,14 +271,26 @@ const BASE_PROPERTIES = {
   index: { type: 'INTEGER' },
   category: { type: 'STRING', enum: [...CATEGORIES] },
   confidence: { type: 'NUMBER' },
-  quality: { type: 'NUMBER' },
+  // Four judgements rather than one `quality`. A single holistic score came
+  // back with a standard deviation of 0.042 across 132 real photos — everything
+  // inside a 0.16-wide band — because photos fail in ways that average out when
+  // asked about together. `quality` is computed from these (see qualityFrom)
+  // and is no longer something the model is asked for.
+  sharpness: { type: 'NUMBER' },
+  exposure: { type: 'NUMBER' },
+  composition: { type: 'NUMBER' },
+  appeal: { type: 'NUMBER' },
   caption: { type: 'STRING' },
   scene: { type: 'STRING' },
   reason: { type: 'STRING' },
 };
 // `index` is required and load-bearing: see pairBatchResults for why a bare
 // ordered array is not safe enough to attach a grade to a photo.
-const BASE_REQUIRED = ['index', 'category', 'confidence', 'quality', 'caption', 'scene', 'reason'];
+const BASE_REQUIRED = [
+  'index', 'category', 'confidence',
+  'sharpness', 'exposure', 'composition', 'appeal',
+  'caption', 'scene', 'reason',
+];
 
 /**
  * One entry per photo, tagged with the index of the image it grades.
@@ -351,13 +413,11 @@ const PROVIDERS: Record<string, () => VisionProvider | null> = {
  * whole configuration — which vendor leads, and what catches it — so changing
  * strategy is a secret, never a deploy.
  *
- * Defaults to gemini alone, so an unset secret behaves exactly as before.
+ * Defaults to "groq,gemini" — see requestedProviders for why Gemini can no
+ * longer lead.
  */
 function providerChain(): VisionProvider[] {
-  const requested = (Deno.env.get('VISION_PROVIDER') ?? 'gemini')
-    .split(',')
-    .map(name => name.trim().toLowerCase())
-    .filter(name => name !== '');
+  const requested = requestedProviders(Deno.env.get('VISION_PROVIDER'));
 
   const chain: VisionProvider[] = [];
   for (const name of requested) {
@@ -448,6 +508,34 @@ async function gradeWithProvider(
 
   for (let offset = 0; offset < photos.length; offset += perCall) {
     const slice = photos.slice(offset, offset + perCall);
+
+    // What the previous call in this loop reported. Tokens are what bounds this
+    // workload — see pacingWaitSeconds — and firing into a spent window buys a
+    // 429, which sends the whole scan down the chain to a provider with a
+    // twentieth of the budget. Waiting is strictly cheaper than that.
+    const wait = pacingWaitSeconds(limits, slice.length + (reference == null ? 0 : 1));
+    if (wait > MAX_INLINE_PACING_SECONDS) {
+      // Too long to hold a request open for. Hand back what is graded plus a
+      // refusal shaped exactly like the provider's own, so the caller reports
+      // "busy, try shortly" — the app already knows how to wait that out and
+      // resume, and the grades bought so far are kept either way.
+      return {
+        classifications,
+        ungraded: photos.slice(offset),
+        failure: {
+          status: 429,
+          body: `paced: ${provider.name} token window refills in ${wait}s`,
+          retryAfterSeconds: wait,
+          dailyQuota: false,
+        },
+        limits,
+      };
+    }
+    if (wait > 0) {
+      console.log(`classify: pacing ${wait}s for ${provider.name}'s token window`);
+      await new Promise(resolve => setTimeout(resolve, wait * 1000));
+    }
+
     const images = await Promise.all(slice.map(resolveImage));
 
     const result = await provider.classify({ prompt, reference, images, responseSchema: schema });
@@ -585,35 +673,59 @@ interface LimitsRow {
 }
 
 /**
- * The most recent reading of the provider's ceilings, or null if none has been
- * taken yet (a fresh deployment, or a provider that states nothing).
+ * The latest reading from EVERY provider that has ever answered, in the order
+ * VISION_PROVIDER tries them.
  *
- * Null rather than zeros, all the way through: "we have not been told" and "you
- * have none left" are opposite facts, and the app renders them differently.
+ * It used to return only the newest row, and the newest row is whichever
+ * provider spoke last — which is the FALLBACK whenever the leader is spent. A
+ * deployment configured `groq,gemini` therefore reported "gemini" to the app the
+ * moment Groq's daily tokens ran out, so the chain's configuration and what the
+ * screen said were both true and irreconcilable from the screen.
+ *
+ * Chain order, not observation order: the list is about how grading is
+ * configured, and sorting by recency would reshuffle it every time a provider
+ * answered. A provider that has never been heard from is simply absent.
+ *
+ * Null windows rather than zeros, all the way through: "we have not been told"
+ * and "you have none left" are opposite facts, and the app renders them apart.
  */
-async function readLimits(): Promise<ProviderLimits | null> {
+async function readLimits(): Promise<ProviderLimits[]> {
   const { data, error } = await admin
     .from('provider_limits')
     .select('*')
-    .order('observed_at', { ascending: false })
-    .limit(1);
+    .order('observed_at', { ascending: false });
   if (error != null) {
     console.warn('classify: could not read provider limits:', error.message);
-    return null;
+    return [];
   }
-  const row = (data as LimitsRow[] | null)?.[0];
-  if (row == null) return null;
 
   const window = (limit: number | null, remaining: number | null, reset: number | null) =>
     limit == null || remaining == null ? null : { limit, remaining, resetSeconds: reset };
 
-  return {
-    provider: row.provider,
-    model: row.model,
-    requests: window(row.request_limit, row.request_remaining, row.request_reset_seconds),
-    tokens: window(row.token_limit, row.token_remaining, row.token_reset_seconds),
-    observedAt: Date.parse(row.observed_at),
-  };
+  const byProvider = new Map<string, ProviderLimits>();
+  for (const row of (data as LimitsRow[] | null) ?? []) {
+    // Rows arrive newest first, so the first one seen for a provider is its
+    // latest reading — a provider that has switched models keeps only the
+    // reading that still describes what it is answering as.
+    if (byProvider.has(row.provider)) continue;
+    byProvider.set(row.provider, {
+      provider: row.provider,
+      model: row.model,
+      requests: window(row.request_limit, row.request_remaining, row.request_reset_seconds),
+      tokens: window(row.token_limit, row.token_remaining, row.token_reset_seconds),
+      observedAt: Date.parse(row.observed_at),
+    });
+  }
+
+  const order = requestedProviders(Deno.env.get('VISION_PROVIDER'));
+  const chain = order
+    .map(name => byProvider.get(name))
+    .filter((p): p is ProviderLimits => p != null);
+  // Anything recorded by a provider no longer in the chain still gets reported,
+  // after the configured ones: it is a real reading, and silently dropping it
+  // would hide a provider that was answering until this morning.
+  const extra = [...byProvider.values()].filter(p => !order.includes(p.provider));
+  return [...chain, ...extra];
 }
 
 /**
@@ -642,8 +754,15 @@ async function usageResponse(userId: string): Promise<Response> {
   // Read alongside our own count, because on their own neither is the answer:
   // ours says what this publisher spent, the provider's says what the account
   // may still spend, and only the second is a wall anybody actually hits.
-  const provider = await readLimits();
-  return json({ ...quotaSnapshot(quota.data, DAILY_QUOTA, day), provider });
+  const providers = await readLimits();
+  // `provider` is the singular field older app builds read. Kept as the chain's
+  // LEADER rather than the last speaker, so even an un-updated build stops
+  // naming the fallback as the thing doing the grading.
+  return json({
+    ...quotaSnapshot(quota.data, DAILY_QUOTA, day),
+    provider: providers[0] ?? null,
+    providers,
+  });
 }
 
 Deno.serve(async (req: Request) => {
@@ -651,7 +770,10 @@ Deno.serve(async (req: Request) => {
   if (req.method !== 'POST' && req.method !== 'GET') {
     return json({ error: 'Method not allowed' }, 405);
   }
-  if (!GEMINI_API_KEY) return json({ error: 'Server not configured' }, 500);
+  // Any usable provider will do. This used to demand GEMINI_API_KEY
+  // specifically, which 500s a deployment that grades on Groq and has no Gemini
+  // key at all — the exact configuration `VISION_PROVIDER` exists to allow.
+  if (!GEMINI_API_KEY && !GROQ_API_KEY) return json({ error: 'Server not configured' }, 500);
 
   // The anon key alone is not enough — a signed-in user must be behind the call.
   const userId = await authenticatedUserId(req);

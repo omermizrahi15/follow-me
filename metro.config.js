@@ -21,10 +21,11 @@ const config = getSentryExpoConfig(__dirname);
 // walked. Verify with:
 //   npx expo export --platform ios && grep -r picsum.photos dist/   # no hits
 //
-// `src/ui/dev/AiUsageBar.tsx` is the same idea for the daily AI budget: a
-// read-out of how much of the classify quota is left, for whoever is testing
-// staging. It pulls in a hook and a quota request that a production build has
-// no caller for.
+// (The AI budget read-out used to be here too. It is now
+// `src/ui/components/AiUsageCard.tsx` and ships in every build: the provider
+// ceilings are what a scan actually stops on, and a publisher watching a
+// suggestion come back thin has the same right to know why as whoever is
+// testing staging.)
 //
 // `src/ui/dev/PhotoGradeInspector.tsx` is the grade inspector: every photo the
 // AI has graded, ranked by the same score the post is chosen with, with the
@@ -42,7 +43,6 @@ const devOnly = name => [
 ];
 const DEV_ONLY_MODULES = new Map([
   devOnly('DevNotificationPanel'),
-  devOnly('AiUsageBar'),
   devOnly('PhotoGradeInspector'),
 ]);
 

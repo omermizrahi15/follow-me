@@ -42,6 +42,7 @@ export class ClassifyQuotaReader implements IAiUsageReader {
       limit?: unknown;
       day?: unknown;
       provider?: unknown;
+      providers?: unknown;
     } | null;
 
     // A deployment that predates the GET handler answers 405 with its own JSON,
@@ -53,11 +54,22 @@ export class ClassifyQuotaReader implements IAiUsageReader {
       throw new Error('classify-photos returned an unreadable usage body');
     }
 
+    const provider = parseProviderLimits(body?.provider);
+    // A deployment that predates the list still answers with the singular
+    // field, and reading that as "no providers" would blank the panel on
+    // exactly the deployment whose limits someone is trying to read.
+    const providers = Array.isArray(body?.providers)
+      ? body.providers.map(parseProviderLimits).filter((p): p is ProviderLimits => p != null)
+      : provider != null
+        ? [provider]
+        : [];
+
     return {
       used: Number(body?.used),
       limit: Number.isFinite(body?.limit) ? Number(body?.limit) : null,
       day: typeof body?.day === 'string' ? body.day : '',
-      provider: parseProviderLimits(body?.provider),
+      provider,
+      providers,
     };
   }
 }

@@ -174,10 +174,95 @@ export function categoryWeight(category: string, enabledCategories: readonly str
   return TOP_WEIGHT - (TOP_WEIGHT - LAST_WEIGHT) * (rank / (enabledCategories.length - 1));
 }
 
-/** The single number every ordering in the app is based on. */
-export function scoreOf(facts: PhotoFacts, rules: SelectionRules): number {
+/**
+ * Set size at which the set's own distribution is trusted completely.
+ *
+ * Below it the spread is blended back towards the raw quality, in proportion.
+ * A standard deviation over two photos describes nothing, and normalising
+ * against it turns "0.85 and 0.80" into "the best and the worst photo there
+ * has ever been" — which is exactly how a 0.05 gap came to overrule the
+ * publisher's own "photos of me" preference.
+ */
+const FULL_TRUST_SET_SIZE = 20;
+
+/**
+ * How far above and below the middle a fully-trusted spread reaches. The map is
+ * onto (0, 1) with the set's mean at 0.5.
+ */
+const SPREAD_HALF_WIDTH = 0.5;
+
+/**
+ * Smallest denominator the spread will divide by, as a floor under 2σ.
+ *
+ * Without it a set whose photos genuinely agree — five shots of the same wall,
+ * all honestly mediocre — divides by nearly nothing and manufactures a ranking
+ * out of rounding noise.
+ */
+const MIN_SPREAD_RANGE = 0.05;
+
+/**
+ * Each distinct raw quality in a set, mapped to where it sits within that set.
+ *
+ * The model does not use the scale it is given. Measured on staging: 132 graded
+ * photos, mean 0.696, standard deviation 0.042, everything between 0.60 and
+ * 0.76 with 37 of them on exactly 0.70. About a sixth of the range, which is
+ * the normal behaviour of an unanchored 0..1 holistic ask and not something a
+ * prompt can be relied on to fix on its own.
+ *
+ * That is fatal rather than untidy, because `scoreOf` multiplies quality by the
+ * category weight and the category weight spans 1.0 down to 0.6 — five times
+ * the spread quality actually had. The ranking therefore degenerated into
+ * "category rank, then recency", and which photo was better stopped counting.
+ *
+ * The map is a z-score: distance from the set's mean in units of 2σ, centred on
+ * 0.5. Two properties make it safe to multiply the tuned weights by:
+ *
+ *  - It is blended back towards the RAW quality when the set is small (see
+ *    FULL_TRUST_SET_SIZE). A distribution over two photos is not a
+ *    distribution, and the `prefer`/category weights were tuned against real
+ *    0..1 quality — a normaliser that turns every pair into 0-and-1 silently
+ *    re-tunes all of them.
+ *  - It never reorders. Photos the model could not separate keep identical
+ *    values rather than being split by an accident of iteration.
+ *
+ * Deliberately NOT what `minQuality` is judged on. That is an absolute standard
+ * — "do not post anything below this" — and restating it in relative terms
+ * would drop the bottom of every scan however good the whole scan was.
+ */
+export function spreadQuality(qualities: readonly number[]): Map<number, number> {
+  const spread = new Map<number, number>();
+  if (qualities.length === 0) return spread;
+
+  const n = qualities.length;
+  const mean = qualities.reduce((sum, q) => sum + q, 0) / n;
+  const variance = qualities.reduce((sum, q) => sum + (q - mean) ** 2, 0) / n;
+  const range = Math.max(MIN_SPREAD_RANGE, 2 * Math.sqrt(variance));
+  // How much this set is allowed to speak for itself.
+  const trust = Math.min(1, n / FULL_TRUST_SET_SIZE);
+
+  for (const quality of new Set(qualities)) {
+    const z = 0.5 + ((quality - mean) / range) * SPREAD_HALF_WIDTH;
+    const normalised = Math.min(1, Math.max(0, z));
+    spread.set(quality, quality * (1 - trust) + normalised * trust);
+  }
+  return spread;
+}
+
+/**
+ * The single number every ordering in the app is based on.
+ *
+ * `spread` is the set-relative quality from {@link spreadQuality}, for the set
+ * being ranked. Absent — a caller scoring one photo out of context — falls back
+ * to the raw quality, which is the behaviour every caller had before spreading
+ * existed.
+ */
+export function scoreOf(
+  facts: PhotoFacts,
+  rules: SelectionRules,
+  spread?: ReadonlyMap<number, number>,
+): number {
   return (
-    facts.quality *
+    (spread?.get(facts.quality) ?? facts.quality) *
     categoryWeight(facts.category, rules.enabledCategories) *
     publisherWeight(facts, rules.photosOfMe)
   );
@@ -223,12 +308,23 @@ function entriesFor<T>(
   alreadySent: ReadonlySet<string>,
 ): Entry<T>[] {
   const entries: Entry<T>[] = [];
+  const projected: PhotoFacts[] = [];
   for (const item of classifications) {
     // Projected once — `facts` may be doing real work per photo.
     const f = facts(item);
     if (alreadySent.has(f.id)) continue;
-    entries.push({ item, facts: f, score: scoreOf(f, rules) });
+    projected.push(f);
+    entries.push({ item, facts: f, score: 0 });
   }
+
+  // Scored against THIS set, after every photo in it is known. Quality is
+  // spread across the set before it is multiplied by the category weight —
+  // without that the model's 0.60-to-0.76 huddle is worth a fifth of what the
+  // category ranking is worth, and the better photo loses to the earlier one.
+  // See spreadQuality.
+  const spread = spreadQuality(projected.map(f => f.quality));
+  for (const entry of entries) entry.score = scoreOf(entry.facts, rules, spread);
+
   return entries.sort(byScore);
 }
 

@@ -3,6 +3,7 @@ import type {
   AiUsageSnapshot,
   AiUsageSummary,
   ProviderLimits,
+  ProviderLimitWindow,
 } from '../entities/AiUsage';
 
 /**
@@ -34,6 +35,7 @@ export function summarizeAiUsage(snapshot: AiUsageSnapshot): AiUsageSummary {
       limit: null,
       day: snapshot.day,
       provider: snapshot.provider ?? null,
+      providers: snapshot.providers ?? [],
       remaining: null,
       usedFraction: null,
       usedPercent: null,
@@ -54,6 +56,7 @@ export function summarizeAiUsage(snapshot: AiUsageSnapshot): AiUsageSummary {
     limit: snapshot.limit,
     day: snapshot.day,
     provider: snapshot.provider ?? null,
+    providers: snapshot.providers ?? [],
     remaining,
     usedFraction,
     usedPercent: percent(usedFraction),
@@ -131,6 +134,34 @@ export interface ProviderLimitCopy {
   lines: string[];
 }
 
+/**
+ * The period a provider's request/token windows actually cover.
+ *
+ * Static per provider, not per observation, and NOT derivable from the reset
+ * seconds — Groq's daily request window reported a reset of 87 seconds, so
+ * reading the period off the reset turns "1000 requests a day" into a ceiling
+ * that looks like it clears before you finish reading it.
+ *
+ * Groq documents both windows explicitly: `x-ratelimit-limit-requests` always
+ * means requests per DAY and `x-ratelimit-limit-tokens` always means tokens per
+ * MINUTE (console.groq.com/docs/rate-limits). Nothing is claimed for a provider
+ * that has not said — the line simply omits the period rather than guessing at
+ * one, which is the same bargain the rest of this module makes.
+ */
+const WINDOW_PERIODS: Record<string, { requests?: string; tokens?: string }> = {
+  groq: { requests: 'today', tokens: 'this minute' },
+};
+
+/** "999 of 1000 today", or "999 of 1000 left" when the period is unknown. */
+function windowText(
+  provider: string,
+  kind: 'requests' | 'tokens',
+  window: ProviderLimitWindow,
+): string {
+  const period = WINDOW_PERIODS[provider.toLowerCase()]?.[kind];
+  return `${window.remaining} of ${window.limit} ${period ?? 'left'}`;
+}
+
 /** A reset delay in the largest unit that stays readable. */
 function resetIn(seconds: number | null): string {
   if (seconds == null) return '';
@@ -151,12 +182,16 @@ export function providerLimitCopy(limits: ProviderLimits | null): ProviderLimitC
 
   const lines: string[] = [];
   if (limits.requests != null) {
-    const { remaining, limit, resetSeconds } = limits.requests;
-    lines.push(`Requests: ${remaining} of ${limit} left${resetIn(resetSeconds)}`);
+    const { resetSeconds } = limits.requests;
+    lines.push(
+      `Requests: ${windowText(limits.provider, 'requests', limits.requests)}${resetIn(resetSeconds)}`,
+    );
   }
   if (limits.tokens != null) {
-    const { remaining, limit, resetSeconds } = limits.tokens;
-    lines.push(`Tokens: ${remaining} of ${limit} left${resetIn(resetSeconds)}`);
+    const { remaining, resetSeconds } = limits.tokens;
+    lines.push(
+      `Tokens: ${windowText(limits.provider, 'tokens', limits.tokens)}${resetIn(resetSeconds)}`,
+    );
     // The line that makes the rest of it legible. Tokens are the ceiling this
     // workload actually hits, and nobody can convert them to photos in their
     // head while wondering why a scan stopped at 40.
@@ -166,4 +201,21 @@ export function providerLimitCopy(limits: ProviderLimits | null): ProviderLimitC
   }
 
   return { headline: `${limits.provider} · ${limits.model}`, lines };
+}
+
+/**
+ * Every provider in the chain, in the order they are tried.
+ *
+ * The panel used to render one — whichever spoke last — and the last speaker is
+ * the FALLBACK whenever the leader is spent. So a deployment configured
+ * `groq,gemini` displayed "gemini", and "we grade on Groq" and what the screen
+ * said were both true and irreconcilable from the screen. Showing the whole
+ * chain makes the fall-through the visible thing it always was.
+ */
+export function providerChainCopy(
+  chain: readonly ProviderLimits[] | null | undefined,
+): ProviderLimitCopy[] {
+  return (chain ?? [])
+    .map(providerLimitCopy)
+    .filter((c): c is ProviderLimitCopy => c != null);
 }

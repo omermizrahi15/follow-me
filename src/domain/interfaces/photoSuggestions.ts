@@ -56,6 +56,17 @@ export interface IPhotoClassifier {
    * looked broken on the first attempt of the day (issue #141).
    */
   rateLimited?(): boolean;
+
+  /**
+   * Whether the last run stopped because a request outlived its deadline.
+   *
+   * The third wall, and the third answer: not the day's budget, not the
+   * provider throttling us, but the photos not making it across in time. Soft
+   * like the other two — the grades in hand are real — and separate for the
+   * same reason, that the only useful thing to tell the publisher differs
+   * (issue #174).
+   */
+  timedOut?(): boolean;
 }
 
 /** Reads photos from the device library within a date window. */
@@ -70,6 +81,22 @@ export interface IMediaLibrary {
    * one more method that looks load-bearing and is read by nothing.
    */
   photosBetween(start: Date, end: Date): Promise<PhotoCandidate[]>;
+  /**
+   * Fills in the per-asset metadata `photosBetween` is too cheap to fetch:
+   * file size and the publisher's favourite flag.
+   *
+   * Separate from the scan, and optional, because it costs a round trip PER
+   * PHOTO. The scan runs over a whole window; this runs only over the frames
+   * that share a moment with another (see `burstMembers`), which is the only
+   * place the extra detail decides anything — it is what picks the keeper of a
+   * burst without spending a single AI token.
+   *
+   * Returns candidates in the same order, enriched where the library answered.
+   * A library that cannot answer returns them unchanged rather than failing:
+   * every consumer degrades to ranking on the clock, which is what it did
+   * before this existed.
+   */
+  describeAssets?(candidates: readonly PhotoCandidate[]): Promise<PhotoCandidate[]>;
 }
 
 /**
