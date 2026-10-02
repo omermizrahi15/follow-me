@@ -5,10 +5,12 @@
  * MB) to downscale it, so an unbounded `Promise.all` over a whole photo picker
  * selection — or a first sync's whole lookback window — spikes RAM by gigabytes
  * and the iOS watchdog kills the app (WatchdogTermination in Sentry, issues #77
- * and REACT-NATIVE-2). Three at a time keeps the peak flat while still
- * overlapping network latency.
+ * and REACT-NATIVE-2). The bitmap only lives during the decode, which
+ * CloudinaryStorageService caps at 3 at once on its own; the uploaded file is a
+ * few hundred KB. So six in flight overlaps network latency without raising the
+ * memory peak.
  */
-export const PHOTO_UPLOAD_BATCH_SIZE = 3;
+export const PHOTO_UPLOAD_BATCH_SIZE = 6;
 
 /**
  * How many photos may have their asset metadata resolved at once.

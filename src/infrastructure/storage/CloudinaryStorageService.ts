@@ -15,6 +15,32 @@ import { describeUploadFailure } from './uploadFailure';
 const MAX_DIMENSION = 2048;
 const JPEG_QUALITY = 0.8;
 
+/**
+ * Decoding a full-resolution photo to downscale it holds a native bitmap (tens
+ * of MB). Uploading the result is a few hundred KB. So the use cases let many
+ * uploads overlap on the network (PHOTO_UPLOAD_BATCH_SIZE) while this caps how
+ * many photos are being decoded at once — the part that spikes RAM (#77).
+ */
+const MAX_CONCURRENT_DECODES = 3;
+let decodesRunning = 0;
+const decodeQueue: (() => void)[] = [];
+
+async function withDecodeSlot<T>(fn: () => Promise<T>): Promise<T> {
+  if (decodesRunning >= MAX_CONCURRENT_DECODES) {
+    // The slot is handed over directly by the releaser, so the count stays put.
+    await new Promise<void>(resolve => decodeQueue.push(resolve));
+  } else {
+    decodesRunning++;
+  }
+  try {
+    return await fn();
+  } finally {
+    const next = decodeQueue.shift();
+    if (next != null) next();
+    else decodesRunning--;
+  }
+}
+
 /** React Native's FormData file part — {uri, name, type} instead of a Blob. */
 interface UploadableFile {
   uri: string;
@@ -65,11 +91,10 @@ export class CloudinaryStorageService implements IStorageService {
    */
   private async prepareFile(localUri: string, filename: string): Promise<UploadableFile> {
     try {
-      const width = await imageWidth(localUri);
-      const actions = width > MAX_DIMENSION ? [{ resize: { width: MAX_DIMENSION } }] : [];
-      const out = await manipulateAsync(localUri, actions, {
-        compress: JPEG_QUALITY,
-        format: SaveFormat.JPEG,
+      const out = await withDecodeSlot(async () => {
+        const width = await imageWidth(localUri);
+        const actions = width > MAX_DIMENSION ? [{ resize: { width: MAX_DIMENSION } }] : [];
+        return manipulateAsync(localUri, actions, { compress: JPEG_QUALITY, format: SaveFormat.JPEG });
       });
       const baseName = filename.replace(/\.[A-Za-z0-9]+$/, '') || 'photo';
       return { uri: out.uri, name: `${baseName}.jpg`, type: 'image/jpeg' };
