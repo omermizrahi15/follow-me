@@ -14,6 +14,13 @@ interface Props {
   onPressPosting: (posting: FeedPosting) => void;
   /** Height of the bottom sheet, so the globe centres in the visible band. */
   bottomPadding: number;
+  /**
+   * How much of the sheet is currently showing. The globe does NOT re-centre on
+   * it (that is `bottomPadding`, deliberately fixed) — only the map's ⓘ button
+   * follows, so it always sits just above the sheet's top edge instead of
+   * floating mid-screen once the sheet has been dragged down.
+   */
+  sheetVisible?: number;
 }
 
 /**
@@ -67,7 +74,7 @@ export function isAllowedUrl(url: string): boolean {
  * Rendered by MapLibre GL JS inside a WebView because globe projection does not
  * exist in MapLibre Native — see the note in globeHtml.ts.
  */
-export function RouteGlobe({ postings, onPressPosting, bottomPadding }: Props): React.JSX.Element {
+export function RouteGlobe({ postings, onPressPosting, bottomPadding, sheetVisible }: Props): React.JSX.Element {
   const [ready, setReady] = useState(false);
   const webRef = useRef<WebView>(null);
   // The page only ever sends back an id — it holds the route, not the
@@ -121,6 +128,16 @@ export function RouteGlobe({ postings, onPressPosting, bottomPadding }: Props): 
     webRef.current?.injectJavaScript(`window.__setBottomPadding(${Math.round(bottomPadding)});true;`);
   }, [bottomPadding]);
 
+  // Pushed on every snap, not every frame: the sheet itself moves on the UI
+  // thread, and one bridge call per rest position is all the ⓘ needs.
+  const attribution = Math.round(sheetVisible ?? bottomPadding);
+  const sentAttribution = useRef(attribution);
+  useEffect(() => {
+    if (attribution === sentAttribution.current) return;
+    sentAttribution.current = attribution;
+    webRef.current?.injectJavaScript(`window.__setAttributionOffset(${attribution});true;`);
+  }, [attribution]);
+
   function handleMessage(event: WebViewMessageEvent): void {
     let message: GlobeMessage;
     try {
@@ -135,6 +152,9 @@ export function RouteGlobe({ postings, onPressPosting, bottomPadding }: Props): 
       // into it at mount. Anything that has moved on since is re-pushed here.
       if (routeLiteral !== bakedRoute.current) {
         webRef.current?.injectJavaScript(`window.__setRoute(${routeLiteral});true;`);
+      }
+      if (attribution !== Math.round(bottomPadding)) {
+        webRef.current?.injectJavaScript(`window.__setAttributionOffset(${attribution});true;`);
       }
       if (bottomPadding !== bakedPadding.current) {
         webRef.current?.injectJavaScript(`window.__setBottomPadding(${Math.round(bottomPadding)});true;`);

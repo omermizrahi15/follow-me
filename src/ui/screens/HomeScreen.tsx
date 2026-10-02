@@ -259,6 +259,7 @@ export function HomeScreen(): React.JSX.Element {
         postings={postings}
         onPressPosting={p => navigation.navigate('Posting', { posting: p })}
         bottomPadding={MEDIUM_H}
+        sheetVisible={visibleH}
       />
 
       {/* Top scrim (only over photos) + floating logo/gear */}

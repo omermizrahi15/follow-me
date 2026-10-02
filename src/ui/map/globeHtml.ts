@@ -84,6 +84,7 @@ ${GLOBE_CLIENT_JS}
   // a new sheet height. Neither reloads the document.
   window.__setRoute = globe.setRoute;
   window.__setBottomPadding = globe.setBottomPadding;
+  window.__setAttributionOffset = globe.setAttributionOffset;
 }());
 </script>
 </body>

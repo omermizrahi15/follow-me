@@ -97,6 +97,34 @@ test.describe('travel globe', () => {
       await expect(page.locator('#mapPill')).toBeHidden();
     });
 
+    test('dragging the sheet back up puts the map away, and the pill brings it back', async ({ page }) => {
+      const tiles: string[] = [];
+      page.on('request', r => { if (/maplibre\.org|maptiler/.test(r.url())) tiles.push(r.url()); });
+      await mock(page, [LISBON, PORTO]);
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      await reveal(page);
+      await expect(markers(page)).toHaveCount(2);
+      await expect(page.locator('#globeHero')).toHaveClass(/ready/);
+
+      // Arrow-up on the handle is the keyboard twin of dragging the sheet up.
+      await page.locator('#sheetHandle').focus();
+      await page.keyboard.press('ArrowUp');
+
+      // The map is gone, not merely covered: no canvas, no markers, teaser back.
+      await expect(page.locator('#globeStage canvas')).toHaveCount(0);
+      await expect(markers(page)).toHaveCount(0);
+      await expect(page.locator('#globeHero')).not.toHaveClass(/ready/);
+      await expect(page.locator('#mapPill')).toBeVisible();
+      // And it stays quiet: no further map requests while it is away.
+      const before = tiles.length;
+      await page.waitForTimeout(1500);
+      expect(tiles.length).toBe(before);
+
+      await reveal(page);
+      await expect(markers(page)).toHaveCount(2);
+      await expect(page.locator('#globeStage canvas')).toBeVisible();
+    });
+
     test('dragging the sheet down also loads the map', async ({ page }) => {
       await mock(page, [LISBON]);
       await page.goto(`/gallery.html?u=${PUBLISHER}`);
@@ -267,7 +295,10 @@ test.describe('travel globe', () => {
      * first frames block the page long enough to swallow the gesture.
      */
     async function settled(page: Page): Promise<void> {
-      await expect(hero(page)).toHaveClass(/ready/);
+      // A fully-open sheet has put the map away, so there is nothing to wait for.
+      // `globeWanted` is the page's own flag: true from the first reveal until the map is put away.
+      const wanted = await page.evaluate(() => (window as unknown as { globeWanted?: boolean }).globeWanted ?? eval('globeWanted'));
+      if (wanted) await expect(hero(page)).toHaveClass(/ready/);
       await page.waitForTimeout(600);
     }
 
@@ -350,6 +381,32 @@ test.describe('travel globe', () => {
       await page.keyboard.press('ArrowDown');
       await page.waitForTimeout(500);
       await expectVisible(page, h * 0.2);
+    });
+
+    // The map's ⓘ credit is a licence requirement, so it must stay visible: it
+    // rides just above the sheet's top edge instead of floating mid-screen.
+    test('the attribution button follows the sheet down and up', async ({ page }) => {
+      await mock(page, [LISBON]);
+      await page.goto(`/gallery.html?u=${PUBLISHER}`);
+      await reveal(page);
+      await expect(page.locator('#globeHero')).toHaveClass(/ready/);
+      const gapToSheet = () =>
+        page.evaluate(() => {
+          const credit = document.querySelector('#globeStage .maplibregl-ctrl-bottom-right')!.getBoundingClientRect();
+          return document.getElementById('sheet')!.getBoundingClientRect().top - credit.bottom;
+        });
+
+      await page.locator('#sheetHandle').focus();
+      await page.keyboard.press('ArrowDown'); // medium -> peek
+      // At the peek the sheet is low, so the credit ends up low too — not stranded
+      // at the 42% line where it started. Polled: sheet and credit both animate.
+      const creditTop = () =>
+        page.evaluate(() => document.querySelector('#globeStage .maplibregl-ctrl-bottom-right')!.getBoundingClientRect().top);
+      await expect
+        .poll(async () => (await creditTop()) > page.viewportSize()!.height * 0.6, { timeout: 8000 })
+        .toBe(true);
+      // ...and it sits right on the sheet's edge, not floating above it.
+      await expect.poll(async () => Math.abs((await gapToSheet()) - 4) < 8, { timeout: 8000 }).toBe(true);
     });
 
     test('the globe keeps its place behind the sheet', async ({ page }) => {

@@ -653,6 +653,8 @@
     let globeDisabled = false;
     /** Set by the first request to see the map — nothing loads before it. */
     let globeWanted = false;
+    /** The style answered once; later reveals skip the extra request. */
+    let styleChecked = false;
 
     /**
      * Drops the globe and shows the feed on its own. Used when the map provider
@@ -665,6 +667,23 @@
       globe = null;
       document.body.classList.add('no-globe');
       document.getElementById('globeHero').hidden = true;
+    }
+    /**
+     * Puts the globe away when the sheet is dragged fully up over it. A map that
+     * is still alive keeps drifting and fetching tiles for a planet nobody can
+     * see, which is exactly what the quota pays for — so it is torn down, not
+     * just covered. Asking for the map again builds a fresh one.
+     */
+    function putGlobeAway() {
+      globeWanted = false;
+      if (globe != null) { try { globe.remove(); } catch (_) { /* already gone */ } }
+      globe = null;
+      globeRouteKey = '';
+      document.getElementById('globeStage').replaceChildren(
+        Object.assign(document.createElement('div'), { className: 'globe-glow' }),
+        Object.assign(document.createElement('div'), { className: 'globe-map' }),
+      );
+      document.getElementById('globeHero').classList.remove('ready');
     }
     /** HTTP statuses a map provider answers with when a key is out of quota or refused. */
     const MAP_REFUSED = [401, 402, 403, 429];
@@ -709,9 +728,14 @@
         // Ask for the style first: an over-quota key answers it with a refusal,
         // and finding out here means the globe is never drawn, rather than
         // drawn black and then removed.
-        const styleRes = await fetch(globeStyleUrl());
-        if (!styleRes.ok) { globeLoading = false; return showWithoutGlobe(); }
+        if (!styleChecked) {
+          const styleRes = await fetch(globeStyleUrl());
+          if (!styleRes.ok) { globeLoading = false; return showWithoutGlobe(); }
+          styleChecked = true;
+        }
         await window.loadMapLibre();
+        // Put away again while the library was loading: build nothing.
+        if (!globeWanted) { globeLoading = false; return; }
         globeRouteKey = key;
         globe = window.createRouteGlobe({
           root: document.getElementById('globeStage'),
@@ -767,8 +791,10 @@
       // The pill rides just above the sheet's top edge, and goes once the map is
       // in view. Asking for the map (any rest below fully open) loads it.
       document.body.style.setProperty('--sheet-top-gap', visible + 'px');
+      document.getElementById('globeStage').style.setProperty('--attrib-bottom', visible + 'px');
       document.getElementById('mapPill').classList.toggle('away', visible < sheetSnaps().full - 4);
       if (visible < sheetSnaps().full - 4) wantGlobe();
+      else if (globeWanted) putGlobeAway();
       const snapsNow = sheetSnaps();
       sheetHandle.setAttribute('aria-valuetext',
         visible <= snapsNow.small ? 'Peeking' : visible >= snapsNow.full ? 'Fully open' : 'Half open');
@@ -800,6 +826,8 @@
       grab.lastY = e.clientY; grab.lastT = now;
       sheetOffset = clampOffset(grab.offset + (e.clientY - grab.y));
       sheet.style.transform = 'translateY(' + sheetOffset + 'px)';
+      // The ⓘ follows the sheet's edge live while it is being dragged.
+      document.getElementById('globeStage').style.setProperty('--attrib-bottom', (sheetSnaps().full - sheetOffset) + 'px');
     });
     function releaseSheet() {
       if (grab == null) return;

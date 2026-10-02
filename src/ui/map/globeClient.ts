@@ -76,7 +76,13 @@ export const GLOBE_CSS = `
   }
   /* The globe sits on deep space, like the profile screen it replaces. */
   .globe-stage .maplibregl-ctrl-attrib { font-size: 9px; opacity: 0.6; }
-  .globe-stage .maplibregl-ctrl-bottom-left, .globe-stage .maplibregl-ctrl-bottom-right { bottom: var(--bottom-padding, 0px); }
+  /* The ⓘ rides just above the sheet's top edge (--attrib-bottom, kept in step with
+     the sheet), so it neither floats mid-screen when the sheet is dragged down nor
+     hides behind it. It falls back to the globe's own padding until told. */
+  .globe-stage .maplibregl-ctrl-bottom-left, .globe-stage .maplibregl-ctrl-bottom-right {
+    bottom: calc(var(--attrib-bottom, var(--bottom-padding, 0px)) + 4px);
+    transition: bottom 200ms ease-out;
+  }
   .globe-stage .stop {
     width: 54px; height: 54px; border-radius: 50%;
     border: 3px solid #fff; padding: 0; background: #14324a;
@@ -91,7 +97,7 @@ export const GLOBE_CSS = `
 /**
  * Defines `window.createRouteGlobe(config)`, which draws the globe into
  * `config.root` (a `.globe-stage` element) and returns `{ setRoute,
- * setBottomPadding, remove }`.
+ * setBottomPadding, setAttributionOffset, remove }`.
  *
  * config: `root`, `route` (a TravelRoute), `styleUrl`, `bottomPadding`, `post`
  * (receives `{type: 'ready' | 'openPosting' | 'error', ...}`; errors carry the
@@ -405,9 +411,15 @@ window.createRouteGlobe = function (config) {
     map.easeTo({ center: center, duration: 1000, easing: function (n) { return n; } });
   }
 
+  /** Lifts the attribution button to sit above a sheet showing px pixels of itself. */
+  function setAttributionOffset(px) {
+    root.style.setProperty('--attrib-bottom', px + 'px');
+  }
+
   return {
     setRoute: setRoute,
     setBottomPadding: setBottomPadding,
+    setAttributionOffset: setAttributionOffset,
     // Tears the map down. The website uses it to drop the globe when the tile
     // provider starts refusing requests (quota), leaving the feed on its own.
     remove: function () { map.remove(); },
