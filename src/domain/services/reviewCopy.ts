@@ -109,3 +109,36 @@ export function scanShortfallNote(stats: ScanStats | null): string | null {
   }
   return null;
 }
+
+/**
+ * Why a scan aborted because the classifier itself failed (issue #202).
+ *
+ * `network` — the request never got an answer; `server` — the function errored
+ * (5xx) even after a retry; `auth` — the session lapsed; `rejected` — the
+ * function refused the request outright (4xx); `unusable` — it answered 200
+ * with nothing gradable.
+ */
+export type ClassificationFailureKind = 'network' | 'server' | 'auth' | 'rejected' | 'unusable';
+
+/**
+ * One sentence per cause. They all used to read "could not reach the photo AI",
+ * which was true of one of the five and left the publisher no idea whether to
+ * retry, move, or sign in. The generic line remains only for an unclassified
+ * error.
+ */
+export function classificationFailureMessage(kind: ClassificationFailureKind | undefined): string {
+  switch (kind) {
+    case 'network':
+      return 'Could not connect to the photo AI — check your connection and try again. Your photos are untouched.';
+    case 'server':
+      return 'The photo AI hit a problem on our side, so nothing was analysed. Your photos are untouched — try again in a moment.';
+    case 'auth':
+      return 'You were signed out — sign in again to analyse your photos.';
+    case 'rejected':
+      return 'The photo AI couldn’t take that request, so nothing was analysed. Your photos are untouched — try rescanning.';
+    case 'unusable':
+      return 'The photo AI sent back an answer we couldn’t use, so nothing was analysed. Try again in a moment.';
+    default:
+      return 'Could not reach the photo AI, so nothing was analysed. Your photos are untouched — try again in a moment.';
+  }
+}

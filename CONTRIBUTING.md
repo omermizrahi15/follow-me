@@ -173,6 +173,14 @@ the change merges.)
   `src/ui/hooks/useInviteLink.ts` and `SUBSCRIBE_URL` in
   `docs/join/index.html`.
 
+## When an AI vision model is retired
+
+Groq and Google retire models on a schedule, and photo grading dies with them (issue #202: Groq retired `qwen/qwen3.6-27b`; grading failed for 2.5 weeks behind the Gemini fallback).
+
+- **Detection:** `ai-provider-check.yml` runs daily, lists each provider's models, and opens an `ai-provider-check` issue when the configured one is gone. It needs `GROQ_API_KEY` and `GEMINI_API_KEY` repo secrets. The AI usage card also shows "Failing since …" on a provider that is broken rather than merely spent.
+- **Fix without a deploy:** set the `GROQ_MODEL` / `GEMINI_MODEL` Edge Function secret to the replacement (see console.groq.com/docs/deprecations). Then update the default in `supabase/functions/classify-photos` in a PR so the source matches.
+- **Fallback:** a provider answering 404/410 (retired model), 401/403, 5xx or unreachable hands the batch to the next one in `VISION_PROVIDER`.
+
 ## CI workflows
 
 A required check on main that fails blocks all merges. Here's what runs and when:

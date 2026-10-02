@@ -238,3 +238,23 @@ describe('providerChainCopy — every provider, not just the last to speak', () 
     expect(providerChainCopy([bare])).toHaveLength(1);
   });
 });
+
+describe('providerLimitCopy — a broken provider says so (issue #202)', () => {
+  const base: ProviderLimits = {
+    provider: 'groq', model: 'qwen/qwen3.6-27b', requests: null, tokens: null, observedAt: 0,
+  };
+
+  it('warns, with the date and status, when the provider is failing', () => {
+    const copy = providerLimitCopy({
+      ...base,
+      failing: { since: Date.UTC(2026, 8, 14), status: 404 },
+    });
+    expect(copy?.warning).toMatch(/failing since/i);
+    expect(copy?.warning).toContain('404');
+    expect(copy?.warning).toMatch(/Sep/);
+  });
+
+  it('has no warning for a healthy provider', () => {
+    expect(providerLimitCopy(base)?.warning).toBeUndefined();
+  });
+});

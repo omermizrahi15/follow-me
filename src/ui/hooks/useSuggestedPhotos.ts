@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { classificationFailureMessage } from '../../domain/services/reviewCopy';
+import type { ClassificationFailureKind } from '../../domain/services/reviewCopy';
 import {
   loadConfig,
   suggestPhotos,
@@ -287,9 +289,7 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
         const failedToClassify = e instanceof Error && e.name === 'ClassificationFailedError';
         if (failedToClassify) console.warn('suggest scan aborted:', e);
         const error = failedToClassify
-          ? new Error(
-              'Could not reach the photo AI, so nothing was analysed. Your photos are untouched — try again in a moment.',
-            )
+          ? new Error(classificationFailureMessage((e as { kind?: ClassificationFailureKind }).kind))
           : e;
         setState(s => ({ ...s, phase: 'error', grading: false, error }));
       }

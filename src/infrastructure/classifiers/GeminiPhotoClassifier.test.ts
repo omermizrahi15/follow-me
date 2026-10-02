@@ -667,3 +667,62 @@ describe('GeminiPhotoClassifier.classify — the model is busy', () => {
     await expect(makeSut().classify([candidate('p1')])).rejects.toThrow(ClassificationFailedError);
   });
 });
+
+/**
+ * Issue #202: every failure used to reach the publisher as "could not reach the
+ * photo AI", whether they were offline, the server errored, or their session
+ * had lapsed. The error now says which, and a server blip is retried once.
+ */
+describe('GeminiPhotoClassifier — failure kinds (issue #202)', () => {
+  beforeEach(() => mockFetch.mockReset());
+
+  const failing = (status: number) => () =>
+    Promise.resolve({
+      ok: false,
+      status,
+      text: () => Promise.resolve('nope'),
+      json: () => Promise.resolve({ error: 'nope' }),
+    });
+
+  async function kindOf(run: Promise<unknown>): Promise<string | undefined> {
+    try {
+      await run;
+    } catch (e) {
+      return (e as ClassificationFailedError).kind;
+    }
+    return undefined;
+  }
+
+  it('names a dropped connection as a network failure', async () => {
+    mockFetch.mockRejectedValue(new Error('Network request failed'));
+    expect(await kindOf(makeSut().classify([candidate('p1')]))).toBe('network');
+  });
+
+  it('retries a 502 once and succeeds if the next answer is good', async () => {
+    mockFetch
+      .mockImplementationOnce(failing(502))
+      .mockImplementation((_u: string, init: { body: string }) =>
+        Promise.resolve(okResponse(requestedIds(init.body))),
+      );
+    const results = await makeSut().classify([candidate('p1')]);
+    expect(results).toHaveLength(1);
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('names a persistent 5xx as a server failure', async () => {
+    mockFetch.mockImplementation(failing(502));
+    expect(await kindOf(makeSut().classify([candidate('p1')]))).toBe('server');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+  });
+
+  it('names a refused request as rejected, without retrying', async () => {
+    mockFetch.mockImplementation(failing(400));
+    expect(await kindOf(makeSut().classify([candidate('p1')]))).toBe('rejected');
+    expect(mockFetch).toHaveBeenCalledTimes(1);
+  });
+
+  it('names a lapsed session as an auth failure', async () => {
+    mockFetch.mockImplementation(failing(401));
+    expect(await kindOf(makeSut().classify([candidate('p1')]))).toBe('auth');
+  });
+});

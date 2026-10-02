@@ -2,6 +2,7 @@ import { assert, assertEquals } from '@std/assert';
 import {
   entriesFrom,
   isProviderExhausted,
+  isProviderFault,
   parseDurationSeconds,
   rateLimitFromHeaders,
   retryAfterHeader,
@@ -98,10 +99,27 @@ Deno.test('isProviderExhausted — unreachable, unauthorised and broken all hand
   assert(isProviderExhausted(failure({ status: 400 })));
 });
 
+Deno.test('isProviderExhausted — a retired model hands over (issue #202)', () => {
+  // Groq retired qwen3.6-27b and answered 404 model_not_found. 404 used to sit
+  // outside the fall-through set, so the chain stopped at the dead provider and
+  // Gemini — configured precisely for this — was never asked.
+  assert(isProviderExhausted(failure({ status: 404 })));
+  assert(isProviderExhausted(failure({ status: 410 })));
+});
+
+Deno.test('isProviderFault — separates a broken provider from a spent or busy one', () => {
+  assert(isProviderFault(failure({ status: 404 })));   // model retired
+  assert(isProviderFault(failure({ status: 401 })));   // bad key
+  assert(isProviderFault(failure({ status: 503 })));   // vendor down
+  assert(isProviderFault(failure({ status: 0 })));     // unreachable
+  // Spent for the day and busy for the minute are normal operation, not faults.
+  assertEquals(isProviderFault(failure({ status: 429, dailyQuota: true })), false);
+  assertEquals(isProviderFault(failure({ status: 429, retryAfterSeconds: 20 })), false);
+});
+
 Deno.test('isProviderExhausted — anything unrecognised stays put', () => {
   // Falling through on everything would make the fallback the main road by
   // accident, quietly draining the provider being held in reserve.
-  assertEquals(isProviderExhausted(failure({ status: 404 })), false);
   assertEquals(isProviderExhausted(failure({ status: 418 })), false);
 });
 

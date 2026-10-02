@@ -183,3 +183,30 @@ describe('ClassifyQuotaReader — the whole provider chain', () => {
     expect(snapshot.providers?.map(p => p.provider)).toEqual(['groq']);
   });
 });
+
+describe('ClassifyQuotaReader — provider health (issue #202)', () => {
+  it('reads that a provider is failing, since when, and with what status', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        used: 0, limit: null, day: '2026-10-02',
+        providers: [{
+          provider: 'groq', model: 'm', requests: null, tokens: null, observedAt: 1,
+          failing: { since: 1_700_000_000_000, status: 404 },
+        }],
+      }),
+    );
+    const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
+    expect(snapshot.providers?.[0]?.failing).toEqual({ since: 1_700_000_000_000, status: 404 });
+  });
+
+  it('leaves a healthy provider without a failing marker', async () => {
+    mockFetch.mockResolvedValue(
+      jsonResponse({
+        used: 0, limit: null, day: '2026-10-02',
+        providers: [{ provider: 'groq', model: 'm', requests: null, tokens: null, observedAt: 1 }],
+      }),
+    );
+    const snapshot = await makeSut(() => Promise.resolve('jwt')).read();
+    expect(snapshot.providers?.[0]?.failing).toBeUndefined();
+  });
+});

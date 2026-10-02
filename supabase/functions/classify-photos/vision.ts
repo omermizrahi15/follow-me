@@ -77,6 +77,11 @@ export interface ProviderLimits {
   tokens: LimitWindow | null;
   /** When this was observed, epoch ms — a limit is only true for a moment. */
   observedAt: number;
+  /**
+   * Set while the provider is BROKEN (see isProviderFault) rather than spent or
+   * busy: when it started failing and with what status. Absent when healthy.
+   */
+  failing?: { since: number; status: number };
 }
 
 /**
@@ -178,6 +183,8 @@ export interface VisionRequest {
 
 export interface VisionProvider {
   readonly name: string;
+  /** The model it grades with — recorded alongside its health. */
+  readonly model: string;
   /**
    * Images this provider accepts in ONE call, the reference portrait included.
    *
@@ -254,7 +261,24 @@ export function isProviderExhausted(failure: VisionFailure): boolean {
   // The request itself was refused. Another vendor may well accept it — this is
   // how a payload one provider considers too large still gets graded.
   if (failure.status === 400) return true;
+  // The model or endpoint no longer exists — a vendor retiring a model answers
+  // 404 (or 410). Not a request problem and not going to clear: hand over, or
+  // the chain stops at a dead provider and the fallback is never asked (#202).
+  if (failure.status === 404 || failure.status === 410) return true;
   // The vendor is broken, not busy.
   if (failure.status >= 500) return true;
   return false;
+}
+
+/**
+ * Whether a failure means the provider is BROKEN, as opposed to merely spent
+ * (daily quota) or busy (per-minute limit).
+ *
+ * Spent and busy are normal operation and recover by themselves. A fault — a
+ * retired model, a revoked key, an outage — does not, and it is the kind that
+ * stayed invisible for two and a half weeks because the fallback quietly
+ * covered for it. Faults are what get recorded and shown.
+ */
+export function isProviderFault(failure: VisionFailure): boolean {
+  return isProviderExhausted(failure) && !failure.dailyQuota;
 }

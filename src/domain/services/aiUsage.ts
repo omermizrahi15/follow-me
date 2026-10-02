@@ -132,6 +132,8 @@ export interface ProviderLimitCopy {
   headline: string;
   /** One line per ceiling, plus the photo estimate when tokens are reported. */
   lines: string[];
+  /** Set when the provider is broken, not merely spent — see ProviderLimits.failing. */
+  warning?: string;
 }
 
 /**
@@ -200,7 +202,16 @@ export function providerLimitCopy(limits: ProviderLimits | null): ProviderLimitC
     );
   }
 
-  return { headline: `${limits.provider} · ${limits.model}`, lines };
+  const copy: ProviderLimitCopy = { headline: `${limits.provider} · ${limits.model}`, lines };
+  if (limits.failing != null) {
+    const since = new Date(limits.failing.since).toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      timeZone: 'UTC',
+    });
+    copy.warning = `Failing since ${since} (HTTP ${limits.failing.status}) — the model may have been retired`;
+  }
+  return copy;
 }
 
 /**
