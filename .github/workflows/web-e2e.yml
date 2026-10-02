@@ -1,16 +1,17 @@
 name: CI · e2e web (public pages)
 
 # The subscribe page (docs/join/) and the post gallery (docs/gallery.html) are
-# static browser pages the iOS app can't cover — the two things a follower ever
+# static browser pages the iOS app can't cover (docs/globe/ is the travel globe,
+# generated from the app's own code) — the two things a follower ever
 # sees. This runs headless on Ubuntu in ~1-2 min. Path-filtered like every
 # other pipeline: it only runs when a page or its tests change.
 on:
   push:
     branches: [main]
-    paths: ['docs/join/**', 'docs/gallery.html', 'web-e2e/**', 'playwright.config.ts']
+    paths: ['docs/join/**', 'docs/gallery.html', 'docs/globe/**', 'web-e2e/**', 'playwright.config.ts']
   pull_request:
     branches: [main]
-    paths: ['docs/join/**', 'docs/gallery.html', 'web-e2e/**', 'playwright.config.ts']
+    paths: ['docs/join/**', 'docs/gallery.html', 'docs/globe/**', 'web-e2e/**', 'playwright.config.ts']
 
 jobs:
   web-e2e:

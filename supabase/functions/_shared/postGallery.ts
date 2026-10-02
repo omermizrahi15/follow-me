@@ -61,6 +61,10 @@ async function postId(publisherId: string, mediaUrls: string[]): Promise<string>
  * `postingId` is the batch id the same send stamps on its `media` rows. It is
  * what lets the publisher deleting a post hide it from followers: without it
  * the two tables share no key, and trashed posts stayed visible in the gallery.
+ *
+ * `coordinate` is where the batch was taken: it places the post on the globe
+ * the gallery shows followers, rounded to ~11 km first because the row is
+ * public. When the caller has none it is looked up from the posting's media rows.
  */
 export async function savePostGallery(
   supabase: SupabaseClient,
@@ -68,25 +72,69 @@ export async function savePostGallery(
   mediaUrls: string[],
   place: string | null = null,
   postingId: string | null = null,
+  coordinate: { latitude: number; longitude: number } | null = null,
 ): Promise<string | null> {
   try {
     const id = await postId(publisherId, mediaUrls);
+    const exact = coordinate ?? (postingId != null ? await postingCoordinate(supabase, publisherId, postingId) : null);
+    const where = exact != null ? blurCoordinate(exact) : null;
     const row = { id, publisher_id: publisherId, media_urls: mediaUrls, place };
-    let { error } = await supabase
-      .from('posts')
-      .upsert(postingId != null ? { ...row, posting_id: postingId } : row);
-    // `posting_id` arrives with migration 20240032. Against an environment the
-    // migration hasn't reached, naming the column 400s the upsert and every
-    // message loses its gallery link — so fall back to the row without it. The
-    // post is then untrashable until the migration runs, which beats sending
-    // linkless messages in the meantime.
-    if (error != null && postingId != null) {
-      ({ error } = await supabase.from('posts').upsert(row));
+    // Each column the environment might not have yet is dropped in turn rather
+    // than failing the upsert: a missing column must cost a feature (an
+    // untrashable post, a post off the follower globe), never the link.
+    const attempts: Record<string, unknown>[] = [];
+    const withPosting = postingId != null ? { ...row, posting_id: postingId } : row;
+    if (where != null) attempts.push({ ...withPosting, latitude: where.latitude, longitude: where.longitude });
+    attempts.push(withPosting);
+    if (postingId != null) attempts.push(row);
+
+    let error: { message: string } | null = null;
+    for (const attempt of attempts) {
+      ({ error } = await supabase.from('posts').upsert(attempt));
+      if (error == null) break;
     }
     if (error != null) throw new Error(error.message);
     return `${galleryBaseUrl()}?id=${id}`;
   } catch (err) {
     console.error('savePostGallery failed:', err);
+    return null;
+  }
+}
+
+/**
+ * Rounds to one decimal place (~11 km). `posts` is readable by anyone holding
+ * the public anon key, so the exact fix the photo's GPS recorded — possibly the
+ * publisher's home — must never be stored there. A marker on a globe, next to a
+ * city-level place label, needs nothing finer.
+ */
+function blurCoordinate(c: { latitude: number; longitude: number }): { latitude: number; longitude: number } {
+  const blur = (n: number): number => Math.round(n * 10) / 10;
+  return { latitude: blur(c.latitude), longitude: blur(c.longitude) };
+}
+
+/**
+ * Where a posting was taken, from the `media` rows stamped with its id — for
+ * callers (send-post) that are handed a posting id but no coordinate. Null on
+ * any miss or error: the globe is an enhancement and must not block the send.
+ */
+async function postingCoordinate(
+  supabase: SupabaseClient,
+  publisherId: string,
+  postingId: string,
+): Promise<{ latitude: number; longitude: number } | null> {
+  try {
+    const { data } = await supabase
+      .from('media')
+      .select('latitude, longitude')
+      .eq('owner_id', publisherId)
+      .eq('posting_id', postingId)
+      .not('latitude', 'is', null)
+      .limit(1);
+    const row = (data ?? [])[0] as { latitude: number | null; longitude: number | null } | undefined;
+    return row?.latitude != null && row.longitude != null
+      ? { latitude: row.latitude, longitude: row.longitude }
+      : null;
+  } catch {
     return null;
   }
 }
