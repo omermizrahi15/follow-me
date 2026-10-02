@@ -107,9 +107,9 @@ describe('SuggestPhotosUseCase', () => {
     expect(daysAgo(library.requestedWindows[0]!.start)).toBe(9);
   });
 
-  it('never shrinks the window below the configured lookback', async () => {
-    // Posted this morning. The lookback is a floor, not a ceiling: photos from
-    // earlier in the week that simply weren't chosen must stay offerable.
+  it('starts at the last post even when it is newer than the lookback', async () => {
+    // Posted an hour ago. The lookback only drives the reminder schedule, so
+    // the window is "since the last post", not the configured 7 days.
     const library = new FakeMediaLibrary([candidate('a')]);
     const today = new Date(Date.now() - 60 * 60 * 1000);
     const useCase = new SuggestPhotosUseCase(
@@ -120,7 +120,7 @@ describe('SuggestPhotosUseCase', () => {
 
     await useCase.execute(config());
 
-    expect(daysAgo(library.requestedWindows[0]!.start)).toBe(7);
+    expect(daysAgo(library.requestedWindows[0]!.start)).toBe(0);
   });
 
   it('clamps a long absence so it cannot open an unbounded scan', async () => {
