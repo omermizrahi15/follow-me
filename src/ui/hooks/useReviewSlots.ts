@@ -3,6 +3,7 @@ import type { PhotoClassification } from '../../domain/entities/PhotoClassificat
 import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import { MAX_PHOTOS_PER_POST } from '../../domain/entities/PublisherConfig';
 import { isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
+import { removeSlot } from '../../domain/services/removeSlot';
 import { emptyRoundNote } from '../../domain/services/reviewCopy';
 import type { PlaceSplitSegment } from '../../domain/services/splitSuggestion';
 import type { SuggestPhase, TopUpResult } from './useSuggestedPhotos';
@@ -55,6 +56,8 @@ export interface ReviewSlots {
   shortfall: boolean;
   addSlot: () => void;
   swap: (id: string) => void;
+  /** Drop a photo from the post for good — no replacement, never offered back. */
+  remove: (id: string) => void;
   /**
    * Show one place's photos and let the normal post flow handle it.
    *
@@ -324,6 +327,14 @@ export function useReviewSlots({
     })();
   }, [swappingId, excluded, ready, slots, viableSuggestions]);
 
+  const remove = useCallback((id: string): void => {
+    if (kept.length <= 1) return;
+    // Excluded as well as removed: a photo the publisher just rejected must not
+    // come straight back as the next "+" suggestion.
+    setExcluded(e => new Set(e).add(id));
+    setSlots(s => removeSlot(s, id));
+  }, [kept.length]);
+
   const showSegment = useCallback((segment: PlaceSplitSegment): void => {
     setSplitSegment(segment);
     setSlots(segment.batch.map((c: PhotoClassification) => c.candidate.id));
@@ -340,6 +351,7 @@ export function useReviewSlots({
     shortfall: phase === 'done' && batch.length > 0 && photosPerPost > 0 && batch.length < photosPerPost,
     addSlot,
     swap,
+    remove,
     showSegment,
   };
 }

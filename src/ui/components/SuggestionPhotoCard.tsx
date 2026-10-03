@@ -15,6 +15,8 @@ interface Props {
    * sat there through it read as a dead button.
    */
   busy?: boolean;
+  /** Take this photo out of the post entirely; null hides the ✕. */
+  onRemove?: (() => void) | null;
   /** Grid width. Two-up in review, three-up in the tighter history preview. */
   width?: '47%' | '31%';
 }
@@ -29,7 +31,7 @@ interface Props {
  * to a photo read as decoration that happened to be tappable. It says what it
  * does, and keeps its icon whenever it is usable.
  */
-export function SuggestionPhotoCard({ photo, onSwap, busy = false, width = '47%' }: Props): React.JSX.Element {
+export function SuggestionPhotoCard({ photo, onSwap, busy = false, onRemove = null, width = '47%' }: Props): React.JSX.Element {
   const swappable = onSwap != null && !busy;
   return (
     <View style={[styles.card, { width }]}>
@@ -45,6 +47,18 @@ export function SuggestionPhotoCard({ photo, onSwap, busy = false, width = '47%'
           recyclingKey={photo.candidate.id}
           transition={120}
         />
+        {onRemove != null && (
+          <TouchableOpacity
+            style={styles.remove}
+            onPress={onRemove}
+            activeOpacity={0.7}
+            accessibilityRole="button"
+            accessibilityLabel="Remove this photo"
+            hitSlop={8}
+          >
+            <Ionicons name="close" size={14} color={colors.ink} />
+          </TouchableOpacity>
+        )}
         <TouchableOpacity
           style={[styles.chip, !swappable && styles.chipDisabled]}
           onPress={onSwap ?? undefined}
@@ -71,6 +85,17 @@ const styles = StyleSheet.create({
   card: {},
   imageWrap: { width: '100%' },
   photo: { width: '100%', aspectRatio: 1, borderRadius: radius.md, backgroundColor: colors.surfaceAlt },
+  remove: {
+    position: 'absolute',
+    top: spacing.sm,
+    right: spacing.sm,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.frosted,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   chip: {
     position: 'absolute',
     bottom: spacing.sm,

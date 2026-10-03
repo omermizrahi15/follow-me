@@ -256,6 +256,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
                 photo={c}
                 onSwap={slots.canOfferMore ? () => slots.swap(c.candidate.id) : null}
                 busy={slots.swappingId === c.candidate.id}
+                onRemove={phase === 'done' && kept.length > 1 ? () => slots.remove(c.candidate.id) : null}
               />
             ))}
             {phase === 'done' && kept.length > 0 && kept.length < MAX_PHOTOS_PER_POST && (
