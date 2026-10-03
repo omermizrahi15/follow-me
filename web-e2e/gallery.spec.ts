@@ -94,6 +94,94 @@ async function swipe(page: Page, dx: number, dy: number): Promise<void> {
   );
 }
 
+/** The photo's current CSS scale (1 when no transform is applied). */
+const zoomScale = (page: Page) =>
+  page.evaluate(() => {
+    const t = getComputedStyle(document.getElementById('storyImage')!).transform;
+    return t === 'none' ? 1 : new DOMMatrix(t).a;
+  });
+
+/** Two-finger pinch from `fromGap` to `toGap` px apart, around the centre. */
+async function pinch(page: Page, fromGap: number, toGap: number): Promise<void> {
+  await page.evaluate(
+    ([a, b]) => {
+      const el = document.getElementById('story')!;
+      const cx = window.innerWidth / 2;
+      const cy = window.innerHeight / 2;
+      const pair = (gap: number) => [
+        new Touch({ identifier: 1, target: el, clientX: cx - gap / 2, clientY: cy }),
+        new Touch({ identifier: 2, target: el, clientX: cx + gap / 2, clientY: cy }),
+      ];
+      const fire = (type: string, touches: Touch[], changed: Touch[]) =>
+        el.dispatchEvent(
+          new TouchEvent(type, { touches, changedTouches: changed, bubbles: true, cancelable: true }),
+        );
+      const start = pair(a!);
+      fire('touchstart', start, start);
+      const end = pair(b!);
+      fire('touchmove', end, end);
+      fire('touchend', [], end);
+    },
+    [fromGap, toGap],
+  );
+}
+
+test.describe('photo zoom (issue #201)', () => {
+  test('pinching out zooms the photo, pinching back returns it to fit', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/gallery.html?id=post-linked');
+    await expect(story(page)).toBeVisible();
+
+    await pinch(page, 100, 250);
+    expect(await zoomScale(page)).toBeCloseTo(2.5, 1);
+
+    await pinch(page, 250, 100);
+    expect(await zoomScale(page)).toBe(1);
+  });
+
+  test('double-click zooms in and a second double-click zooms out, without paging', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/gallery.html?id=post-linked');
+    await expect(story(page)).toBeVisible();
+
+    await story(page).dblclick({ position: { x: 600, y: 400 } });
+    await expect.poll(() => zoomScale(page)).toBeGreaterThan(2);
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 1/2');
+
+    await story(page).dblclick({ position: { x: 600, y: 400 } });
+    await expect.poll(() => zoomScale(page)).toBe(1);
+    await page.waitForTimeout(400);
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 1/2');
+  });
+
+  test('a swipe while zoomed does not change photo or close the story', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/gallery.html?id=post-linked');
+    await expect(story(page)).toBeVisible();
+    await pinch(page, 100, 250);
+
+    await swipe(page, -120, 0);
+    await swipe(page, 0, 150);
+
+    await expect(story(page)).toBeVisible();
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 1/2');
+  });
+
+  test('moving to the next photo starts it at fit, and swiping still pages when not zoomed', async ({ page }) => {
+    await mockSupabase(page);
+    await page.goto('/gallery.html?id=post-linked');
+    await expect(story(page)).toBeVisible();
+    await pinch(page, 100, 250);
+    await page.keyboard.press('ArrowRight');
+
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 2/2');
+    expect(await zoomScale(page)).toBe(1);
+
+    await swipe(page, 90, 0);
+    await expect(page.locator('#storyMeta')).toHaveText('May 2, 2026 · 1/2');
+  });
+});
+
 test.describe('post gallery', () => {
   test('the shared link plays its post as a story straight away', async ({ page }) => {
     await mockSupabase(page);
