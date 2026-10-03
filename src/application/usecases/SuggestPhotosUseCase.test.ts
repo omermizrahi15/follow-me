@@ -216,6 +216,25 @@ describe('SuggestPhotosUseCase', () => {
       expect(pool).toHaveLength(35);
     });
 
+    // The history backfill must be the same pipeline as a live suggestion, not
+    // a cheaper cousin of it: it used to stop at 2x the post size.
+    it('grades a whole explicit (backfill) window just like a live scan', async () => {
+      const { candidates, byId } = window(40);
+      const classifier = new FakePhotoClassifier(byId);
+      const useCase = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        classifier,
+        new FakeSentPhotoTracker(),
+      );
+
+      await useCase.execute(config(), undefined, {
+        start: new Date(0),
+        end: new Date(Date.now() + 86_400_000),
+      });
+
+      expect(classifier.receivedCandidateIds).toHaveLength(40);
+    });
+
     it('stops at the per-scan cap, keeping the newest photos', async () => {
       const { candidates, byId } = window(30);
       const classifier = new FakePhotoClassifier(byId);

@@ -36,6 +36,7 @@ import { useFeed } from '../hooks/useFeed';
 import { moveToTrash } from '../hooks/useTrash';
 import { useProfile } from '../hooks/useProfile';
 import { useHistoryGaps } from '../hooks/useHistoryGaps';
+import { useHistoryBackfill } from '../hooks/useHistoryBackfill';
 import { useSubscribers } from '../hooks/useSubscribers';
 import { usePublisherId } from '../context/AuthContext';
 import { colors, radius, spacing, shadow, typography } from '../theme/theme';
@@ -114,6 +115,10 @@ export function HomeScreen(): React.JSX.Element {
     feedComplete,
     frequency,
   );
+  // Owned here so a rebuild in progress, or its finished timeline, survives the
+  // publisher switching tabs and coming back (the grades behind it are already
+  // remembered on the device).
+  const historyBackfill = useHistoryBackfill(publisherId);
   const [section, setSection] = useState<HomeSection>('me');
   const [showingSuggestions, setShowingSuggestions] = useState(false);
   // Which feed card has its Delete revealed — at most one, the way an iOS
@@ -403,6 +408,7 @@ export function HomeScreen(): React.JSX.Element {
           {!showingSuggestions && section === 'followers' && <FollowersSection bottomInset={bottomInset} />}
           {!showingSuggestions && section === 'history' && (
             <HistoryBackfillContent
+              backfill={historyBackfill}
               onDone={() => selectSection('me')}
               initialStartDate={tripStartDate}
               gaps={gaps}

@@ -434,3 +434,44 @@ describe('BackfillHistoryUseCase — a window that fails outright', () => {
     expect(failure).not.toBeNull();
   });
 });
+
+describe('BackfillHistoryUseCase — cutting by place', () => {
+  const DAY = 24 * 60 * 60 * 1000;
+
+  function sutWith(splitWindow: (w: { start: Date; end: Date }) => Promise<{ start: Date; end: Date }[]>): {
+    sut: BackfillHistoryUseCase;
+    library: FakeMediaLibrary;
+  } {
+    const library = new FakeMediaLibrary(weeklyPhotos);
+    const classifier = new FakePhotoClassifier(
+      new Map(weeklyPhotos.map(p => [p.id, classification(p)])),
+    );
+    const suggest = new SuggestPhotosUseCase(library, classifier, new FakeSentPhotoTracker());
+    return { sut: new BackfillHistoryUseCase(suggest, classifier, splitWindow), library };
+  }
+
+  it('scans each place a window is split into as its own stretch', async () => {
+    const { sut, library } = sutWith(w => {
+      const mid = new Date((w.start.getTime() + w.end.getTime()) / 2);
+      return Promise.resolve([
+        { start: w.start, end: mid },
+        { start: mid, end: w.end },
+      ]);
+    });
+    const totals: number[] = [];
+
+    await sut.execute(input, { onWindowStart: (_i, total) => totals.push(total) });
+
+    // 3 weekly windows, each cut in two -> six stretches scanned.
+    const halves = library.requestedWindows.filter(w => w.end.getTime() - w.start.getTime() < 7 * DAY);
+    expect(halves).toHaveLength(6);
+    expect(Math.max(...totals)).toBe(6);
+  });
+
+  it('falls back to the whole window when the splitter fails', async () => {
+    const { sut } = sutWith(() => Promise.reject(new Error('gps unreadable')));
+    const result = await sut.execute(input);
+    expect(result.failure).toBeNull();
+    expect(result.drafts).toHaveLength(3);
+  });
+});

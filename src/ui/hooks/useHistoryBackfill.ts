@@ -225,7 +225,7 @@ function indexPhotos(draft: BackfillDraft): Map<string, PhotoClassification> {
  * here — a UI-level omission would be one refactor away from spamming every
  * follower with a decade of history.
  */
-export function useHistoryBackfill(publisherId: string): State & {
+export type HistoryBackfill = State & {
   run: (startDate: Date, intervalDays: number, windows?: HistoryWindow[]) => void;
   toggleDropped: (id: string) => void;
   setPlace: (id: string, place: string, coordinate?: Coordinate) => void;
@@ -242,7 +242,9 @@ export function useHistoryBackfill(publisherId: string): State & {
    * only problem was a tunnel (issue #145).
    */
   retry: () => void;
-} {
+};
+
+export function useHistoryBackfill(publisherId: string): HistoryBackfill {
   const [state, setState] = useState<State>(INITIAL);
   // Places the publisher typed themselves — never overwritten by resolution.
   const editedPlaces = useRef<Set<string>>(new Set());

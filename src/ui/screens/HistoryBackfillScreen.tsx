@@ -10,9 +10,7 @@ import {
 } from 'react-native';
 import { Image } from 'expo-image';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { usePublisherId } from '../context/AuthContext';
 import {
-  useHistoryBackfill,
   describeWindow,
   canOfferMorePhotos,
   hasRoomForMore,
@@ -21,7 +19,7 @@ import { PlaceField } from '../components/PlaceField';
 import { ErrorState } from '../components/ErrorState';
 import { Photo } from '../components/Photo';
 import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
-import type { ReviewablePosting } from '../hooks/useHistoryBackfill';
+import type { ReviewablePosting, HistoryBackfill } from '../hooks/useHistoryBackfill';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { planHistoryWindows } from '../../domain/services/historyWindows';
 import type { HistoryWindow } from '../../domain/services/historyWindows';
@@ -702,6 +700,13 @@ function ReviewStep({ postings, quotaExhausted, scanError, onRetry, config, onTo
 // ---------- inner content (usable inline in the sheet OR as a full screen) ----------
 
 interface ContentProps {
+  /**
+   * The run, owned by the screen that hosts the tab. Held there rather than
+   * here because this component unmounts whenever the publisher switches tab,
+   * and a scan that takes minutes of grading must still be there, running or
+   * finished, when they come back.
+   */
+  backfill: HistoryBackfill;
   /** Called when the flow finishes or the publisher backs out. */
   onDone: () => void;
   /** Prefills the start date, normally the trip start from the profile. */
@@ -728,13 +733,12 @@ interface ContentProps {
  * let the same AI pipeline suggest a post per stretch, review the timeline,
  * then publish it back-dated. Nothing here messages a follower.
  */
-export function HistoryBackfillContent({ onDone, initialStartDate = null, gaps, gapsFor, bottomInset = 0 }: ContentProps): React.JSX.Element {
-  const publisherId = usePublisherId();
+export function HistoryBackfillContent({ backfill, onDone, initialStartDate = null, gaps, gapsFor, bottomInset = 0 }: ContentProps): React.JSX.Element {
   const {
     phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error, scanError, config,
     scanClassified, scanOf, scanBatch, scanWindow, paused, togglePause, publishOne,
     run, toggleDropped, setPlace, swapPhoto, addPhoto, publish, reset, retry,
-  } = useHistoryBackfill(publisherId);
+  } = backfill;
 
   /**
    * The stretches to rebuild for what the publisher just chose.
