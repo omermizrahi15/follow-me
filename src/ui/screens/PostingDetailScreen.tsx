@@ -4,7 +4,6 @@ import {
   View,
   Text,
   FlatList,
-  Pressable,
   TouchableOpacity,
   StatusBar,
   StyleSheet,
@@ -21,6 +20,7 @@ import { useNavigation, useRoute, type RouteProp } from '@react-navigation/nativ
 import type { RootNavigationProp, RootStackParamList } from '../navigation/types';
 import { toFeedPosting, type FeedMedia, type FeedPosting } from '../data/feed';
 import { ErrorState } from '../components/ErrorState';
+import { ZoomablePhoto } from '../components/ZoomablePhoto';
 import { useConnectionStatus } from '../data/connectivity';
 import { isUsable } from '../../domain/services/connectivityCopy';
 import { usePublisherId } from '../context/AuthContext';
@@ -48,6 +48,8 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
   const { width, height } = useWindowDimensions();
   const count = posting.media.length;
   const [index, setIndex] = useState(0);
+  // A zoomed photo owns the drag; the pager and swipe-to-close stand down.
+  const [zoomed, setZoomed] = useState(false);
   const listRef = useRef<FlatList<FeedMedia>>(null);
   const connection = useConnectionStatus();
   // Photos whose download failed. Tracked per media id because the alternative
@@ -132,12 +134,11 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
     ({ item }: { item: FeedMedia }) => {
       const uri = item.uri != null ? displaySizedUri(item.uri, 1080) : undefined;
       return (
-        <Pressable
-          style={{ width, height }}
-          onPress={e => {
-            const back = e.nativeEvent.locationX < width * BACK_ZONE;
-            goTo(indexRef.current + (back ? -1 : 1));
-          }}
+        <ZoomablePhoto
+          width={width}
+          height={height}
+          onZoomChange={setZoomed}
+          onTap={x => goTo(indexRef.current + (x < width * BACK_ZONE ? -1 : 1))}
         >
           {uri != null && !failedIds.has(item.id) ? (
             <Image
@@ -183,7 +184,7 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
               )}
             </View>
           )}
-        </Pressable>
+        </ZoomablePhoto>
       );
     },
     [width, height, goTo, failedIds, loadAttempt, connection, retryPhotos],
@@ -202,6 +203,7 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
         renderItem={renderItem}
         horizontal
         pagingEnabled
+        scrollEnabled={!zoomed}
         showsHorizontalScrollIndicator={false}
         getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
         onViewableItemsChanged={onViewableItemsChanged}

@@ -200,6 +200,8 @@
       object-fit: contain;
       user-select: none; -webkit-user-drag: none;
       pointer-events: none;
+      transform-origin: center center;
+      will-change: transform;
     }
     .story-fallback {
       position: absolute; z-index: 11;
@@ -473,6 +475,7 @@
       // the counter and progress bar both claiming otherwise.
       storyImage.removeAttribute('src');
       storyImage.style.visibility = 'hidden';
+      resetZoom();
       showFallback('loading');
       storyImage.onload = () => {
         storyImage.style.visibility = '';
@@ -500,6 +503,7 @@
 
     function closeStoryOverlay() {
       story.hidden = true;
+      resetZoom();
       storyImage.removeAttribute('src');
       storyFallback.hidden = true;
       document.body.style.overflow = '';
@@ -531,8 +535,22 @@
     }
 
     // Tap zones — left 30% goes back, the rest advances (mirrors the app).
+    // A single tap waits out the double-tap window, so zooming in with a
+    // double-tap doesn't also page the story. While zoomed, a lone tap is a
+    // no-op (it would otherwise leave the photo you are inspecting).
+    let tapTimer = null;
     story.addEventListener('click', e => {
-      step(e.clientX < window.innerWidth * BACK_ZONE ? -1 : 1);
+      if (suppressClick) { suppressClick = false; return; }
+      if (tapTimer != null) return; // second half of a double-tap; dblclick/touch handles it
+      const x = e.clientX;
+      tapTimer = setTimeout(() => {
+        tapTimer = null;
+        if (zoom.scale === 1) step(x < window.innerWidth * BACK_ZONE ? -1 : 1);
+      }, DOUBLE_TAP_MS);
+    });
+    story.addEventListener('dblclick', e => {
+      if (tapTimer != null) { clearTimeout(tapTimer); tapTimer = null; }
+      toggleZoom(e.clientX, e.clientY);
     });
 
     document.addEventListener('keydown', e => {
@@ -540,6 +558,144 @@
       if (e.key === 'Escape') closeStory();
       if (e.key === 'ArrowLeft') step(-1);
       if (e.key === 'ArrowRight') step(1);
+    });
+
+    // ---------- zoom (issue #201) ----------
+    // Pinch, double-tap and pan on the current photo. The maths mirrors
+    // src/domain/services/photoZoom.ts (the app's copy, which is unit-tested);
+    // this page can't import TypeScript, so the two are kept in step by hand.
+    const MAX_ZOOM = 4;
+    const DOUBLE_TAP_ZOOM = 2.5;
+    const DOUBLE_TAP_MS = 260;
+    const zoom = { scale: 1, x: 0, y: 0 };
+    let suppressClick = false;
+
+    function clampPan(x, y, scale) {
+      const maxX = Math.max(0, (window.innerWidth * scale - window.innerWidth) / 2);
+      const maxY = Math.max(0, (window.innerHeight * scale - window.innerHeight) / 2);
+      return { x: Math.min(maxX, Math.max(-maxX, x)) + 0, y: Math.min(maxY, Math.max(-maxY, y)) + 0 };
+    }
+    function paintZoom() {
+      storyImage.style.transform = zoom.scale === 1
+        ? ''
+        : 'translate(' + zoom.x + 'px,' + zoom.y + 'px) scale(' + zoom.scale + ')';
+      story.classList.toggle('zoomed', zoom.scale > 1);
+    }
+    function resetZoom() {
+      zoom.scale = 1; zoom.x = 0; zoom.y = 0;
+      storyImage.style.transition = '';
+      paintZoom();
+    }
+    /** Zoom to `scale` keeping viewport point (cx, cy) under the fingers. */
+    function zoomFrom(from, scale, cx, cy) {
+      scale = Math.min(MAX_ZOOM, Math.max(1, scale));
+      if (scale === 1) { zoom.scale = 1; zoom.x = 0; zoom.y = 0; return; }
+      const fx = cx - window.innerWidth / 2;
+      const fy = cy - window.innerHeight / 2;
+      const ratio = scale / from.scale;
+      const p = clampPan(fx - (fx - from.x) * ratio, fy - (fy - from.y) * ratio, scale);
+      zoom.scale = scale; zoom.x = p.x; zoom.y = p.y;
+    }
+    function toggleZoom(cx, cy) {
+      storyImage.style.transition = 'transform 180ms ease';
+      zoomFrom({ ...zoom }, zoom.scale > 1 ? 1 : DOUBLE_TAP_ZOOM, cx, cy);
+      paintZoom();
+    }
+
+    // Wheel / trackpad pinch on desktop.
+    story.addEventListener('wheel', e => {
+      e.preventDefault();
+      storyImage.style.transition = '';
+      zoomFrom({ ...zoom }, zoom.scale * Math.exp(-e.deltaY * (e.ctrlKey ? 0.01 : 0.002)), e.clientX, e.clientY);
+      paintZoom();
+    }, { passive: false });
+
+    // Mouse drag pans a zoomed photo.
+    let mouseDrag = null;
+    story.addEventListener('mousedown', e => {
+      if (zoom.scale > 1) mouseDrag = { x: e.clientX, y: e.clientY, from: { ...zoom }, moved: false };
+    });
+    window.addEventListener('mousemove', e => {
+      if (mouseDrag == null) return;
+      const dx = e.clientX - mouseDrag.x;
+      const dy = e.clientY - mouseDrag.y;
+      if (Math.abs(dx) + Math.abs(dy) > 4) mouseDrag.moved = true;
+      const p = clampPan(mouseDrag.from.x + dx, mouseDrag.from.y + dy, zoom.scale);
+      zoom.x = p.x; zoom.y = p.y;
+      paintZoom();
+    });
+    window.addEventListener('mouseup', () => {
+      if (mouseDrag != null && mouseDrag.moved) suppressClick = true;
+      mouseDrag = null;
+    });
+
+    // Touch: two fingers pinch, one finger pans while zoomed, and a quick
+    // second tap toggles. `gestureZoomed` marks a touch sequence that was a
+    // zoom gesture, so its end never also counts as a swipe or a tap.
+    let pinch = null;
+    let panTouch = null;
+    let gestureZoomed = false;
+    let lastTouchTap = null;
+    const touchDist = t => Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY);
+    const touchMid = t => ({ x: (t[0].clientX + t[1].clientX) / 2, y: (t[0].clientY + t[1].clientY) / 2 });
+    story.addEventListener('touchstart', e => {
+      storyImage.style.transition = '';
+      if (e.touches.length >= 2) {
+        const m = touchMid(e.touches);
+        pinch = { dist: touchDist(e.touches), mid: m, from: { ...zoom } };
+        panTouch = null;
+        gestureZoomed = true;
+      } else if (zoom.scale > 1) {
+        panTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY, from: { ...zoom } };
+        gestureZoomed = true;
+      }
+    }, { passive: true });
+    story.addEventListener('touchmove', e => {
+      if (pinch != null && e.touches.length >= 2) {
+        const m = touchMid(e.touches);
+        zoomFrom(pinch.from, pinch.from.scale * touchDist(e.touches) / pinch.dist, pinch.mid.x, pinch.mid.y);
+        if (zoom.scale > 1) {
+          const p = clampPan(zoom.x + m.x - pinch.mid.x, zoom.y + m.y - pinch.mid.y, zoom.scale);
+          zoom.x = p.x; zoom.y = p.y;
+        }
+        paintZoom();
+      } else if (panTouch != null && e.touches.length === 1) {
+        const p = clampPan(
+          panTouch.from.x + e.touches[0].clientX - panTouch.x,
+          panTouch.from.y + e.touches[0].clientY - panTouch.y,
+          zoom.scale,
+        );
+        zoom.x = p.x; zoom.y = p.y;
+        paintZoom();
+      }
+    }, { passive: true });
+    story.addEventListener('touchend', e => {
+      if (e.touches.length === 1 && pinch != null) {
+        // Lifted one finger of a pinch: carry on as a pan from here.
+        pinch = null;
+        panTouch = { x: e.touches[0].clientX, y: e.touches[0].clientY, from: { ...zoom } };
+        return;
+      }
+      if (e.touches.length > 0) return;
+      pinch = null;
+      panTouch = null;
+      // A double-tap, on touch: toggle, and swallow the click it would make.
+      if (!gestureZoomed && e.changedTouches.length === 1) {
+        const t = e.changedTouches[0];
+        const now = Date.now();
+        if (lastTouchTap != null && now - lastTouchTap.at < DOUBLE_TAP_MS
+            && Math.hypot(t.clientX - lastTouchTap.x, t.clientY - lastTouchTap.y) < 40) {
+          lastTouchTap = null;
+          if (tapTimer != null) { clearTimeout(tapTimer); tapTimer = null; }
+          suppressClick = true;
+          if (e.cancelable) e.preventDefault();
+          toggleZoom(t.clientX, t.clientY);
+          return;
+        }
+        lastTouchTap = { at: now, x: t.clientX, y: t.clientY };
+      } else {
+        lastTouchTap = null;
+      }
     });
 
     // Swipe on touch devices: left/right steps through the photos, down
@@ -557,8 +713,19 @@
       touchStartX = e.touches[0].clientX;
       touchStartY = e.touches[0].clientY;
     }, { passive: true });
-    story.addEventListener('touchcancel', () => { touchStartX = null; touchStartY = null; });
+    story.addEventListener('touchcancel', () => {
+      touchStartX = null; touchStartY = null; pinch = null; panTouch = null; gestureZoomed = false;
+    });
     story.addEventListener('touchend', e => {
+      if (e.touches.length > 0) return;
+      // A zoom gesture (pinch, or panning while zoomed) is not a swipe: stepping
+      // or dismissing here would throw the follower out of the photo they are
+      // inspecting. Cleared once every finger is up.
+      if (gestureZoomed || zoom.scale > 1) {
+        gestureZoomed = false;
+        touchStartX = null; touchStartY = null;
+        return;
+      }
       if (touchStartX == null) return;
       const dx = e.changedTouches[0].clientX - touchStartX;
       const dy = e.changedTouches[0].clientY - touchStartY;
