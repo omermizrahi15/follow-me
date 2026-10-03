@@ -12,6 +12,7 @@ import { GetAiUsageUseCase } from '../application/usecases/GetAiUsageUseCase';
 import { InspectGradesUseCase } from '../application/usecases/InspectGradesUseCase';
 import { PhotoSelectionService } from '../domain/services/PhotoSelectionService';
 import { ClassificationCache } from '../infrastructure/cache/ClassificationCache';
+import { PlaceWindowSplitter } from '../application/services/PlaceWindowSplitter';
 import { BackfillHistoryUseCase } from '../application/usecases/BackfillHistoryUseCase';
 import { ScheduleReminderUseCase } from '../application/usecases/ScheduleReminderUseCase';
 import { SyncCandidatePhotosUseCase } from '../application/usecases/SyncCandidatePhotosUseCase';
@@ -215,7 +216,11 @@ export const inspectGrades = monitored(
 // `backfill_history` rather than double-reported as a live suggestion.
 export const backfillHistory = monitored(
   'backfill_history',
-  new BackfillHistoryUseCase(suggestPhotosUseCase, photoClassifier),
+  new BackfillHistoryUseCase(
+    suggestPhotosUseCase,
+    photoClassifier,
+    new PlaceWindowSplitter(mediaLibrary).splitWindow,
+  ),
 );
 export const scheduleReminder = monitored('schedule_reminder', new ScheduleReminderUseCase(notificationScheduler));
 export const syncCandidatePhotos = monitored('sync_candidate_photos', new SyncCandidatePhotosUseCase(

@@ -139,6 +139,12 @@ export class BackfillHistoryUseCase {
       IPhotoClassifier,
       'quotaExhausted' | 'rateLimited' | 'timedOut'
     >,
+    /**
+     * Cuts a cadence window where the traveller changed place, so a week in two
+     * cities becomes two posts rather than one. Optional: without it every
+     * window is scanned whole.
+     */
+    private readonly splitWindow?: (window: HistoryWindow) => Promise<HistoryWindow[]>,
   ) {}
 
   /**
@@ -178,7 +184,10 @@ export class BackfillHistoryUseCase {
     progress?.onPlanned?.(plan);
 
     const drafts: BackfillDraft[] = [];
-    const total = plan.windows.length;
+    // Grows as windows are cut by place: a stretch is only known to hold two
+    // cities once its photos have been looked at.
+    let total = plan.windows.length;
+    let stretch = 0;
     const maxPosts = input.maxWindows ?? MAX_HISTORY_WINDOWS;
     let scannedWindows = 0;
     let quotaExhausted = false;
@@ -186,76 +195,95 @@ export class BackfillHistoryUseCase {
     let timedOut = false;
     let failure: unknown = null;
 
-    for (const [i, window] of plan.windows.entries()) {
-      await input.beforeWindow?.();
-      progress?.onWindowStart?.(i + 1, total, window);
+    scan: for (const cadenceWindow of plan.windows) {
+      const stretches = await this.cut(cadenceWindow);
+      total += stretches.length - 1;
+      for (const window of stretches) {
+        const i = stretch++;
+        await input.beforeWindow?.();
+        progress?.onWindowStart?.(i + 1, total, window);
 
-      // Captured from the scan callback so the finished draft can carry it —
-      // a stretch that came back with three photos should be able to say
-      // whether that is all there was, or all that survived deduplication.
-      let scanned: WindowScan = { found: 0, unique: 0 };
+        // Captured from the scan callback so the finished draft can carry it —
+        // a stretch that came back with three photos should be able to say
+        // whether that is all there was, or all that survived deduplication.
+        let scanned: WindowScan = { found: 0, unique: 0 };
 
-      let batch: PhotoClassification[];
-      let pool: PhotoClassification[];
-      try {
-        ({ batch, pool } = await this.suggestPhotos.execute(
-          input.config,
-          {
-            onScanning: () => undefined,
-            onScanned: (found, unique) => {
-              scanned = { found, unique };
-              progress?.onWindowScanned?.(i + 1, total, scanned);
+        let batch: PhotoClassification[];
+        let pool: PhotoClassification[];
+        try {
+          ({ batch, pool } = await this.suggestPhotos.execute(
+            input.config,
+            {
+              onScanning: () => undefined,
+              onScanned: (found, unique) => {
+                scanned = { found, unique };
+                progress?.onWindowScanned?.(i + 1, total, scanned);
+              },
+              onClassifying: (classified, of, currentBatch) =>
+                progress?.onWindowProgress?.(i + 1, total, { classified, of, batch: currentBatch }),
             },
-            onClassifying: (classified, of, currentBatch) =>
-              progress?.onWindowProgress?.(i + 1, total, { classified, of, batch: currentBatch }),
-          },
-          window,
-        ));
-      } catch (e: unknown) {
-        // Banked, not thrown. See `failure` on the result — everything
-        // reconstructed up to here is kept and handed back.
-        failure = e;
-        progress?.onWindowDone?.(i + 1, total, null);
-        break;
-      }
-      scannedWindows++;
+            window,
+          ));
+        } catch (e: unknown) {
+          // Banked, not thrown. See `failure` on the result — everything
+          // reconstructed up to here is kept and handed back.
+          failure = e;
+          progress?.onWindowDone?.(i + 1, total, null);
+          break scan;
+        }
+        scannedWindows++;
 
-      // A window with nothing in it is normal — weeks at home between trips.
-      // Dropping it keeps the review timeline about places the publisher went.
-      const draft = batch.length > 0 ? { window, scanned, batch, pool } : null;
-      if (draft != null) drafts.push(draft);
-      progress?.onWindowDone?.(i + 1, total, draft);
+        // A window with nothing in it is normal — weeks at home between trips.
+        // Dropping it keeps the review timeline about places the publisher went.
+        const draft = batch.length > 0 ? { window, scanned, batch, pool } : null;
+        if (draft != null) drafts.push(draft);
+        progress?.onWindowDone?.(i + 1, total, draft);
 
-      // Enough reconstructed for one sitting. Quiet windows walked along the
-      // way cost nothing and do not count towards it.
-      if (drafts.length >= maxPosts) break;
+        // Enough reconstructed for one sitting. Quiet windows walked along the
+        // way cost nothing and do not count towards it.
+        if (drafts.length >= maxPosts) break scan;
 
-      // Stop the moment the day's budget is gone. Everything reconstructed so
-      // far is kept and returned — the publisher can review and publish it now
-      // and resume the rest tomorrow, rather than losing the whole run.
-      if (this.classifier.quotaExhausted?.() === true) {
-        quotaExhausted = true;
-        break;
-      }
+        // Stop the moment the day's budget is gone. Everything reconstructed so
+        // far is kept and returned — the publisher can review and publish it now
+        // and resume the rest tomorrow, rather than losing the whole run.
+        if (this.classifier.quotaExhausted?.() === true) {
+          quotaExhausted = true;
+          break scan;
+        }
 
-      // Same stop, different wall. Grinding the remaining windows against a
-      // throttled provider would produce empty posts and spend the budget the
-      // next window needs, so bank what is reconstructed and let the publisher
-      // resume shortly.
-      if (this.classifier.rateLimited?.() === true) {
-        rateLimited = true;
-        break;
-      }
+        // Same stop, different wall. Grinding the remaining windows against a
+        // throttled provider would produce empty posts and spend the budget the
+        // next window needs, so bank what is reconstructed and let the publisher
+        // resume shortly.
+        if (this.classifier.rateLimited?.() === true) {
+          rateLimited = true;
+          break scan;
+        }
 
-      // And again for a window that ran out of time. The next one would travel
-      // over the same connection and stall the same way, at a full deadline a
-      // window — which is minutes of a progress bar for nothing.
-      if (this.classifier.timedOut?.() === true) {
-        timedOut = true;
-        break;
+        // And again for a window that ran out of time. The next one would travel
+        // over the same connection and stall the same way, at a full deadline a
+        // window — which is minutes of a progress bar for nothing.
+        if (this.classifier.timedOut?.() === true) {
+          timedOut = true;
+          break scan;
+        }
+    
       }
     }
 
     return { drafts, plan, scannedWindows, quotaExhausted, rateLimited, timedOut, failure };
+  }
+
+  /** The cadence window as one or more place-sized stretches; whole on any failure. */
+  private async cut(window: HistoryWindow): Promise<HistoryWindow[]> {
+    if (this.splitWindow == null) return [window];
+    try {
+      const parts = await this.splitWindow(window);
+      return parts.length > 0 ? parts : [window];
+    } catch {
+      // Place is a refinement. Not being able to read GPS must not cost the
+      // window itself.
+      return [window];
+    }
   }
 }

@@ -357,10 +357,9 @@ export class SuggestPhotosUseCase {
     const remembered =
       (await this.grades?.load(prioritised.map(c => c.id), referenceKey)) ??
       new Map<string, PhotoClassification>();
-    // The backfill reconstructs one post per past interval and never swaps, so
-    // it keeps the old shallow grading — grading every window in full would
-    // multiply its cost by the number of intervals for photos nobody browses.
-    const limit = window != null ? config.photosPerPost * 2 : this.maxPerScan;
+    // Same cap for a backfill stretch as for a live scan: the history flow is
+    // this pipeline run over a past window, not a cheaper variant of it.
+    const limit = this.maxPerScan;
     // `prioritised` is already leaders-then-followers, each newest-first, so a
     // run cut short by this cap or by the daily quota spends what it has on
     // recent, distinct moments — and the burst siblings it skipped are still

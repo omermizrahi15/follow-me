@@ -97,6 +97,12 @@ export interface IMediaLibrary {
    * before this existed.
    */
   describeAssets?(candidates: readonly PhotoCandidate[]): Promise<PhotoCandidate[]>;
+  /**
+   * Where each photo was taken, keyed by id; photos with no GPS fix are simply
+   * absent. A lookup per photo, so callers pass a sample (see `placeSampling`),
+   * never a whole window.
+   */
+  locateAssets?(candidates: readonly PhotoCandidate[]): Promise<Map<string, Coordinate>>;
 }
 
 /**

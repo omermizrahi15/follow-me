@@ -2,7 +2,7 @@ import * as MediaLibrary from 'expo-media-library';
 import * as FileSystem from 'expo-file-system/legacy';
 import { manipulateAsync, SaveFormat } from 'expo-image-manipulator';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
-import type { IMediaLibrary } from '../../domain/interfaces';
+import type { IMediaLibrary, Coordinate } from '../../domain/interfaces';
 import type { ResolvePayload } from '../classifiers/GeminiPhotoClassifier';
 import type { ResolveLocalUri, ResolveAssetLocation } from '../../domain/interfaces';
 import { validCoordinate } from '../../domain/services/coordinate';
@@ -161,6 +161,31 @@ export class ExpoMediaLibrary implements IMediaLibrary {
         return candidate;
       }
     });
+  }
+
+  /**
+   * GPS for the given photos. Metadata only (`shouldDownloadFromNetwork: false`)
+   * and batched, for the same reasons as `describeAssets`; a photo that cannot
+   * be read is just absent from the answer.
+   */
+  async locateAssets(candidates: readonly PhotoCandidate[]): Promise<Map<string, Coordinate>> {
+    const found = await mapInBatches(candidates, DESCRIBE_BATCH_SIZE, async candidate => {
+      try {
+        const info = await MediaLibrary.getAssetInfoAsync(candidate.id, {
+          shouldDownloadFromNetwork: false,
+        });
+        const loc = info.location;
+        return loc != null ? validCoordinate(loc.latitude, loc.longitude) : null;
+      } catch {
+        return null;
+      }
+    });
+    const out = new Map<string, Coordinate>();
+    candidates.forEach((c, i) => {
+      const at = found[i];
+      if (at != null) out.set(c.id, at);
+    });
+    return out;
   }
 
   private async ensurePermission(): Promise<boolean> {
