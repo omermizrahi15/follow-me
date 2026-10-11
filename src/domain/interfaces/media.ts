@@ -64,4 +64,11 @@ export interface IPostGalleryRepository {
 
 export interface IStorageService {
   upload(localUri: string, filename: string): Promise<string>;
+  /**
+   * Does the expensive pre-upload work (decode, downscale, re-encode) for a
+   * photo now, so a later `upload` of the same `localUri` only has to send
+   * bytes. Optional: a store with nothing to precompute omits it. Must never
+   * throw — a failed preparation just means `upload` does the work itself.
+   */
+  prepare?(localUri: string, filename: string): Promise<void>;
 }

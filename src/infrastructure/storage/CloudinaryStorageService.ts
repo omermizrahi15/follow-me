@@ -48,7 +48,17 @@ interface UploadableFile {
   type: string;
 }
 
+/**
+ * Prepared files held for a later upload. Each is a few hundred KB on disk, so
+ * the cap is about disk hygiene: a publisher who toggles through suggestions
+ * must not leave hundreds of JPEGs behind. Oldest goes first.
+ */
+const MAX_PREPARED = 32;
+
 export class CloudinaryStorageService implements IStorageService {
+  /** localUri → its in-flight or finished preparation, oldest first. */
+  private readonly prepared = new Map<string, Promise<UploadableFile>>();
+
   /**
    * `folder` routes uploads into a Cloudinary folder (an allowed unsigned-upload
    * param) so staging builds never mix assets with production — set via
@@ -60,8 +70,24 @@ export class CloudinaryStorageService implements IStorageService {
     private folder?: string,
   ) {}
 
+  async prepare(localUri: string, filename: string): Promise<void> {
+    if (!this.prepared.has(localUri)) {
+      this.prepared.set(localUri, this.prepareFile(localUri, filename));
+      while (this.prepared.size > MAX_PREPARED) {
+        const oldest = this.prepared.keys().next().value as string;
+        this.prepared.delete(oldest);
+      }
+    }
+    // prepareFile falls back instead of rejecting, so this cannot throw.
+    await this.prepared.get(localUri);
+  }
+
   async upload(localUri: string, filename: string): Promise<string> {
-    const file = await this.prepareFile(localUri, filename);
+    // Spent on use: a retry re-reads the original rather than trusting a
+    // temporary file that may have been cleaned up in the meantime.
+    const ahead = this.prepared.get(localUri);
+    this.prepared.delete(localUri);
+    const file = await (ahead ?? this.prepareFile(localUri, filename));
 
     const formData = new FormData();
     formData.append('file', file as unknown as Blob);

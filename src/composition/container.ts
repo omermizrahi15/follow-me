@@ -1,4 +1,5 @@
 import { ShareMediaUseCase } from '../application/usecases/ShareMediaUseCase';
+import { PrepareUploadsUseCase } from '../application/usecases/PrepareUploadsUseCase';
 import { ListFeedUseCase } from '../application/usecases/ListFeedUseCase';
 import { TrashPostingUseCase } from '../application/usecases/TrashPostingUseCase';
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
@@ -223,6 +224,8 @@ export const backfillHistory = monitored(
   ),
 );
 export const scheduleReminder = monitored('schedule_reminder', new ScheduleReminderUseCase(notificationScheduler));
+/** Warms photos for upload while the publisher is still choosing, so Send is just bytes. */
+export const prepareUploads = new PrepareUploadsUseCase(storageService, expoResolveLocalUri);
 export const syncCandidatePhotos = monitored('sync_candidate_photos', new SyncCandidatePhotosUseCase(
   mediaLibrary,
   storageService,
