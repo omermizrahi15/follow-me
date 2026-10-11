@@ -1,4 +1,7 @@
 import { ShareMediaUseCase } from '../application/usecases/ShareMediaUseCase';
+import { PreGradePhotosUseCase } from '../application/usecases/PreGradePhotosUseCase';
+import { GradingCoordinator } from '../application/services/GradingCoordinator';
+import { withLiveGrading } from '../application/services/withLiveGrading';
 import { PrepareUploadsUseCase } from '../application/usecases/PrepareUploadsUseCase';
 import { ListFeedUseCase } from '../application/usecases/ListFeedUseCase';
 import { TrashPostingUseCase } from '../application/usecases/TrashPostingUseCase';
@@ -195,7 +198,21 @@ const suggestPhotosUseCase = new SuggestPhotosUseCase(
   // lives.
   async publisherId => (await profileRepo.findByPublisher(publisherId))?.avatarUrl ?? null,
 );
-export const suggestPhotos = monitored('suggest_photos', suggestPhotosUseCase);
+// The classifier is one shared client with one set of provider limits, so the
+// publisher's own scans take a lease on it and background pre-grading (below)
+// only ever runs in the gaps.
+const gradingCoordinator = new GradingCoordinator();
+export const suggestPhotos = monitored('suggest_photos', withLiveGrading(suggestPhotosUseCase, gradingCoordinator));
+/**
+ * Most photos one background run will grade. Small on purpose: this spends the
+ * publisher's daily AI budget unasked, so it paces itself and leaves the rest
+ * for the scan they actually open. Runs repeat, so a big window still fills in.
+ */
+const PRE_GRADE_MAX_PHOTOS = 40;
+export const preGradePhotos = monitored(
+  'pre_grade_photos',
+  new PreGradePhotosUseCase(suggestPhotosUseCase, gradingCoordinator, PRE_GRADE_MAX_PHOTOS),
+);
 /**
  * Every grade the device remembers, with the reasoning behind it — what the
  * grade inspector reads (dev and staging builds only).

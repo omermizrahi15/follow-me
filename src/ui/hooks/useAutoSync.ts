@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { AppState } from 'react-native';
 import { runCandidateSyncQuietly } from '../data/candidateSync';
+import { runPreGradeQuietly } from '../data/preGrade';
 
 /**
  * Keeps the cloud candidate set fresh for the server posting pipeline: re-syncs
@@ -20,7 +21,14 @@ export function useAutoSync(publisherId: string | null): void {
     // error in the UI — but no longer silent. When this fails the server has
     // nothing to post from and the publisher finds out days later via an empty
     // notification (issue #97). Sentry finds out now.
-    const run = (): void => void runCandidateSyncQuietly(publisherId, 'auto_sync_candidates');
+    //
+    // Grading follows the sync rather than racing it: both decode photos, and
+    // together they are the memory peak that has watchdog-killed this app. It
+    // is what makes the review screen open onto a finished post.
+    const run = (): void =>
+      void runCandidateSyncQuietly(publisherId, 'auto_sync_candidates').then(() =>
+        runPreGradeQuietly(publisherId, 'auto_pre_grade'),
+      );
 
     run();
     const sub = AppState.addEventListener('change', state => {
