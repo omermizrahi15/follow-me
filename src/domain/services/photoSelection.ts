@@ -371,29 +371,28 @@ export function selectBatch<T>(
   const perScene = new Map<string, number>();
   const perCategory = new Map<string, number>();
 
-  // Each pass walks the ranking and relaxes the category spread: if it leaves
-  // the post short — a library that is all one category — keep filling by
-  // score. The scene cap is NOT relaxed. It is the only thing keeping
-  // near-identical frames out of a post, and a pass that dropped it put every
-  // duplicate straight back whenever the post came up short (issue #228). A
-  // short post is the honest answer for a one-scene library; the unused
-  // frames stay in the pool for swaps.
-  const fill = (useCategoryCap: boolean): void => {
+  // Each pass walks the ranking and relaxes one preference. Variety is a
+  // preference, not a quota: if the caps leave the post short — a
+  // single-location day, a library that is all one category — keep filling by
+  // score. Handing back two photos when ten good ones exist is not restraint,
+  // it's a bug the publisher can't diagnose.
+  const fill = (useCategoryCap: boolean, useSceneCap: boolean): void => {
     for (const entry of eligible) {
       if (selected.length >= quota) break;
       if (taken.has(entry.facts.id)) continue;
       const category = entry.facts.category;
       if (useCategoryCap && (perCategory.get(category) ?? 0) >= perCategoryCap) continue;
       const scene = sceneKey(entry.facts);
-      if (scene !== '' && (perScene.get(scene) ?? 0) >= maxPerScene) continue;
+      if (useSceneCap && scene !== '' && (perScene.get(scene) ?? 0) >= maxPerScene) continue;
       perCategory.set(category, (perCategory.get(category) ?? 0) + 1);
       if (scene !== '') perScene.set(scene, (perScene.get(scene) ?? 0) + 1);
       selected.push(entry);
       taken.add(entry.facts.id);
     }
   };
-  fill(true);
-  fill(false);
+  fill(true, true);
+  fill(false, true);
+  fill(false, false);
 
   return selected.map(e => e.item);
 }

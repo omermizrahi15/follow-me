@@ -152,8 +152,10 @@ describe('explainAll', () => {
 
     expect(explained[2]?.blockers).toEqual([]);
     expect(explained[2]?.sceneCapped).toBe(true);
-    // Not in the post: the cap is firm, selectBatch does not backfill past it.
-    expect(explained.filter(e => e.inBatch).map(e => e.facts.id)).toEqual(['p0', 'p1']);
+    // Still in the post: variety is a preference, and selectBatch backfills by
+    // score when the cap leaves it short. The flag says why it was passed over
+    // first, not that it was excluded.
+    expect(explained.filter(e => e.inBatch).map(e => e.facts.id)).toEqual(['p0', 'p1', 'p2']);
   });
 
   it('agrees with selectBatch about which photos are in the post', () => {
