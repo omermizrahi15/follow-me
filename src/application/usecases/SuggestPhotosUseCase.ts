@@ -332,9 +332,9 @@ export class SuggestPhotosUseCase {
       return { batch: [], pool: [], stats: emptyStats(0, 0) };
     }
 
-    // The best photo of each burst first, then the rest — an ordering, not a
-    // filter. Nothing is discarded: a photo the old dedup dropped was
-    // unreachable forever, because the top-up queue applied the same rule.
+    // The best photo of each burst. The other frames are not discarded from the
+    // library: a photo the old dedup dropped was unreachable forever, because the
+    // top-up queue applied the same rule, whereas these stay in that queue.
     //
     // Enriched first, and only for the frames that share a moment: which one of
     // them is the keeper is decided from file density and the publisher's own
@@ -343,7 +343,12 @@ export class SuggestPhotosUseCase {
     // has watchdog-killed this app; buying it for nothing at all left the AI
     // grading the first frame of every burst, which is the one shot while the
     // phone was still coming up.
-    const prioritised = this.selection.gradingOrder(await this.withBurstDetail(candidates));
+    //
+    // And only the keepers are graded: the other frames of a burst are
+    // near-copies, and grading them is what made the scan report "70 photos from
+    // 30 moments" and then keep all 70 (issue #228). They stay reachable through
+    // the "+" (`pendingCandidates` still lists them).
+    const prioritised = this.selection.momentKeepers(await this.withBurstDetail(candidates));
     progress?.onScanned(candidates.length, this.selection.distinctMoments(candidates));
 
     const reference = await this.faceReference(config);
@@ -360,10 +365,9 @@ export class SuggestPhotosUseCase {
     // Same cap for a backfill stretch as for a live scan: the history flow is
     // this pipeline run over a past window, not a cheaper variant of it.
     const limit = this.maxPerScan;
-    // `prioritised` is already leaders-then-followers, each newest-first, so a
-    // run cut short by this cap or by the daily quota spends what it has on
-    // recent, distinct moments — and the burst siblings it skipped are still
-    // reachable, either from a later scan or from the "+".
+    // `prioritised` is newest moment first, so a run cut short by this cap or by
+    // the daily quota spends what it has on recent, distinct moments — and the
+    // burst siblings it never graded are still reachable from the "+".
     const ungraded = prioritised.filter(c => !remembered.has(c.id)).slice(0, limit);
 
     // Cached grades count towards the batch from the very first render, so a

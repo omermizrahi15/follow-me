@@ -235,6 +235,35 @@ describe('SuggestPhotosUseCase', () => {
       expect(classifier.receivedCandidateIds).toHaveLength(40);
     });
 
+    // Issue #228: the scan reported "70 photos from 30 moments" and then graded
+    // all 70, so "duplicates" were found and then kept — and the summary read
+    // "70 of 30 analysed". Only one frame per moment is graded now; the rest
+    // stay reachable through the "+" (pendingCandidates).
+    it('grades one frame per moment, not every frame of a burst', async () => {
+      const day = Date.now() - 3 * 24 * 60 * 60 * 1000;
+      // 10 moments, 3 frames each, a second apart.
+      const candidates: PhotoCandidate[] = Array.from({ length: 30 }, (_, i) => ({
+        id: `p${i}`,
+        uri: `https://cdn.test/p${i}.jpg`,
+        createdAt: new Date(day + Math.floor(i / 3) * 10 * 60_000 + (i % 3) * 1_000),
+      }));
+      const byId = new Map(candidates.map(c => [c.id, { ...classification(c.id), candidate: c }]));
+      const classifier = new FakePhotoClassifier(byId);
+      const useCase = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        classifier,
+        new FakeSentPhotoTracker(),
+      );
+
+      const { pool, batch, stats } = await useCase.execute(config());
+
+      expect(classifier.receivedCandidateIds).toHaveLength(10);
+      expect(batch.length + pool.length).toBe(10);
+      expect(stats.scanned).toBe(30);
+      expect(stats.unique).toBe(10);
+      expect(stats.graded).toBe(10);
+    });
+
     it('stops at the per-scan cap, keeping the newest photos', async () => {
       const { candidates, byId } = window(30);
       const classifier = new FakePhotoClassifier(byId);
