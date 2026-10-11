@@ -117,3 +117,45 @@ describe('selectBatch — category diversity', () => {
     expect(result).toHaveLength(4);
   });
 });
+
+describe('selectBatch — near-duplicates (scene cap)', () => {
+  let n = 0;
+  const photo = (scene: string, quality: number, category = 'view'): PhotoFacts => ({
+    id: `d${n++}`,
+    category,
+    quality,
+    createdAt: n,
+    scene,
+  });
+  const pick = (photos: PhotoFacts[], photosPerPost: number): PhotoFacts[] =>
+    selectBatch(photos, f => f, { enabledCategories: ['view', 'food'], photosPerPost }, new Set());
+  const inScene = (batch: PhotoFacts[], scene: string): number =>
+    batch.filter(p => p.scene === scene).length;
+
+  it('keeps at most two photos of one scene when other scenes can fill the post', () => {
+    const sunset = Array.from({ length: 6 }, () => photo('beach-sunset', 0.9));
+    const others = [photo('old-town', 0.6), photo('market', 0.6), photo('harbour', 0.6)];
+    const result = pick([...sunset, ...others], 5);
+
+    expect(inScene(result, 'beach-sunset')).toBe(2);
+    expect(result).toHaveLength(5);
+  });
+
+  it('does not put the duplicates back when the library is a single scene', () => {
+    const sunset = Array.from({ length: 6 }, () => photo('beach-sunset', 0.9));
+
+    expect(inScene(pick(sunset, 5), 'beach-sunset')).toBe(2);
+  });
+
+  it('compares scene slugs case-insensitively', () => {
+    const result = pick([photo('Beach-Sunset', 0.9), photo('beach-sunset', 0.9), photo(' BEACH-SUNSET ', 0.9)], 3);
+
+    expect(result).toHaveLength(2);
+  });
+
+  it('never caps photos the classifier gave no scene', () => {
+    const result = pick(Array.from({ length: 4 }, () => photo('', 0.9)), 4);
+
+    expect(result).toHaveLength(4);
+  });
+});

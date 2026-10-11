@@ -66,13 +66,14 @@ export interface GradeExplanation<T> {
   /** Whether `selectBatch` would put this photo in the next post. */
   inBatch: boolean;
   /**
-   * Passed over on the first pass because its scene was already full.
+   * Left out because its scene was already full — a near-duplicate of
+   * higher-ranked photos in the post.
    *
    * The only selection rule that is not a property of the photo — it depends on
    * what outranked it — so it cannot be derived from one photo's own numbers,
-   * and a photo dropped by it looks inexplicable without this flag. Note that a
-   * capped photo can still end up in the post: variety is a preference, and
-   * `selectBatch` backfills by score when the cap leaves it short.
+   * and a photo dropped by it looks inexplicable without this flag. The cap is
+   * firm: `selectBatch` does not backfill past it (issue #228), so a capped
+   * photo stays in the pool for swaps instead.
    */
   sceneCapped: boolean;
 }

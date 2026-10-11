@@ -177,7 +177,7 @@ describe('PhotoSelectionService — filtering', () => {
     expect(ids(batch)).toEqual(['fresh']);
   });
 
-  it('caps how many photos may share one scene, then fills by score', () => {
+  it('caps how many photos may share one scene and does not backfill past it', () => {
     const cfg = config({ enabledCategories: ['nature'], photosPerPost: 5 });
     const batch = service.selectBatch(
       [
@@ -188,9 +188,9 @@ describe('PhotoSelectionService — filtering', () => {
       ],
       cfg,
     );
-    // Two beach-sunsets are allowed, the third waits; mountain-view goes ahead
-    // of it. With the quota unmet, 'x' then fills the remaining slot.
-    expect(ids(batch)).toEqual(['a', 'b', 'c', 'x']);
+    // Two beach-sunsets are allowed; the third is a near-duplicate and stays
+    // out even though the quota is unmet (issue #228).
+    expect(ids(batch)).toEqual(['a', 'b', 'c']);
   });
 
   it('caps a scene across categories, not per category', () => {
@@ -207,9 +207,7 @@ describe('PhotoSelectionService — filtering', () => {
       ],
       cfg,
     );
-    expect(ids(batch).slice(0, 3)).toEqual(['a', 'b', 'c']);
-    // The third beach-sunset is deferred past the differently-scened photo.
-    expect(ids(batch).indexOf('x')).toBeGreaterThan(ids(batch).indexOf('c'));
+    expect(ids(batch)).toEqual(['a', 'b', 'c']);
   });
 
   it('prefers the better photo over the higher-priority category', () => {
