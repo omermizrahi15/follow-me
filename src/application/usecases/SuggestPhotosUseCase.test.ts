@@ -421,6 +421,43 @@ describe('SuggestPhotosUseCase', () => {
   });
 });
 
+describe('SuggestPhotosUseCase — scan options (grading ahead of time)', () => {
+  function setup(count: number): { useCase: SuggestPhotosUseCase; classifier: FakePhotoClassifier; saved: PhotoClassification[] } {
+    const candidates = Array.from({ length: count }, (_, i) => candidate(`p${i}`));
+    const byId = new Map(candidates.map(c => [c.id, { ...classification(c.id), candidate: c }]));
+    const classifier = new FakePhotoClassifier(byId);
+    const saved: PhotoClassification[] = [];
+    const store = {
+      load: jest.fn(() => Promise.resolve(new Map<string, PhotoClassification>())),
+      save: jest.fn((cs: readonly PhotoClassification[]) => { saved.push(...cs); return Promise.resolve(); }),
+      loadAll: jest.fn(() => Promise.resolve([])),
+    };
+    const useCase = new SuggestPhotosUseCase(
+      new FakeMediaLibrary(candidates), classifier, new FakeSentPhotoTracker(),
+      undefined, store,
+    );
+    return { useCase, classifier, saved };
+  }
+
+  it('maxGrades caps how many photos one run pays for', async () => {
+    const { useCase, classifier } = setup(40);
+    await useCase.execute(config(), undefined, undefined, { maxGrades: 12 });
+    expect(classifier.receivedCandidateIds).toHaveLength(12);
+  });
+
+  it('shouldStop ends grading early but keeps the grades already bought', async () => {
+    const { useCase, saved } = setup(40);
+    let stop = false;
+    await useCase.execute(
+      config(),
+      { onScanning() {}, onScanned() {}, onClassifying() { stop = true; } },
+      undefined,
+      { shouldStop: () => stop },
+    );
+    expect(saved).toHaveLength(1);
+  });
+});
+
 describe('SuggestPhotosUseCase — topping up an open review (the "+" slot)', () => {
   function useCaseWith(
     library: FakeMediaLibrary,

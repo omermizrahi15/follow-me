@@ -201,3 +201,61 @@ describe('CloudinaryStorageService — decode concurrency', () => {
     expect(urls).toHaveLength(6);
   });
 });
+
+describe('CloudinaryStorageService — prepare ahead of upload', () => {
+  it('upload reuses a photo prepared earlier instead of decoding it again', async () => {
+    const sut = makeSut();
+    await sut.prepare('file:///photo.heic', 'photo.heic');
+    expect(mockManipulate).toHaveBeenCalledTimes(1);
+
+    mockSuccess();
+    await sut.upload('file:///photo.heic', 'photo.heic');
+
+    expect(mockManipulate).toHaveBeenCalledTimes(1);
+    expect(lastFormData.get('file')).toEqual({ uri: 'file:///cache/resized.jpg', name: 'photo.jpg', type: 'image/jpeg' });
+  });
+
+  it('preparing the same photo twice decodes it once', async () => {
+    const sut = makeSut();
+    await Promise.all([
+      sut.prepare('file:///photo.heic', 'photo.heic'),
+      sut.prepare('file:///photo.heic', 'photo.heic'),
+    ]);
+    expect(mockManipulate).toHaveBeenCalledTimes(1);
+  });
+
+  it('an upload that arrives while preparation is still running waits for it', async () => {
+    const sut = makeSut();
+    void sut.prepare('file:///photo.heic', 'photo.heic');
+    mockSuccess();
+    await sut.upload('file:///photo.heic', 'photo.heic');
+    expect(mockManipulate).toHaveBeenCalledTimes(1);
+  });
+
+  it('a prepared photo is spent by its upload — a later upload prepares afresh', async () => {
+    const sut = makeSut();
+    await sut.prepare('file:///photo.heic', 'photo.heic');
+    mockSuccess();
+    await sut.upload('file:///photo.heic', 'photo.heic');
+    mockSuccess();
+    await sut.upload('file:///photo.heic', 'photo.heic');
+    expect(mockManipulate).toHaveBeenCalledTimes(2);
+  });
+
+  it('keeps only a bounded number of prepared photos', async () => {
+    const sut = makeSut();
+    for (let i = 0; i < 40; i++) await sut.prepare(`file:///p${i}.heic`, `p${i}.heic`);
+    expect(mockManipulate).toHaveBeenCalledTimes(40);
+    mockSuccess();
+    await sut.upload('file:///p0.heic', 'p0.heic'); // evicted → prepared again
+    expect(mockManipulate).toHaveBeenCalledTimes(41);
+    mockSuccess();
+    await sut.upload('file:///p39.heic', 'p39.heic'); // still held
+    expect(mockManipulate).toHaveBeenCalledTimes(41);
+  });
+
+  it('prepare never throws, even when the decode fails', async () => {
+    mockManipulate.mockRejectedValueOnce(new Error('decode failed'));
+    await expect(makeSut().prepare('file:///bad.heic', 'bad.heic')).resolves.toBeUndefined();
+  });
+});

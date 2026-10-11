@@ -2,6 +2,7 @@ import * as BackgroundTask from 'expo-background-task';
 import * as TaskManager from 'expo-task-manager';
 import { authService, reportError, reportMessage } from '../../composition/container';
 import { runCandidateSyncQuietly } from './candidateSync';
+import { runPreGradeQuietly } from './preGrade';
 
 /**
  * Periodic candidate-photo sync, run by iOS while the app is closed.
@@ -42,6 +43,11 @@ TaskManager.defineTask(PERIODIC_SYNC_TASK, async () => {
     // Nothing to show the user from a background task, but a failure here is
     // precisely what ends in an empty push — runCandidateSyncQuietly reports it.
     await runCandidateSyncQuietly(publisherId, 'periodic_sync_task');
+    // After the sync, so the window is graded while the phone is idle and
+    // charging rather than while the publisher is waiting on it. Bounded and
+    // resumable: grades are stored as they are bought, so a cut-off run is
+    // continued by the next one.
+    await runPreGradeQuietly(publisherId, 'periodic_pre_grade');
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch (err) {
     reportError(err, 'periodic_sync_task');

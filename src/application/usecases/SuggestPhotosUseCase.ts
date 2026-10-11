@@ -11,6 +11,14 @@ import type {
 import { PhotoSelectionService, isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
 import { windowStartMs } from '../../domain/services/suggestionWindow';
 
+/** Knobs for a scan that is not the publisher's own live one. */
+export interface ScanOptions {
+  /** Checked between photos; true ends grading early, keeping the grades bought so far. */
+  shouldStop?: () => boolean;
+  /** Fewer fresh grades than the use case's default cap, for runs that spend budget unasked. */
+  maxGrades?: number;
+}
+
 export interface SuggestProgress {
   onScanning(): void;
   /**
@@ -318,6 +326,7 @@ export class SuggestPhotosUseCase {
     config: PublisherConfig,
     progress?: SuggestProgress,
     window?: SuggestWindow,
+    options: ScanOptions = {},
   ): Promise<SuggestResult> {
     progress?.onScanning();
 
@@ -364,7 +373,7 @@ export class SuggestPhotosUseCase {
       new Map<string, PhotoClassification>();
     // Same cap for a backfill stretch as for a live scan: the history flow is
     // this pipeline run over a past window, not a cheaper variant of it.
-    const limit = this.maxPerScan;
+    const limit = Math.min(this.maxPerScan, options.maxGrades ?? Infinity);
     // `prioritised` is newest moment first, so a run cut short by this cap or by
     // the daily quota spends what it has on recent, distinct moments — and the
     // burst siblings it never graded are still reachable from the "+".
@@ -409,7 +418,7 @@ export class SuggestPhotosUseCase {
           );
           announceIfReady();
         },
-        undefined,
+        options.shouldStop,
         reference,
       );
     } finally {

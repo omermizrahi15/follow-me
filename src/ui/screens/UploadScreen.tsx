@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   View,
   Text,
@@ -16,6 +16,7 @@ import { coordinatesForPickedAssets } from '../../domain/services/pickedAssetCoo
 import type { Coordinate } from '../../domain/interfaces';
 import { mediaLibraryAssetLocation, resolvePlaceForCoordinates } from '../../composition/container';
 import { pickPhotosFromLibrary } from '../data/photoPicker';
+import { usePrepareUploads } from '../hooks/usePrepareUploads';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { useSubscribers } from '../hooks/useSubscribers';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
@@ -54,6 +55,13 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
    * (issue #145). Re-stamped only when the publisher picks different photos.
    */
   const selectionIdRef = useRef(Date.now().toString(36));
+  // Start preparing the picked photos now; Send then only has to upload them.
+  usePrepareUploads(
+    useMemo(
+      () => pickedAssets.map((a, i) => ({ id: a.assetId ?? `${selectionIdRef.current}-${i}`, uri: a.uri, createdAt: new Date() })),
+      [pickedAssets],
+    ),
+  );
   const [picking, setPicking] = useState(false);
   const [loading, setLoading] = useState(false);
   const [done, setDone] = useState(false);

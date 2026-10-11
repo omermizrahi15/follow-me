@@ -11,6 +11,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { useSuggestedPhotos } from '../hooks/useSuggestedPhotos';
 import { useShareMedia } from '../hooks/useShareMedia';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
+import { usePrepareUploads } from '../hooks/usePrepareUploads';
 import { useReviewSlots } from '../hooks/useReviewSlots';
 import { usePlaceResolution } from '../hooks/usePlaceResolution';
 import { usePlaceSplit } from '../hooks/usePlaceSplit';
@@ -75,6 +76,9 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
     coordinateOf: place.coordinateOf,
   });
   const { kept, showSegment } = slots;
+  // The post is already decided by the time the publisher reads it; get its
+  // photos ready now rather than when they press Send.
+  usePrepareUploads(React.useMemo(() => kept.map(c => c.candidate), [kept]));
 
   /** Move the grid to one place's photos; each leg names itself afresh. */
   const showLeg = useCallback((leg: PlaceSplitSegment | null): void => {
