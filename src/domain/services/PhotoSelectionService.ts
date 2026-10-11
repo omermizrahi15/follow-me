@@ -96,6 +96,27 @@ export class PhotoSelectionService {
    * cheap pass in front of it that decides what grading is spent on.
    */
   gradingOrder(candidates: PhotoCandidate[]): PhotoCandidate[] {
+    const { leaders, followers } = this.leadersAndFollowers(candidates);
+    return [...leaders, ...followers];
+  }
+
+  /**
+   * One photo per moment — the keeper of each burst, newest moment first.
+   *
+   * What a scan actually grades. The other frames of a burst are near-copies of
+   * the keeper, so grading them spent the scarcest resource (AI calls) on
+   * duplicates and then offered them back as separate photos: a scan reported
+   * "70 photos from 30 moments" and graded all 70 (issue #228). They are not
+   * deleted — `gradingOrder` still lists them, so the "+" reaches them.
+   */
+  momentKeepers(candidates: PhotoCandidate[]): PhotoCandidate[] {
+    return this.leadersAndFollowers(candidates).leaders;
+  }
+
+  private leadersAndFollowers(candidates: PhotoCandidate[]): {
+    leaders: PhotoCandidate[];
+    followers: PhotoCandidate[];
+  } {
     const bursts = this.bursts(candidates);
     const leaders: PhotoCandidate[] = [];
     // Kept per burst rather than flattened, so reversing puts the newest MOMENT
@@ -112,7 +133,7 @@ export class PhotoSelectionService {
     }
     leaders.reverse();
     const followers = alsoRans.reverse().flat();
-    return [...leaders, ...followers];
+    return { leaders, followers };
   }
 
   /**
