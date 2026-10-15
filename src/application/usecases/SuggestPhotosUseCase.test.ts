@@ -264,6 +264,34 @@ describe('SuggestPhotosUseCase', () => {
       expect(stats.graded).toBe(10);
     });
 
+    // Issue #232: grading only the keeper meant a moment whose keeper could not
+    // be read (an iCloud original that never arrived) vanished, and a window
+    // where that was the case ended with nothing suggested at all.
+    it('falls back to another frame of a moment whose keeper could not be graded', async () => {
+      const day = Date.now() - 3 * 24 * 60 * 60 * 1000;
+      const candidates: PhotoCandidate[] = Array.from({ length: 30 }, (_, i) => ({
+        id: `p${i}`,
+        uri: `https://cdn.test/p${i}.jpg`,
+        createdAt: new Date(day + Math.floor(i / 3) * 10 * 60_000 + (i % 3) * 1_000),
+      }));
+      // Only the first frame of each moment is readable; the keeper is a later one.
+      const byId = new Map(
+        candidates
+          .filter((_, i) => i % 3 === 0)
+          .map(c => [c.id, { ...classification(c.id), candidate: c }]),
+      );
+      const useCase = new SuggestPhotosUseCase(
+        new FakeMediaLibrary(candidates),
+        new FakePhotoClassifier(byId),
+        new FakeSentPhotoTracker(),
+      );
+
+      const { batch, stats } = await useCase.execute(config());
+
+      expect(batch).toHaveLength(5);
+      expect(stats.graded).toBe(10);
+    });
+
     it('stops at the per-scan cap, keeping the newest photos', async () => {
       const { candidates, byId } = window(30);
       const classifier = new FakePhotoClassifier(byId);
