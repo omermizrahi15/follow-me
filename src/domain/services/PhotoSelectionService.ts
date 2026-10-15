@@ -113,6 +113,18 @@ export class PhotoSelectionService {
     return this.leadersAndFollowers(candidates).leaders;
   }
 
+  /**
+   * The frames of each moment, best first, newest moment first.
+   *
+   * What a scan reaches for when a moment's keeper could not be graded: the
+   * next frame of that moment is a near-copy, so it is a fair stand-in.
+   */
+  momentsBestFirst(candidates: PhotoCandidate[]): PhotoCandidate[][] {
+    return this.bursts(candidates)
+      .map(burst => bestFirst(burst))
+      .reverse();
+  }
+
   private leadersAndFollowers(candidates: PhotoCandidate[]): {
     leaders: PhotoCandidate[];
     followers: PhotoCandidate[];

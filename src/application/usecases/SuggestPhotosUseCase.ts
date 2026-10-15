@@ -421,6 +421,42 @@ export class SuggestPhotosUseCase {
         options.shouldStop,
         reference,
       );
+
+      // A moment whose keeper could not be graded (an unreadable iCloud
+      // original) is lost to a scan that grades keepers only, and a window
+      // where that happens everywhere ends with nothing suggested (issue #232).
+      // Its other frames are near-copies, so grade the next one in the keeper's
+      // place, a round at a time, while budget remains. Never once the
+      // provider has walled us: every further call would hit the same wall.
+      const moments = this.selection.momentsBestFirst(await this.withBurstDetail(candidates));
+      const tried = new Set(ungraded.map(c => c.id));
+      let budget = limit - ungraded.length;
+      while (budget > 0 && !this.walled(options)) {
+        const gradedIds = new Set(accumulated.map(g => g.candidate.id));
+        const standIns = moments
+          .filter(moment => !moment.some(c => gradedIds.has(c.id)))
+          .map(moment => moment.find(c => !tried.has(c.id)))
+          .filter((c): c is PhotoCandidate => c != null)
+          .slice(0, budget);
+        if (standIns.length === 0) break;
+        for (const c of standIns) tried.add(c.id);
+        budget -= standIns.length;
+        await this.classifier.classify(
+          standIns,
+          (result, index, total) => {
+            accumulated.push(result);
+            freshlyGraded.push(result);
+            progress?.onClassifying(
+              index,
+              total,
+              this.selection.selectBatch(accumulated, rules, alreadySent),
+            );
+            announceIfReady();
+          },
+          options.shouldStop,
+          reference,
+        );
+      }
     } finally {
       // Written once at the end rather than per photo: a scan is hundreds of
       // grades, and re-serialising the whole blob each time would cost more
@@ -462,6 +498,16 @@ export class SuggestPhotosUseCase {
         timedOut,
       },
     };
+  }
+
+  /** Whether the run was told to stop or the provider has closed the door. */
+  private walled(options: ScanOptions): boolean {
+    return (
+      options.shouldStop?.() === true ||
+      this.classifier.quotaExhausted?.() === true ||
+      this.classifier.rateLimited?.() === true ||
+      this.classifier.timedOut?.() === true
+    );
   }
 
   /**
