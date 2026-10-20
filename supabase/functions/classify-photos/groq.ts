@@ -94,11 +94,34 @@ export function parseGroqRetrySeconds(body: string): number | null {
 }
 
 export function groqProvider(apiKey: string): VisionProvider {
-  const model = Deno.env.get('GROQ_MODEL') ?? DEFAULT_GROQ_MODEL;
-  return {
+  return openAiCompatibleProvider({
     name: 'groq',
-    model,
+    endpoint: ENDPOINT,
+    apiKey,
+    model: Deno.env.get('GROQ_MODEL') ?? DEFAULT_GROQ_MODEL,
     maxImagesPerCall: MAX_IMAGES_PER_CALL,
+  });
+}
+
+export interface OpenAiCompatibleOptions {
+  name: string;
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  maxImagesPerCall: number;
+}
+
+/**
+ * Any vendor that speaks OpenAI's chat-completions shape with image_url parts
+ * and JSON mode (Groq, Mistral, ...). Adding one is an entry in index.ts, not a
+ * copy of this file.
+ */
+export function openAiCompatibleProvider(opts: OpenAiCompatibleOptions): VisionProvider {
+  const { name, endpoint, apiKey, model } = opts;
+  return {
+    name,
+    model,
+    maxImagesPerCall: opts.maxImagesPerCall,
     enforcesSchema: false,
 
     async classify({ prompt, reference, images }: VisionRequest): Promise<VisionResult> {
@@ -125,7 +148,7 @@ export function groqProvider(apiKey: string): VisionProvider {
 
       let res: Response;
       try {
-        res = await fetch(ENDPOINT, {
+        res = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -145,7 +168,7 @@ export function groqProvider(apiKey: string): VisionProvider {
           limits: null,
           failure: {
             status: 0,
-            body: `groq unreachable: ${String(err)}`,
+            body: `${name} unreachable: ${String(err)}`,
             retryAfterSeconds: null,
             dailyQuota: false,
           },
@@ -157,7 +180,7 @@ export function groqProvider(apiKey: string): VisionProvider {
       // learning the limit only from a 429 means only ever learning it too
       // late, which is how an invented 500-a-day number survived for months as
       // the only figure the app could show.
-      const limits = rateLimitFromHeaders(res.headers, 'groq', model, Date.now());
+      const limits = rateLimitFromHeaders(res.headers, name, model, Date.now());
 
       const text = await res.text().catch(() => '<unreadable body>');
       if (!res.ok) {
@@ -190,7 +213,7 @@ export function groqProvider(apiKey: string): VisionProvider {
         const total = payload.usage?.total_tokens;
         if (typeof total === 'number' && images.length > 0) {
           console.log(
-            `groq usage: ${total} tokens for ${images.length} image(s)` +
+            `${name} usage: ${total} tokens for ${images.length} image(s)` +
               `${reference == null ? '' : ' + reference'}` +
               ` (~${Math.round(total / images.length)}/image)`,
           );
@@ -203,7 +226,7 @@ export function groqProvider(apiKey: string): VisionProvider {
             limits,
             failure: {
               status: res.status,
-              body: `groq returned no message content: ${text.slice(0, 300)}`,
+              body: `${name} returned no message content: ${text.slice(0, 300)}`,
               retryAfterSeconds: null,
               dailyQuota: false,
             },
@@ -216,7 +239,7 @@ export function groqProvider(apiKey: string): VisionProvider {
           limits,
           failure: {
             status: res.status,
-            body: `groq returned unparseable JSON (${String(err)}): ${text.slice(0, 300)}`,
+            body: `${name} returned unparseable JSON (${String(err)}): ${text.slice(0, 300)}`,
             retryAfterSeconds: null,
             dailyQuota: false,
           },

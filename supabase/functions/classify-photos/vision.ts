@@ -261,6 +261,10 @@ export function isProviderExhausted(failure: VisionFailure): boolean {
   // The request itself was refused. Another vendor may well accept it — this is
   // how a payload one provider considers too large still gets graded.
   if (failure.status === 400) return true;
+  // Too large for this provider's per-request ceiling (Groq's 413 when a call
+  // alone exceeds the token-per-minute limit). Callers shrink the call first;
+  // a single photo that still does not fit goes to the next provider (#234).
+  if (failure.status === 413) return true;
   // The model or endpoint no longer exists — a vendor retiring a model answers
   // 404 (or 410). Not a request problem and not going to clear: hand over, or
   // the chain stops at a dead provider and the fallback is never asked (#202).
@@ -280,5 +284,6 @@ export function isProviderExhausted(failure: VisionFailure): boolean {
  * covered for it. Faults are what get recorded and shown.
  */
 export function isProviderFault(failure: VisionFailure): boolean {
-  return isProviderExhausted(failure) && !failure.dailyQuota;
+  // 413 is the request being too big, not the provider being broken.
+  return isProviderExhausted(failure) && !failure.dailyQuota && failure.status !== 413;
 }

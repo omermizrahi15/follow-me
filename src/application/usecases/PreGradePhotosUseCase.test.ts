@@ -40,7 +40,9 @@ describe('PreGradePhotosUseCase', () => {
     });
     const run = new PreGradePhotosUseCase({ execute }, coordinator, 40).execute(config);
     const live = coordinator.beginInteractive();
-    await run;
+    // Cut short by the live scan, not finished: it must not be reported as a
+    // completed run, or the caller rests two hours on work it never did.
+    expect(await run).toBe('busy');
     expect(seenStop?.()).toBe(true);
     (await live)();
   });
