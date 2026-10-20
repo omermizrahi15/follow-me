@@ -59,7 +59,7 @@
  *        e.g. "groq,gemini" — default "groq,gemini")
  *      GEMINI_API_KEY (required for gemini), GEMINI_MODEL (optional,
  *        default gemini-3.5-flash)
- *      GROQ_API_KEY (required for groq), GROQ_MODEL (optional,
+ *      MISTRAL_API_KEY (required for mistral), GROQ_API_KEY (required for groq), GROQ_MODEL (optional,
  *        default qwen/qwen3.8-27b)
  *      SUPABASE_URL + SUPABASE_SERVICE_ROLE_KEY (auto-injected).
  */
@@ -81,6 +81,7 @@ import {
 } from './logic.ts';
 import { geminiProvider } from './gemini.ts';
 import { groqProvider } from './groq.ts';
+import { mistralProvider } from './mistral.ts';
 import {
   isProviderExhausted,
   isProviderFault,
@@ -100,6 +101,7 @@ const GEMINI_API_KEY = Deno.env.get('GEMINI_API_KEY') ?? '';
  */
 const GEMINI_MODEL = Deno.env.get('GEMINI_MODEL') ?? 'gemini-3.5-flash';
 const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY') ?? '';
+const MISTRAL_API_KEY = Deno.env.get('MISTRAL_API_KEY') ?? '';
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
 
@@ -404,6 +406,7 @@ const DEFAULT_UPSTREAM_BUSY_RETRY_SECONDS = 5;
 const PROVIDERS: Record<string, () => VisionProvider | null> = {
   gemini: () => (GEMINI_API_KEY === '' ? null : geminiProvider(GEMINI_API_KEY, GEMINI_MODEL)),
   groq: () => (GROQ_API_KEY === '' ? null : groqProvider(GROQ_API_KEY)),
+  mistral: () => (MISTRAL_API_KEY === '' ? null : mistralProvider(MISTRAL_API_KEY)),
 };
 
 /**
@@ -825,7 +828,7 @@ Deno.serve(async (req: Request) => {
   // Any usable provider will do. This used to demand GEMINI_API_KEY
   // specifically, which 500s a deployment that grades on Groq and has no Gemini
   // key at all — the exact configuration `VISION_PROVIDER` exists to allow.
-  if (!GEMINI_API_KEY && !GROQ_API_KEY) return json({ error: 'Server not configured' }, 500);
+  if (!GEMINI_API_KEY && !GROQ_API_KEY && !MISTRAL_API_KEY) return json({ error: 'Server not configured' }, 500);
 
   // The anon key alone is not enough — a signed-in user must be behind the call.
   const userId = await authenticatedUserId(req);

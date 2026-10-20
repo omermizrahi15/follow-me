@@ -555,7 +555,7 @@ export function quotaSnapshot(count: unknown, limit: number | null, day: string)
 /**
  * The vision providers to try, in order, from the `VISION_PROVIDER` secret.
  *
- * The default is `groq,gemini`, and it used to be `gemini` alone. Gemini's free
+ * The default is `mistral,groq,gemini` (a provider with no key is skipped), and it used to be `gemini` alone. Gemini's free
  * tier is not a tier any more: 2.0/2.5-flash are set to `limit: 0`, and
  * 3.5-flash — the one live model with a free allowance — allows twenty requests
  * a DAY. Twelve photos travel per request, so a day's entire budget is 240
@@ -574,7 +574,7 @@ export function requestedProviders(raw: string | undefined | null): string[] {
     .split(',')
     .map(name => name.trim().toLowerCase())
     .filter(name => name !== '');
-  return names.length > 0 ? names : ['groq', 'gemini'];
+  return names.length > 0 ? names : ['mistral', 'groq', 'gemini'];
 }
 
 /**
