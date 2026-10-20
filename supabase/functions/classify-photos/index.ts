@@ -501,13 +501,13 @@ async function gradeWithProvider(
 }> {
   // The reference rides in every call and counts against the provider's image
   // budget, so it is subtracted once here rather than remembered in each one.
-  const perCall = Math.max(1, provider.maxImagesPerCall - (reference == null ? 0 : 1));
+  let perCall = Math.max(1, provider.maxImagesPerCall - (reference == null ? 0 : 1));
   const classifications: Classification[] = [];
   // Overwritten by each call, so this ends up holding the most recent reading —
   // which is the only one worth keeping: a limit is a current fact.
   let limits: ProviderLimits | null = null;
 
-  for (let offset = 0; offset < photos.length; offset += perCall) {
+  for (let offset = 0; offset < photos.length;) {
     const slice = photos.slice(offset, offset + perCall);
 
     // What the previous call in this loop reported. Tokens are what bounds this
@@ -541,6 +541,13 @@ async function gradeWithProvider(
 
     const result = await provider.classify({ prompt, reference, images, responseSchema: schema });
     if (result.limits != null) limits = result.limits;
+    if (!result.ok && result.failure.status === 413 && perCall > 1) {
+      // The call alone exceeded the provider's per-request ceiling (issue #234).
+      // Halve it and retry the same photos rather than burning the fallback.
+      perCall = Math.max(1, Math.floor(perCall / 2));
+      console.warn(`classify: ${provider.name} 413, retrying with ${perCall} photo(s) per call`);
+      continue;
+    }
     if (!result.ok) {
       // Everything from this slice on is still ungraded. Handing it back whole
       // is what lets a fallback grade only the remainder instead of paying for
@@ -555,6 +562,7 @@ async function gradeWithProvider(
     for (const { id, parsed } of paired) {
       classifications.push(parseClassification(id, parsed, reference != null));
     }
+    offset += slice.length;
   }
 
   return { classifications, ungraded: [], failure: null, limits };

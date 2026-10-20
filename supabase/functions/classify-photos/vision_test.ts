@@ -117,6 +117,14 @@ Deno.test('isProviderFault — separates a broken provider from a spent or busy 
   assertEquals(isProviderFault(failure({ status: 429, retryAfterSeconds: 20 })), false);
 });
 
+Deno.test('isProviderExhausted — an oversize request hands over, but is not a fault (issue #234)', () => {
+  // Groq answers 413 when one request alone exceeds its per-minute token limit.
+  // A single photo that still does not fit is for another vendor to try; it says
+  // nothing about Groq being broken, so it must not be recorded as a fault.
+  assert(isProviderExhausted(failure({ status: 413 })));
+  assertEquals(isProviderFault(failure({ status: 413 })), false);
+});
+
 Deno.test('isProviderExhausted — anything unrecognised stays put', () => {
   // Falling through on everything would make the fallback the main road by
   // accident, quietly draining the provider being held in reserve.
