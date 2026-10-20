@@ -3,7 +3,7 @@ import type { GradingCoordinator } from '../services/GradingCoordinator';
 import type { ScanOptions, SuggestProgress, SuggestResult, SuggestWindow } from './SuggestPhotosUseCase';
 
 export type PreGradeOutcome =
-  /** A live scan (or another background run) holds the classifier — nothing was started. */
+  /** A live scan (or another background run) held the classifier — nothing started, or the run was cut short. */
   | 'busy'
   /** Ran to the end of its budget or the window. */
   | 'done'
@@ -52,6 +52,8 @@ export class PreGradePhotosUseCase {
         shouldStop: () => slot.shouldStop(),
         maxGrades: this.maxGrades,
       });
+      // A live scan took over mid-run: the work was cut off, not done.
+      if (slot.shouldStop()) return 'busy';
       return stats.quotaExhausted || stats.rateLimited || stats.timedOut ? 'walled' : 'done';
     } finally {
       slot.end();
