@@ -36,6 +36,7 @@ import {
 } from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { buildPostTemplate } from '../_shared/postTemplate.ts';
 import { logAcceptedSend, logRejectedSend } from '../_shared/messageLog.ts';
+import { siteUrls } from '../../../src/domain/services/siteUrls.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -47,7 +48,7 @@ const TWILIO = credsFromEnv(Deno.env);
 const KEEPALIVE_PUBLISHER_ID = 'keepalive';
 
 /** Stable, public assets — the template needs a link and a header image. */
-const KEEPALIVE_LINK = 'https://omermizrahi15.github.io/follow-me/join/';
+const KEEPALIVE_LINK = siteUrls(Deno.env.get('SITE_BASE_URL')).join;
 const KEEPALIVE_IMAGE =
   'https://res.cloudinary.com/dixi8doyx/image/upload/v1786256372/branding/whatsapp-profile-logo.png';
 
