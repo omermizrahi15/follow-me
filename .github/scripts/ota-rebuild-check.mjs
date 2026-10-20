@@ -203,6 +203,8 @@ const buildUrl = (b) => {
 // one bit per module. Encoding it here keeps that page free of any QR library,
 // and a fragment is never sent to a server.
 const INSTALL_PAGE = (() => {
+  // SITE_BASE_URL (custom domain) wins; otherwise the repo's GitHub Pages site.
+  if (process.env.SITE_BASE_URL) return `${process.env.SITE_BASE_URL.replace(/\/+$/, '')}/install/`;
   const [owner, repo] = (process.env.GITHUB_REPOSITORY ?? 'omermizrahi15/follow-me').split('/');
   return `https://${owner}.github.io/${repo}/install/`;
 })();
