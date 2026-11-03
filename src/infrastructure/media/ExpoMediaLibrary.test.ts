@@ -62,14 +62,14 @@ describe('expoResolvePayload', () => {
 
     expect(mockManipulate).toHaveBeenCalledWith(
       'file:///photos/a.jpg',
-      [{ resize: { width: 1024 } }],
+      [{ resize: { width: 768 } }],
       expect.objectContaining({ base64: true, format: 'jpeg' }),
     );
     expect(payload).toEqual({ id: 'asset-1', base64: 'c21hbGw=', mimeType: 'image/jpeg' });
   });
 
   it('does not resize a photo that is already small enough', async (): Promise<void> => {
-    setImageWidth(800);
+    setImageWidth(700);
 
     await expoResolvePayload(candidate);
 

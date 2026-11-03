@@ -117,18 +117,25 @@ export function parseDurationSeconds(raw: string | null | undefined): number | n
 
 /** One `x-ratelimit-*` triplet, or null when the provider named no such limit. */
 function limitWindow(headers: Headers, unit: 'requests' | 'tokens'): LimitWindow | null {
-  const limit = Number(headers.get(`x-ratelimit-limit-${unit}`));
-  const remaining = Number(headers.get(`x-ratelimit-remaining-${unit}`));
-  if (!Number.isFinite(limit) || !Number.isFinite(remaining)) return null;
-  // An absent header reads as 0 through Number(), which is a real value here —
-  // so require the header to actually exist rather than trusting the coercion.
-  if (headers.get(`x-ratelimit-limit-${unit}`) == null) return null;
-  if (headers.get(`x-ratelimit-remaining-${unit}`) == null) return null;
-  return {
-    limit,
-    remaining,
-    resetSeconds: parseDurationSeconds(headers.get(`x-ratelimit-reset-${unit}`)),
-  };
+  // Groq/OpenAI name the unit (`-requests`, `-tokens`); Mistral names the unit
+  // and the window (`-req-minute`, `-tokens-minute`).
+  const suffixes = unit === 'requests' ? ['requests', 'req-minute'] : ['tokens', 'tokens-minute'];
+  for (const suffix of suffixes) {
+    const rawLimit = headers.get(`x-ratelimit-limit-${suffix}`);
+    const rawRemaining = headers.get(`x-ratelimit-remaining-${suffix}`);
+    // An absent header reads as 0 through Number(), which is a real value here —
+    // so require the header to actually exist rather than trusting the coercion.
+    if (rawLimit == null || rawRemaining == null) continue;
+    const limit = Number(rawLimit);
+    const remaining = Number(rawRemaining);
+    if (!Number.isFinite(limit) || !Number.isFinite(remaining)) continue;
+    return {
+      limit,
+      remaining,
+      resetSeconds: parseDurationSeconds(headers.get(`x-ratelimit-reset-${suffix}`)),
+    };
+  }
+  return null;
 }
 
 /**
@@ -261,6 +268,10 @@ export function isProviderExhausted(failure: VisionFailure): boolean {
   // The request itself was refused. Another vendor may well accept it — this is
   // how a payload one provider considers too large still gets graded.
   if (failure.status === 400) return true;
+  // Too large for this provider's per-request ceiling (Groq's 413 when a call
+  // alone exceeds the token-per-minute limit). Callers shrink the call first;
+  // a single photo that still does not fit goes to the next provider (#234).
+  if (failure.status === 413) return true;
   // The model or endpoint no longer exists — a vendor retiring a model answers
   // 404 (or 410). Not a request problem and not going to clear: hand over, or
   // the chain stops at a dead provider and the fallback is never asked (#202).
@@ -280,5 +291,6 @@ export function isProviderExhausted(failure: VisionFailure): boolean {
  * covered for it. Faults are what get recorded and shown.
  */
 export function isProviderFault(failure: VisionFailure): boolean {
-  return isProviderExhausted(failure) && !failure.dailyQuota;
+  // 413 is the request being too big, not the provider being broken.
+  return isProviderExhausted(failure) && !failure.dailyQuota && failure.status !== 413;
 }

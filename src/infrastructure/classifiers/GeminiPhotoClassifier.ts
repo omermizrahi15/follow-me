@@ -36,6 +36,29 @@ const defaultResolve: ResolvePayload = candidate =>
  * every remaining photo would fail the same way. It aborts the scan rather
  * than letting a half-graded window be presented as a finished post.
  */
+/**
+ * Turns a classify-photos error response into a message that leads with the
+ * cause. The raw JSON body used to be the message, so Sentry's truncated title
+ * cut off before the reason (issue #234).
+ */
+export function describeClassifyFailure(status: number, body: string): string {
+  let reason = body.trim();
+  let photo = '';
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown; detail?: unknown; photo_id?: unknown };
+    const detail = typeof parsed.detail === 'string' ? parsed.detail : '';
+    const error = typeof parsed.error === 'string' ? parsed.error : '';
+    reason = detail !== '' ? detail : error !== '' ? error : reason;
+    if (typeof parsed.photo_id === 'string') photo = ` [photo ${parsed.photo_id}]`;
+  } catch {
+    // Not JSON — keep the raw text.
+  }
+  // Groq/Gemini wrap their own JSON in `detail`; surface its message, not the braces.
+  const inner = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(reason);
+  if (inner != null) reason = reason.slice(0, reason.indexOf('{')).trim() + ' ' + (inner[1] ?? '').replace(/\\"/g, '"');
+  return `Photo AI failed (HTTP ${status}): ${reason.trim()}${photo}`;
+}
+
 export class ClassificationFailedError extends Error {
   constructor(
     readonly candidateId: string,
@@ -601,7 +624,7 @@ export class GeminiPhotoClassifier implements IPhotoClassifier {
       }
 
       if (!res.ok) {
-        const detail = `classify-photos returned ${res.status}: ${await res.text().catch(() => '<unreadable body>')}`;
+        const detail = describeClassifyFailure(res.status, await res.text().catch(() => '<unreadable body>'));
         // A 5xx is usually one bad moment on the function, not a verdict on
         // this request — retry once like a dropped connection (issue #202).
         if (res.status >= 500 && networkAttempts < GeminiPhotoClassifier.MAX_ATTEMPTS) {

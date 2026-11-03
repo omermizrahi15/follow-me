@@ -418,10 +418,10 @@ Deno.test('parseClassification — a rambling reason is trimmed to a readable le
 // requests a DAY on the only model whose free tier is not zeroed out, which is
 // not enough to grade a single window — let alone a history backfill, which
 // walks one window per posting interval and hit that wall on its first stretch.
-Deno.test('requestedProviders defaults to groq with gemini behind it', () => {
-  assertEquals(requestedProviders(undefined), ['groq', 'gemini']);
-  assertEquals(requestedProviders(''), ['groq', 'gemini']);
-  assertEquals(requestedProviders('   '), ['groq', 'gemini']);
+Deno.test('requestedProviders defaults to mistral, then groq, with gemini behind', () => {
+  assertEquals(requestedProviders(undefined), ['mistral', 'groq', 'gemini']);
+  assertEquals(requestedProviders(''), ['mistral', 'groq', 'gemini']);
+  assertEquals(requestedProviders('   '), ['mistral', 'groq', 'gemini']);
 });
 
 Deno.test('requestedProviders reads an explicit chain in order', () => {
