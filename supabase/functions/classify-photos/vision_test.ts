@@ -265,3 +265,17 @@ Deno.test('geminiQuotaLimits — anything that is not a quota refusal says nothi
   assertEquals(geminiQuotaLimits('not json', 'm', 1), null);
   assertEquals(geminiQuotaLimits(JSON.stringify({ error: { code: 500 } }), 'm', 1), null);
 });
+
+Deno.test('rateLimitFromHeaders — reads Mistral\'s per-minute header names', () => {
+  const headers = new Headers({
+    'x-ratelimit-limit-tokens-minute': '937500',
+    'x-ratelimit-remaining-tokens-minute': '937495',
+    'x-ratelimit-limit-req-minute': '30',
+    'x-ratelimit-remaining-req-minute': '29',
+  });
+  const limits = rateLimitFromHeaders(headers, 'mistral', 'ministral-14b-latest', 0);
+  assertEquals(limits?.tokens?.limit, 937500);
+  assertEquals(limits?.tokens?.remaining, 937495);
+  assertEquals(limits?.requests?.limit, 30);
+  assertEquals(limits?.requests?.remaining, 29);
+});

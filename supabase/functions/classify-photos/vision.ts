@@ -117,18 +117,25 @@ export function parseDurationSeconds(raw: string | null | undefined): number | n
 
 /** One `x-ratelimit-*` triplet, or null when the provider named no such limit. */
 function limitWindow(headers: Headers, unit: 'requests' | 'tokens'): LimitWindow | null {
-  const limit = Number(headers.get(`x-ratelimit-limit-${unit}`));
-  const remaining = Number(headers.get(`x-ratelimit-remaining-${unit}`));
-  if (!Number.isFinite(limit) || !Number.isFinite(remaining)) return null;
-  // An absent header reads as 0 through Number(), which is a real value here —
-  // so require the header to actually exist rather than trusting the coercion.
-  if (headers.get(`x-ratelimit-limit-${unit}`) == null) return null;
-  if (headers.get(`x-ratelimit-remaining-${unit}`) == null) return null;
-  return {
-    limit,
-    remaining,
-    resetSeconds: parseDurationSeconds(headers.get(`x-ratelimit-reset-${unit}`)),
-  };
+  // Groq/OpenAI name the unit (`-requests`, `-tokens`); Mistral names the unit
+  // and the window (`-req-minute`, `-tokens-minute`).
+  const suffixes = unit === 'requests' ? ['requests', 'req-minute'] : ['tokens', 'tokens-minute'];
+  for (const suffix of suffixes) {
+    const rawLimit = headers.get(`x-ratelimit-limit-${suffix}`);
+    const rawRemaining = headers.get(`x-ratelimit-remaining-${suffix}`);
+    // An absent header reads as 0 through Number(), which is a real value here —
+    // so require the header to actually exist rather than trusting the coercion.
+    if (rawLimit == null || rawRemaining == null) continue;
+    const limit = Number(rawLimit);
+    const remaining = Number(rawRemaining);
+    if (!Number.isFinite(limit) || !Number.isFinite(remaining)) continue;
+    return {
+      limit,
+      remaining,
+      resetSeconds: parseDurationSeconds(headers.get(`x-ratelimit-reset-${suffix}`)),
+    };
+  }
+  return null;
 }
 
 /**
