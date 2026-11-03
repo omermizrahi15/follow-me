@@ -21,6 +21,12 @@ set -euo pipefail
 # silently kept their old bundles was a race the server-side bundler doesn't have.
 USE_API=--use-api
 
+# Newer CLIs ask "Deploy N Function(s)?" and exit 1 when stdout is not a
+# terminal, which is every CI run: the 2026-11-03 classify-photos deploy failed
+# this way with nothing changed. --yes answers the prompt; this script is already
+# the explicit, reviewed deploy step.
+CONFIRM=--yes
+
 REF="${1:?usage: deploy-functions.sh <project-ref> [function...]}"
 shift || true
 
@@ -43,10 +49,10 @@ for fn in "$@"; do
   fi
   if [[ "$NO_JWT" == *" $fn "* ]]; then
     echo "→ $fn (no-verify-jwt)"
-    supabase functions deploy "$fn" --project-ref "$REF" $USE_API --no-verify-jwt
+    supabase functions deploy "$fn" --project-ref "$REF" $USE_API $CONFIRM --no-verify-jwt
   else
     echo "→ $fn (verify-jwt)"
-    supabase functions deploy "$fn" --project-ref "$REF" $USE_API
+    supabase functions deploy "$fn" --project-ref "$REF" $USE_API $CONFIRM
   fi
 done
 
