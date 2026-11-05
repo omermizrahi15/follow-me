@@ -16,8 +16,8 @@ const VARIANTS = {
     bundleIdentifier: 'com.urishiber.followme.staging',
     scheme: 'followmestaging',
   },
-  // PR preview development build: a dev client that loads each PR's EAS Update
-  // by QR (see .github/workflows/pr-preview.yml). Own bundle id so it sits beside
+  // PR preview build: a regular build on the "pr" channel that runs the latest PR
+  // EAS Update (see .github/workflows/pr-preview.yml). Own bundle id so it sits beside
   // the staging and production apps, and talks to the staging backend.
   pr: {
     name: 'Follow Me (PR)',

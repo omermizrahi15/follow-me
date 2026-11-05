@@ -1,35 +1,21 @@
-// Link + comment rendering for the PR preview workflow, kept apart from the YAML
-// so the shapes can be tested without publishing an update. CommonJS on purpose,
-// like otaBuildOutcome.js: jest requires it directly.
+// Comment rendering for the PR preview workflow, kept apart from the YAML so it
+// can be tested without publishing an update. CommonJS on purpose, like
+// otaBuildOutcome.js: jest requires it directly.
 
 // Hidden marker the workflow searches for, so a new push edits the existing
 // comment instead of stacking one per commit.
 const MARKER = '<!-- pr-preview -->';
 
-const previewLinks = ({ projectId, groupId, slug = 'follow-me' }) => {
-  const updateUrl = `https://u.expo.dev/${projectId}/group/${groupId}`;
-  // `exp+<slug>://expo-development-client/?url=…` is the scheme a development
-  // build registers; it fetches that update group and runs it in place.
-  const deepLink = `exp+${slug}://expo-development-client/?url=${encodeURIComponent(updateUrl)}`;
-  return {
-    deepLink,
-    dashboardUrl: `https://expo.dev/projects/${projectId}/updates/${groupId}`,
-    qrUrl: `https://api.qrserver.com/v1/create-qr-code/?size=240x240&data=${encodeURIComponent(deepLink)}`,
-  };
-};
-
-const renderComment = ({ prNumber, sha, links, runtimeVersion }) =>
+const renderComment = ({ prNumber, sha, runtimeVersion }) =>
   [
     MARKER,
-    `### 📱 Preview PR #${prNumber} on your phone`,
+    `### 📱 PR #${prNumber} is live in Follow Me (PR)`,
     '',
-    `![QR](${links.qrUrl})`,
+    'Open the **Follow Me (PR)** app on your phone. It fetches this update on launch, so force-quit and reopen it once if you do not see the change yet — the same way staging picks up merges.',
     '',
-    `Scan with the Camera app, or [tap to open](${links.deepLink}) from your phone.`,
+    `Commit \`${sha.slice(0, 7)}\` · runtime \`${runtimeVersion}\``,
     '',
-    `Commit \`${sha.slice(0, 7)}\` · runtime \`${runtimeVersion}\` · [update on Expo](${links.dashboardUrl})`,
-    '',
-    '<sub>Needs the **Follow Me (PR)** build installed once (see CONTRIBUTING → "Previewing a PR on your phone"). It talks to the staging backend.</sub>',
+    '<sub>The app always runs the **most recently published** PR, so with several PRs open the last push wins (re-run the "PR preview" workflow with a PR number to switch back). It uses the staging backend. If this PR changes native code or dependencies, the installed build will not accept it and needs a rebuild — see CONTRIBUTING → "Previewing a PR on your phone".</sub>',
   ].join('\n');
 
-module.exports = { MARKER, previewLinks, renderComment };
+module.exports = { MARKER, renderComment };
