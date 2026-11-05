@@ -23,6 +23,7 @@ import {
   publisherWeight,
   scoreOf,
   selectBatch,
+  spreadQuality,
   type PhotoFacts,
   type SelectionRules,
 } from './photoSelection';
@@ -40,7 +41,7 @@ export interface ScoreFactor {
 
 /** A rule that took the photo out of the running entirely. */
 export interface Blocker {
-  key: 'category-off' | 'below-min-quality' | 'not-publisher' | 'already-sent';
+  key: 'category-off' | 'below-min-quality' | 'not-publisher' | 'already-sent' | 'before-last-post';
   label: string;
   detail: string;
 }
@@ -129,6 +130,15 @@ function blockersFor(
     }];
   }
 
+  // Same: outside the window the post draws from, so never ranked at all.
+  if (rules.notBefore != null && facts.createdAt < rules.notBefore) {
+    return [{
+      key: 'before-last-post',
+      label: 'Before your last post',
+      detail: 'Taken before your last post, so it is never offered again',
+    }];
+  }
+
   if (categoryWeight(facts.category, rules.enabledCategories) === 0) {
     blockers.push({
       key: 'category-off',
@@ -169,10 +179,11 @@ export function explainGrade<T>(
   rules: SelectionRules,
   alreadySent: ReadonlySet<string>,
   facts?: (item: T) => PhotoFacts,
+  spread?: ReadonlyMap<number, number>,
 ): GradeExplanation<T> {
   const f = facts == null ? (item as unknown as PhotoFacts) : facts(item);
   const factors: ScoreFactor[] = [
-    { key: 'quality', label: 'Quality', value: f.quality, detail: FACTOR_DETAIL },
+    { key: 'quality', label: 'Quality', value: spread?.get(f.quality) ?? f.quality, detail: FACTOR_DETAIL },
     categoryFactor(f, rules),
   ];
   const publisher = publisherFactor(f, rules);
@@ -182,7 +193,7 @@ export function explainGrade<T>(
     item,
     facts: f,
     // The real thing, not a re-derivation: whatever `scoreOf` says is the score.
-    score: scoreOf(f, rules),
+    score: scoreOf(f, rules, spread),
     factors,
     blockers: blockersFor(f, rules, alreadySent),
     rank: 0,
@@ -204,8 +215,16 @@ export function explainAll<T>(
   rules: SelectionRules,
   alreadySent: ReadonlySet<string>,
 ): GradeExplanation<T>[] {
+  // Spread over the photos the post would actually rank — not sent, not before
+  // the window — because that is the set `selectBatch` spreads over. Scoring on
+  // raw quality here made the screen rank by a different number than the post.
+  const inPlay = items
+    .map(facts)
+    .filter(f => !alreadySent.has(f.id) && (rules.notBefore == null || f.createdAt >= rules.notBefore));
+  const spread = spreadQuality(inPlay.map(f => f.quality));
+
   const explained = items
-    .map(item => explainGrade(item, rules, alreadySent, facts))
+    .map(item => explainGrade(item, rules, alreadySent, facts, spread))
     .sort((a, b) => {
       if (b.score !== a.score) return b.score - a.score;
       if (b.facts.createdAt !== a.facts.createdAt) return b.facts.createdAt - a.facts.createdAt;

@@ -25,6 +25,7 @@ import {
   type PhotosOfMeMode,
 } from '../../../src/domain/services/photoSelection.ts';
 import { isAutoPostDue } from '../../../src/domain/services/autoPostSchedule.ts';
+import { windowStartMs } from '../../../src/domain/services/suggestionWindow.ts';
 import { credsFromEnv } from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { postingIdFor, publishBatch } from '../_shared/publishBatch.ts';
 import { galleryUrls, saveApprovalBatch } from '../_shared/approvalBatch.ts';
@@ -127,6 +128,29 @@ function parseDate(value: string | null): Date | null {
 
 async function updateConfig(publisherId: string, patch: Record<string, string | null>): Promise<void> {
   await supabase.from('publisher_config').update(patch).eq('publisher_id', publisherId);
+}
+
+/**
+ * Where this publisher's next post starts looking: after their last post, by
+ * any route — a manual one counts. The configured lookback is only the fallback
+ * for someone who has never posted, and the same clamp as the app applies, so
+ * the server and the phone offer the same stretch of photos.
+ */
+async function candidateCutoff(config: ConfigRow, now: Date): Promise<string> {
+  const { data } = await supabase
+    .from('media')
+    .select('created_at')
+    .eq('owner_id', config.publisher_id)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  const newest = (data as { created_at: string }[] | null)?.[0]?.created_at;
+  return new Date(
+    windowStartMs({
+      now: now.getTime(),
+      lookbackDays: config.lookback_days,
+      newestPostedPhotoAt: newest != null ? Date.parse(newest) : null,
+    }),
+  ).toISOString();
 }
 
 /** Whether the publisher published anything (by any route) since the given moment. */
@@ -646,7 +670,7 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
     return 'skipped (no push token)';
   }
 
-  const cutoff = new Date(now.getTime() - config.lookback_days * MS_PER_DAY).toISOString();
+  const cutoff = await candidateCutoff(config, now);
   const { data: candidates } = await supabase
     .from('candidate_photos')
     .select(CANDIDATE_COLUMNS)
@@ -768,7 +792,7 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
   // See processApprovalPublisher: a pending slot outlives the due window.
   if (!due && !(await pendingSlotStillOpen(config, now))) return 'not-due';
 
-  const cutoff = new Date(now.getTime() - config.lookback_days * MS_PER_DAY).toISOString();
+  const cutoff = await candidateCutoff(config, now);
   const { data: candidates } = await supabase
     .from('candidate_photos')
     .select(CANDIDATE_COLUMNS)

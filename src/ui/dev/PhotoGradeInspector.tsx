@@ -14,7 +14,7 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
 import type { GradeExplanation } from '../../domain/services/gradeExplanation';
 import { showDevTools } from '../data/devTools';
-import { useGradeInspection } from '../hooks/useGradeInspection';
+import { useGradeInspection, type GradeInspection } from '../hooks/useGradeInspection';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 /**
@@ -73,7 +73,12 @@ export function PhotoGradeInspector({
       </View>
 
       <Summary inspection={inspection} />
-      <Filters current={filter} onChange={setFilter} />
+      {inspection.data != null && (
+        <Text style={styles.windowNote} testID="grade-inspector-window">
+          Next post draws from photos taken after {inspection.data.windowStart.toLocaleString()}
+        </Text>
+      )}
+      <Filters current={filter} onChange={setFilter} counts={inspection.data?.summary} />
 
       {inspection.loading && photos.length === 0 ? (
         <ActivityIndicator style={styles.loading} color={colors.accent} />
@@ -144,6 +149,13 @@ function matches(photo: GradeExplanation<PhotoClassification>, filter: Filter): 
   return true;
 }
 
+/** The same numbers the summary shows, so a chip and its list can never disagree. */
+function countFor(summary: GradeInspection['summary'], filter: Filter): number {
+  if (filter === 'in-post') return summary.inBatch;
+  if (filter === 'blocked') return summary.blocked;
+  return summary.graded;
+}
+
 const FILTERS: { key: Filter; label: string }[] = [
   { key: 'all', label: 'All' },
   { key: 'in-post', label: 'In next post' },
@@ -153,9 +165,11 @@ const FILTERS: { key: Filter; label: string }[] = [
 function Filters({
   current,
   onChange,
+  counts,
 }: {
   current: Filter;
   onChange: (f: Filter) => void;
+  counts: GradeInspection['summary'] | undefined;
 }): React.JSX.Element {
   return (
     <View style={styles.filters}>
@@ -166,7 +180,9 @@ function Filters({
           onPress={() => onChange(f.key)}
           style={[styles.chip, current === f.key && styles.chipOn]}
         >
-          <Text style={[styles.chipText, current === f.key && styles.chipTextOn]}>{f.label}</Text>
+          <Text style={[styles.chipText, current === f.key && styles.chipTextOn]}>
+            {counts == null ? f.label : `${f.label} (${countFor(counts, f.key)})`}
+          </Text>
         </TouchableOpacity>
       ))}
     </View>
@@ -185,7 +201,7 @@ function Summary({
       <Stat label="Graded" value={String(s.graded)} />
       <Stat label="Eligible" value={String(s.eligible)} />
       <Stat label="Excluded" value={String(s.blocked)} />
-      <Stat label="In post" value={String(s.inBatch)} />
+      <Stat label="In next post" value={String(s.inBatch)} />
       <Stat label="Avg quality" value={s.averageQuality.toFixed(2)} />
     </View>
   );
@@ -364,6 +380,7 @@ const styles = StyleSheet.create({
   stat: { alignItems: 'center', flex: 1 },
   statValue: { ...typography.body, fontSize: 16, fontWeight: '700', color: colors.text },
   statLabel: { ...typography.caption, fontSize: 11, color: colors.textMuted },
+  windowNote: { ...typography.caption, color: colors.textMuted, paddingHorizontal: spacing.lg },
   filters: { flexDirection: 'row', gap: spacing.sm, padding: spacing.lg, paddingBottom: spacing.md },
   chip: {
     paddingHorizontal: spacing.md,
