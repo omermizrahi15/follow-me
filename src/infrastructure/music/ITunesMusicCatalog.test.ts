@@ -25,6 +25,13 @@ describe('ITunesMusicCatalog', () => {
     ]);
   });
 
+  it('keeps the 30-second preview url when the catalog has one', async () => {
+    respond([{ trackName: 'Vienna', artistName: 'Billy Joel', previewUrl: 'https://x/vienna.m4a' }]);
+    expect(await new ITunesMusicCatalog().searchSongs('vienna')).toEqual([
+      { title: 'Vienna', artist: 'Billy Joel', previewUrl: 'https://x/vienna.m4a' },
+    ]);
+  });
+
   it('skips results without a title or artist', async () => {
     respond([{ trackName: 'No Artist' }, { artistName: 'No Title' }]);
     expect(await new ITunesMusicCatalog().searchSongs('x')).toEqual([]);

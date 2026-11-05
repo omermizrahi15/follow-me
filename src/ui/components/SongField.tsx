@@ -5,6 +5,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import type { Song } from '../../domain/entities/Song';
+import { useSongPreview } from '../hooks/useSongPreview';
 import { useSongSearch } from '../hooks/useSongSearch';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -72,6 +73,8 @@ function SearchSheet({ onSelect, onClose }: { onSelect: (s: Song) => void; onClo
 /** The composer's optional "Add music" row; opens a song search sheet. */
 export function SongField({ song, onChange, testID }: Props): React.JSX.Element {
   const [open, setOpen] = useState(false);
+  // Quiet while the search sheet is up so the old clip doesn't talk over browsing.
+  useSongPreview(song?.previewUrl, !open);
   return (
     <>
       <TouchableOpacity testID={testID} style={styles.row} onPress={() => setOpen(true)} accessibilityLabel={song == null ? 'Add music' : 'Change song'}>
