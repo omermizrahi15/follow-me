@@ -1,4 +1,5 @@
 import type { Coordinate } from '../interfaces';
+import type { Song } from './Song';
 
 export interface MediaProps {
   id: string;
@@ -10,6 +11,8 @@ export interface MediaProps {
   coordinate?: Coordinate;
   /** Groups the items shared together in one send — the feed's "posting". */
   postingId?: string;
+  /** The posting's song — like location, stamped on every item of the batch. */
+  song?: Song;
   /** When the publisher moved this item to the trash; absent while it is live. */
   deletedAt?: Date;
   /**
@@ -36,6 +39,7 @@ export class Media {
   get location(): string | undefined { return this.props.location; }
   get coordinate(): Coordinate | undefined { return this.props.coordinate; }
   get postingId(): string | undefined { return this.props.postingId; }
+  get song(): Song | undefined { return this.props.song; }
   get deletedAt(): Date | undefined { return this.props.deletedAt; }
   get backfilled(): boolean { return this.props.backfilled ?? false; }
 

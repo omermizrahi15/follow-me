@@ -2,6 +2,8 @@ import React from 'react';
 import { View, Text, TouchableOpacity, ActivityIndicator, StyleSheet } from 'react-native';
 import { PlaceField } from '../../components/PlaceField';
 import { ErrorState } from '../../components/ErrorState';
+import { SongField } from '../../components/SongField';
+import type { Song } from '../../../domain/entities/Song';
 import type { Coordinate } from '../../../domain/interfaces';
 import type { PlaceResolution } from '../../hooks/usePlaceResolution';
 import { colors, radius, spacing, typography } from '../../theme/theme';
@@ -23,6 +25,8 @@ interface Props {
   shareProgress: { stage: string; done: number; total: number } | null;
   /** Padding that keeps the input above the keyboard — see useKeyboardBottomPadding. */
   keyboardPadding: number;
+  song: Song | null;
+  onSongChange: (song: Song | null) => void;
   onConfirm: () => void;
 }
 
@@ -33,7 +37,7 @@ const SOURCE_NOTE: Record<string, string> = {
 };
 
 export function ReviewFooter({
-  place, keptCount, sharing, shareError, shareProgress, keyboardPadding, onConfirm,
+  place, keptCount, sharing, shareError, shareProgress, keyboardPadding, song, onSongChange, onConfirm,
 }: Props): React.JSX.Element {
   return (
     <View style={[styles.footer, keyboardPadding > 0 && { paddingBottom: keyboardPadding }]}>
@@ -57,6 +61,7 @@ export function ReviewFooter({
           {SOURCE_NOTE[place.source]}
         </Text>
       )}
+      <SongField testID="review-add-song" song={song} onChange={onSongChange} />
       <TouchableOpacity
         style={[styles.confirmButton, sharing && styles.disabled]}
         onPress={onConfirm}

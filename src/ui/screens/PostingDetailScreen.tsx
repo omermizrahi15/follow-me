@@ -234,6 +234,11 @@ function StoryViewer({ posting }: { posting: FeedPosting }): React.JSX.Element {
             <Text style={styles.meta}>
               {posting.date.toUpperCase()} · {index + 1}/{count}
             </Text>
+            {posting.song != null && (
+              <Text style={styles.song} numberOfLines={1}>
+                ♫ {posting.song.title} — {posting.song.artist}
+              </Text>
+            )}
           </View>
           <View style={styles.actions}>
             {/* Deleting from here rather than from the feed card: this is where
@@ -390,6 +395,7 @@ const styles = StyleSheet.create({
     gap: spacing.md,
   },
   titles: { flex: 1 },
+  song: { color: '#FFFFFF', fontSize: 13, fontWeight: '600', marginTop: 4 },
   actions: { flexDirection: 'row', alignItems: 'center', gap: spacing.sm },
   place: { color: '#FFFFFF', fontSize: 20, fontWeight: '700', letterSpacing: -0.3 },
   meta: {
