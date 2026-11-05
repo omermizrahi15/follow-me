@@ -96,7 +96,6 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: colors.textMuted,
     marginTop: -2,
-    marginBottom: spacing.sm,
     paddingHorizontal: spacing.xs,
   },
   placeSourceWarn: { color: '#C87A00' },

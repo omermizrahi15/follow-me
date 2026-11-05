@@ -107,7 +107,7 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row', alignItems: 'center', gap: spacing.sm,
     backgroundColor: colors.surfaceAlt, borderRadius: radius.md,
-    paddingHorizontal: spacing.md, paddingVertical: spacing.md, marginBottom: spacing.sm,
+    paddingHorizontal: spacing.md, paddingVertical: spacing.md, marginTop: spacing.sm, marginBottom: spacing.sm,
   },
   rowText: { flex: 1, fontSize: 14, color: colors.text, fontWeight: '600' },
   placeholder: { color: colors.textMuted, fontWeight: '400' },
