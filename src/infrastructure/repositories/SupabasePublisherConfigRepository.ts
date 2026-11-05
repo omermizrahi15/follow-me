@@ -99,6 +99,11 @@ function rowToConfig(row: ConfigRow): PublisherConfig {
   });
 }
 
+export const SIGNED_OUT_SAVE_MESSAGE = 'Not signed in: settings were not saved';
+
+/** Postgres insufficient_privilege — what an RLS WITH CHECK failure raises. */
+const RLS_DENIED = '42501';
+
 export class SupabasePublisherConfigRepository implements IPublisherConfigRepository {
   private readonly client: SupabaseClient<Database>;
 
@@ -123,7 +128,16 @@ export class SupabasePublisherConfigRepository implements IPublisherConfigReposi
       expo_push_token: config.expoPushToken === '' ? null : config.expoPushToken,
       photos_of_me: config.photosOfMe,
     });
-    if (error != null) throw new Error(error.message);
+    if (error == null) return;
+    // The autosave debounce can fire after sign-out (the section's unmount
+    // flush), so the write runs as anon or as the next user and RLS denies it.
+    // Say that, rather than leaving a raw policy error that reads as a bug; a
+    // denial with the owner signed in is still reported as it is.
+    if (error.code === RLS_DENIED) {
+      const { data } = await this.client.auth.getSession();
+      if (data.session?.user.id !== config.publisherId) throw new Error(SIGNED_OUT_SAVE_MESSAGE);
+    }
+    throw new Error(error.message);
   }
 
   async findByPublisher(publisherId: string): Promise<PublisherConfig | null> {

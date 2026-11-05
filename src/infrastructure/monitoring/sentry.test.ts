@@ -136,6 +136,11 @@ describe('downgradeNetworkNoise', () => {
     expect(out.level).toBe('warning');
   });
 
+  it('downgrades a settings save that landed after sign-out', () => {
+    const out = downgradeNetworkNoise(eventWith('Not signed in: settings were not saved', 'Error'));
+    expect(out.level).toBe('warning');
+  });
+
   it('leaves real errors at error level', () => {
     const out = downgradeNetworkNoise(eventWith('Cannot read property x of undefined'));
     expect(out.level).toBe('error');
