@@ -295,13 +295,23 @@ export class SuggestPhotosUseCase {
    * Clamped to MAX_LOOKBACK_DAYS so a long absence can't open an unbounded scan.
    */
   private async liveWindow(config: PublisherConfig, now: number): Promise<SuggestWindow> {
+    return { start: await this.windowStart(config, now), end: new Date(now) };
+  }
+
+  /**
+   * Where a live suggestion starts looking. Public so anything holding photos
+   * from an earlier scan (the cached batch) can check them against the same
+   * boundary the scan would use, instead of re-deriving it.
+   */
+  async windowStart(config: PublisherConfig, now: number = Date.now()): Promise<Date> {
     const newestPosted = await this.sentTracker.newestPostedPhotoAt(config.publisherId);
-    const start = windowStartMs({
-      now,
-      lookbackDays: config.lookbackDays,
-      newestPostedPhotoAt: newestPosted?.getTime() ?? null,
-    });
-    return { start: new Date(start), end: new Date(now) };
+    return new Date(
+      windowStartMs({
+        now,
+        lookbackDays: config.lookbackDays,
+        newestPostedPhotoAt: newestPosted?.getTime() ?? null,
+      }),
+    );
   }
 
   /**

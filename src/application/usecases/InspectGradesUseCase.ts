@@ -3,6 +3,7 @@ import type { PhotoClassification } from '../../domain/entities/PhotoClassificat
 import type { IClassificationStore, ISentPhotoTracker } from '../../domain/interfaces';
 import { explainAll, type GradeExplanation } from '../../domain/services/gradeExplanation';
 import type { PhotoFacts, SelectionRules } from '../../domain/services/photoSelection';
+import { windowStartMs } from '../../domain/services/suggestionWindow';
 
 /** Headline numbers for a set of grades, counted once here rather than in the view. */
 export interface GradeSummary {
@@ -22,6 +23,8 @@ export interface GradeInspection {
   /** Every remembered grade, explained and ranked exactly as the post ranks them. */
   photos: GradeExplanation<PhotoClassification>[];
   summary: GradeSummary;
+  /** Photos taken before this are outside the next post's window. */
+  windowStart: Date;
 }
 
 /** How the app's classification shape answers the selection rules' questions. */
@@ -72,21 +75,31 @@ export class InspectGradesUseCase {
         ? ''
         : ((await this.avatarUrl?.(config.publisherId).catch(() => null)) ?? '');
 
-    const [photos, alreadySent] = await Promise.all([
+    const [photos, alreadySent, newestPosted] = await Promise.all([
       this.grades.loadAll(referenceKey),
       this.sentTracker.sentCandidateIds(config.publisherId),
+      this.sentTracker.newestPostedPhotoAt(config.publisherId),
     ]);
+
+    // The same boundary the scan reads, so a photo the post can never draw from
+    // is shown as excluded here rather than ranked as if it were a candidate.
+    const windowStart = windowStartMs({
+      now: Date.now(),
+      lookbackDays: config.lookbackDays,
+      newestPostedPhotoAt: newestPosted?.getTime() ?? null,
+    });
 
     const rules: SelectionRules = {
       enabledCategories: config.enabledCategories,
       photosPerPost: config.photosPerPost,
       minQuality: config.minQuality,
       photosOfMe: config.photosOfMe,
+      notBefore: windowStart,
     };
 
     const explained = explainAll(photos, facts, rules, alreadySent);
 
-    return { photos: explained, summary: summarise(explained) };
+    return { photos: explained, summary: summarise(explained), windowStart: new Date(windowStart) };
   }
 }
 

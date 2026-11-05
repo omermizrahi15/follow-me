@@ -5,7 +5,7 @@ import type { IClassificationStore, ISentPhotoTracker } from '../../domain/inter
 
 function grade(id: string, over: Partial<PhotoClassification> = {}): PhotoClassification {
   return {
-    candidate: { id, uri: `ph://${id}`, createdAt: new Date(Date.UTC(2026, 7, 1)) },
+    candidate: { id, uri: `ph://${id}`, createdAt: new Date(Date.now() - 60 * 60 * 1000) },
     category: 'nature',
     confidence: 0.9,
     quality: 0.8,
@@ -37,10 +37,10 @@ function store(grades: PhotoClassification[]): IClassificationStore {
   };
 }
 
-function tracker(sent: string[] = []): ISentPhotoTracker {
+function tracker(sent: string[] = [], newestPosted: Date | null = null): ISentPhotoTracker {
   return {
     sentCandidateIds: () => Promise.resolve(new Set(sent)),
-    newestPostedPhotoAt: () => Promise.resolve(null),
+    newestPostedPhotoAt: () => Promise.resolve(newestPosted),
     markSent: () => Promise.resolve(),
   } as unknown as ISentPhotoTracker;
 }
@@ -145,5 +145,47 @@ describe('InspectGradesUseCase', () => {
       .execute(config());
 
     expect(keys).toEqual(['']);
+  });
+});
+
+describe('InspectGradesUseCase — the window the next post draws from', () => {
+  const HOUR = 60 * 60 * 1000;
+  const at = (hoursAgo: number): Date => new Date(Date.now() - hoursAgo * HOUR);
+  const taken = (id: string, hoursAgo: number, over: Partial<PhotoClassification> = {}): PhotoClassification =>
+    grade(id, { candidate: { id, uri: `ph://${id}`, createdAt: at(hoursAgo) }, ...over });
+
+  it('excludes photos taken before the last post, even a great one', async () => {
+    const sut = new InspectGradesUseCase(
+      store([taken('before', 30, { quality: 0.99 }), taken('after', 5, { quality: 0.5 })]),
+      tracker([], at(10)),
+    );
+
+    const result = await sut.execute(config());
+
+    const before = result.photos.find(p => p.facts.id === 'before');
+    expect(before?.inBatch).toBe(false);
+    expect(before?.blockers.map(b => b.key)).toEqual(['before-last-post']);
+    expect(result.photos.find(p => p.facts.id === 'after')?.inBatch).toBe(true);
+    expect(result.summary).toMatchObject({ graded: 2, eligible: 1, blocked: 1, inBatch: 1 });
+  });
+
+  it('falls back to the configured lookback when nothing has been posted', async () => {
+    const sut = new InspectGradesUseCase(
+      store([taken('last-week', 24 * 3), taken('last-month', 24 * 30)]),
+      tracker(),
+    );
+
+    const result = await sut.execute(config({ frequency: 'weekly' }));
+
+    expect(result.photos.find(p => p.facts.id === 'last-week')?.blockers).toEqual([]);
+    expect(result.photos.find(p => p.facts.id === 'last-month')?.blockers.map(b => b.key))
+      .toEqual(['before-last-post']);
+  });
+
+  it('reports where the window starts', async () => {
+    const posted = at(10);
+    const result = await new InspectGradesUseCase(store([]), tracker([], posted)).execute(config());
+
+    expect(result.windowStart.getTime()).toBe(posted.getTime());
   });
 });
