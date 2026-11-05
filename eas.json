@@ -42,6 +42,23 @@
         "EXPO_PUBLIC_SENTRY_DSN": "https://3af392ac55fd19eb86e19371e3e55a1d@o4511754230693888.ingest.us.sentry.io/4511754239606784",
         "EXPO_PUBLIC_MAPTILER_KEY": "se9C7mmAnwIVOfBQ6hFP"
       }
+    },
+    "pr-preview": {
+      "developmentClient": true,
+      "distribution": "internal",
+      "channel": "pr",
+      "env": {
+        "APP_VARIANT": "pr",
+        "EXPO_PUBLIC_APP_VARIANT": "pr",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://xszvrvnxduwpymyabvcg.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InhzenZydm54ZHV3cHlteWFidmNnIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM0MDgwNDcsImV4cCI6MjA5ODk4NDA0N30.ey2NHiMJ07q5iwZuVMTWpGjABfHhz6s8XRTiIfhMtVk",
+        "EXPO_PUBLIC_CLASSIFY_FN_URL": "https://xszvrvnxduwpymyabvcg.functions.supabase.co/classify-photos",
+        "EXPO_PUBLIC_CLOUDINARY_CLOUD_NAME": "dixi8doyx",
+        "EXPO_PUBLIC_CLOUDINARY_UPLOAD_PRESET": "follow-me-uploads",
+        "EXPO_PUBLIC_CLOUDINARY_FOLDER": "staging",
+        "EXPO_PUBLIC_SENTRY_DSN": "https://3af392ac55fd19eb86e19371e3e55a1d@o4511754230693888.ingest.us.sentry.io/4511754239606784",
+        "EXPO_PUBLIC_MAPTILER_KEY": "se9C7mmAnwIVOfBQ6hFP"
+      }
     }
   },
   "submit": {
