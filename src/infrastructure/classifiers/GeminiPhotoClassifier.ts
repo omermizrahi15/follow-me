@@ -163,45 +163,39 @@ interface RawClassification {
  */
 export class GeminiPhotoClassifier implements IPhotoClassifier {
   /**
-   * Maximum Edge Function calls in flight at once — now one.
+   * Maximum Edge Function calls in flight at once.
    *
-   * It was four, and four was never throughput. Tokens are what bounds photo
-   * grading: Groq's free tier allows 8,000 a MINUTE and an image costs about a
-   * thousand, so the ceiling is roughly eight photos a minute however many
-   * requests are in the air. Four concurrent requests of twelve photos put
-   * ~48,000 tokens against an 8,000 budget — six times over in the first
-   * second of every scan. All four 429'd, the run fell through to Gemini's
-   * twenty-requests-a-DAY, and grading was finished for the day before the
-   * publisher had seen a photo.
+   * It was four, then one. One was the answer to Groq's free tier: 8,000 tokens
+   * a MINUTE is about eight photos, so any parallelism put six times the budget
+   * against the wall in the first second, everything in flight 429'd and was
+   * lost, and the run fell through to Gemini's twenty-requests-a-DAY.
    *
-   * Worse, parallelism decided how much work was in flight when the wall was
-   * hit, and everything in flight was lost. This is the same conclusion
-   * auto-post reached on the server side (CLASSIFY_CONCURRENCY = 1): progress
-   * comes from the grade cache and from staying inside the budget, never from
-   * firing more requests at a closed door.
+   * The chain leads with Mistral now (ministral-14b: ~937k tokens a minute, 30
+   * requests a minute), where tokens are no longer the divisor — requests are.
+   * Three in flight stays inside 30 a minute only if a call takes ~6s or more
+   * (an estimate, not a measurement — lower this if 429s show up), and if a
+   * minute window is hit anyway the per-minute 429 is waited out on the client
+   * (MAX_RATE_LIMIT_WAITS) rather than sent down the chain, and the server
+   * paces itself against the headers it reads (pacingWaitSeconds). Parallelism
+   * is therefore safe to buy back; it is not unbounded because the request
+   * allowance, unlike the token one, is still small.
    */
-  private static readonly CONCURRENCY = 1;
+  private static readonly CONCURRENCY = 3;
 
   /**
    * Photos per request — sized so one request is one provider call.
    *
-   * It was twelve, chosen when the binding constraint was Gemini's five
-   * REQUESTS per minute and batching was the whole answer. The provider chain
-   * now leads with Groq, whose ceiling is tokens rather than requests: 8,000 a
-   * minute against about a thousand per image. Twelve photos is ~12,000 tokens
-   * — half as much again as a whole minute's budget — and classify-photos
-   * splits it into three provider calls, so a single request could not succeed
-   * under the free tier no matter how patiently it was retried.
-   *
-   * Five fits inside both: one provider call (Groq's maxImagesPerCall) and
-   * ~5,000 tokens, comfortably under the window. Fewer photos per request is
-   * not fewer photos per minute — the token budget was always the divisor —
-   * it just stops each request being dead on arrival.
+   * Mistral takes eight images a call and the reference portrait rides in each
+   * one, so seven photos fill it exactly. Fewer would spend scarce requests
+   * (30 a minute) on part-empty calls; more would make classify-photos split
+   * the request into sequential calls, which is slower than running two
+   * requests side by side. When the chain falls back to Groq (five images a
+   * call) the server splits and paces the request itself.
    *
    * Must not exceed classify-photos' MAX_PHOTOS_PER_REQUEST, which answers 400
    * above it.
    */
-  private static readonly CHUNK_SIZE = 5;
+  private static readonly CHUNK_SIZE = 7;
 
   /**
    * How many times a chunk waits for a usable session token before giving up.
