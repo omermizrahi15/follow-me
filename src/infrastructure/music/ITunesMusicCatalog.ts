@@ -5,6 +5,7 @@ interface ITunesTrack {
   trackName?: string;
   artistName?: string;
   artworkUrl100?: string;
+  previewUrl?: string;
 }
 
 /**
@@ -25,6 +26,7 @@ export class ITunesMusicCatalog implements IMusicCatalog {
               title: t.trackName,
               artist: t.artistName,
               ...(t.artworkUrl100 ? { artworkUrl: t.artworkUrl100.replace('100x100bb', '300x300bb') } : {}),
+              ...(t.previewUrl ? { previewUrl: t.previewUrl } : {}),
             }]
           : [],
       );
