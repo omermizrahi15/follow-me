@@ -77,6 +77,22 @@ jobs:
             if (!rv) throw new Error('no runtimeVersion in eas update output');
             console.log('RUNTIME_VERSION=' + rv);
           " >> "$GITHUB_ENV"
+      - name: Can an installed PR build load it?
+        # An update only reaches builds with the same fingerprint. A native or
+        # dependency change publishes fine and reaches nobody, so ask EAS whether
+        # a finished pr-preview build shares this runtimeVersion. A failed lookup
+        # is 'unknown', never a guess.
+        run: |
+          if eas build:list --platform ios --channel pr --limit 50 --json --non-interactive > "$RUNNER_TEMP/builds.json"; then
+            node -e "
+              const { reachability } = require('./.github/scripts/prPreview.js');
+              const raw = require('fs').readFileSync(process.env.RUNNER_TEMP + '/builds.json', 'utf8');
+              const builds = JSON.parse(raw.slice(raw.search(/[[{]/)));
+              console.log('REACHABILITY=' + reachability(builds, process.env.RUNTIME_VERSION));
+            " >> "$GITHUB_ENV" || echo "REACHABILITY=unknown" >> "$GITHUB_ENV"
+          else
+            echo "REACHABILITY=unknown" >> "$GITHUB_ENV"
+          fi
       - name: Comment on the PR
         run: |
           node -e "
@@ -85,6 +101,7 @@ jobs:
               prNumber: Number(process.env.PR_NUMBER),
               sha: process.env.HEAD_SHA,
               runtimeVersion: process.env.RUNTIME_VERSION,
+              reachability: process.env.REACHABILITY,
             }));
           " > "$RUNNER_TEMP/comment.md"
           ID=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --paginate \
