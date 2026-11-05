@@ -1,4 +1,4 @@
-import { selectBatch, spreadQuality, type PhotoFacts } from './photoSelection';
+import { rankAll, selectBatch, spreadQuality, type PhotoFacts } from './photoSelection';
 
 
 describe('spreadQuality — making a clustered scale usable', () => {
@@ -115,5 +115,25 @@ describe('selectBatch — category diversity', () => {
     const people = Array.from({ length: 4 }, () => photo('people', 0.9));
     const result = pick(people, ['people', 'food', 'view', 'pets'], 4);
     expect(result).toHaveLength(4);
+  });
+});
+
+describe('selectBatch — notBefore', () => {
+  const rules = { enabledCategories: ['nature'], photosPerPost: 5, notBefore: 2_000 };
+  const f = (id: string, createdAt: number, quality = 0.8): PhotoFacts => ({
+    id, category: 'nature', quality, createdAt, scene: id,
+  });
+
+  it('leaves out photos taken before the boundary however good they are', () => {
+    const photos = [f('old', 1_999, 0.99), f('edge', 2_000), f('new', 3_000)];
+
+    expect(selectBatch(photos, p => p, rules, new Set()).map(p => p.id).sort()).toEqual(['edge', 'new']);
+    expect(rankAll(photos, p => p, rules, new Set()).map(p => p.id)).not.toContain('old');
+  });
+
+  it('is off when absent', () => {
+    const photos = [f('old', 1)];
+
+    expect(selectBatch(photos, p => p, { enabledCategories: rules.enabledCategories, photosPerPost: rules.photosPerPost }, new Set())).toHaveLength(1);
   });
 });

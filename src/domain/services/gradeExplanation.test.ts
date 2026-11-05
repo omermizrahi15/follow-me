@@ -1,5 +1,5 @@
 import { explainGrade, explainAll, type GradeExplanation } from './gradeExplanation';
-import { selectBatch, type PhotoFacts, type SelectionRules } from './photoSelection';
+import { rankAll, selectBatch, type PhotoFacts, type SelectionRules } from './photoSelection';
 
 const RULES: SelectionRules = {
   enabledCategories: ['sunset_sunrise', 'nature', 'food'],
@@ -84,6 +84,20 @@ describe('explainGrade — what kept a photo out of the post', () => {
     const e = explainGrade(facts(), RULES, new Set(['a']));
 
     expect(e.blockers.map(b => b.key)).toEqual(['already-sent']);
+  });
+
+  it('reports a photo taken before the last post, and does not pretend to score it', () => {
+    // The post only draws from after the last one, so this photo never reaches
+    // the ranking — same as an already-sent one.
+    const e = explainGrade(facts({ createdAt: 1_000 }), { ...RULES, notBefore: 2_000 }, new Set());
+
+    expect(e.blockers.map(b => b.key)).toEqual(['before-last-post']);
+  });
+
+  it('lets a photo taken exactly at the boundary through', () => {
+    const e = explainGrade(facts({ createdAt: 2_000 }), { ...RULES, notBefore: 2_000 }, new Set());
+
+    expect(e.blockers).toEqual([]);
   });
 
   it('reports the photos-of-me filter only under only', () => {
@@ -175,5 +189,53 @@ describe('explainAll', () => {
     // Two implementations of "what goes in the post" that disagree is the bug
     // this whole screen exists to catch, so it must not be the screen's own bug.
     expect(inBatch.sort()).toEqual(chosen.sort());
+  });
+});
+
+describe('explainAll — the window the post draws from', () => {
+  it('never puts a photo from before the last post in the next post', () => {
+    const photos: PhotoFacts[] = [
+      { id: 'old-great', category: 'nature', quality: 0.99, createdAt: 1_000, scene: 'a' },
+      { id: 'new-ok', category: 'nature', quality: 0.5, createdAt: 3_000, scene: 'b' },
+    ];
+
+    const explained = explainAll(photos, f => f, { ...RULES, notBefore: 2_000 }, new Set());
+
+    expect(explained.find(e => e.facts.id === 'old-great')?.inBatch).toBe(false);
+    expect(explained.find(e => e.facts.id === 'new-ok')?.inBatch).toBe(true);
+  });
+
+  it('ranks the way the post ranks, quality spread across the photos in play', () => {
+    // Category weight can outvote a small raw-quality gap, but not once quality
+    // is spread over the set. The explanation must follow the post, not its own
+    // arithmetic — a debugging screen that disagrees with the post is the bug.
+    const photos: PhotoFacts[] = Array.from({ length: 30 }, (_, i) => ({
+      id: `p${i}`,
+      category: i % 2 === 0 ? 'sunset_sunrise' : 'food',
+      quality: 0.6 + (i % 15) * 0.01,
+      createdAt: 3_000 + i,
+      scene: `s${i}`,
+    }));
+    const rules = { ...RULES, photosPerPost: 30 };
+
+    const explained = explainAll(photos, f => f, rules, new Set());
+
+    expect(explained.map(e => e.facts.id)).toEqual(rankAll(photos, f => f, rules, new Set()).map(f => f.id));
+  });
+
+  it('does not let photos before the window shift the others’ ranking', () => {
+    const inWindow: PhotoFacts[] = Array.from({ length: 12 }, (_, i) => ({
+      id: `n${i}`, category: i % 2 === 0 ? 'nature' : 'food', quality: 0.6 + i * 0.01, createdAt: 3_000 + i, scene: `n${i}`,
+    }));
+    const old: PhotoFacts[] = Array.from({ length: 40 }, (_, i) => ({
+      id: `o${i}`, category: 'nature', quality: 0.1, createdAt: 1_000 + i, scene: `o${i}`,
+    }));
+    const rules = { ...RULES, photosPerPost: 12, notBefore: 2_000 };
+
+    const withOld = explainAll([...inWindow, ...old], f => f, rules, new Set()).filter(e => e.blockers.length === 0);
+    const without = explainAll(inWindow, f => f, rules, new Set());
+
+    expect(withOld.map(e => e.facts.id)).toEqual(without.map(e => e.facts.id));
+    expect(withOld.map(e => e.score)).toEqual(without.map(e => e.score));
   });
 });
