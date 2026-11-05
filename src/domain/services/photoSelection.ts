@@ -79,6 +79,15 @@ export interface SelectionRules {
    * exactly the behaviour every caller had before issue #137.
    */
   photosOfMe?: PhotosOfMeMode;
+  /**
+   * Photos taken before this (epoch millis) are never offered: the post only
+   * draws from after the last one, however that one was made.
+   *
+   * Dropped before ranking, exactly like an already-sent photo, so it does not
+   * skew the quality spread of the photos that are in play either. Absent means
+   * no boundary, which is every caller's behaviour before this existed.
+   */
+  notBefore?: number;
 }
 
 /**
@@ -313,6 +322,7 @@ function entriesFor<T>(
     // Projected once — `facts` may be doing real work per photo.
     const f = facts(item);
     if (alreadySent.has(f.id)) continue;
+    if (rules.notBefore != null && f.createdAt < rules.notBefore) continue;
     projected.push(f);
     entries.push({ item, facts: f, score: 0 });
   }

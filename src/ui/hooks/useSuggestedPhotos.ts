@@ -208,9 +208,18 @@ export function useSuggestedPhotos(publisherId: string): State & Controls {
           const supersededByNewPhotos =
             cached != null &&
             (await suggestPhotos.hasPhotosSince(new Date(cached.cachedAt)).catch(() => false));
+          // Nor is a recent one a good one if a post has gone out since: the
+          // window starts after the last post, and a batch computed before it
+          // (a manual post, or the server's) still holds photos from before.
+          const windowStart = cached != null ? await suggestPhotos.windowStart(config).catch(() => null) : null;
+          const beforeLastPost =
+            cached != null &&
+            windowStart != null &&
+            [...cached.batch, ...cached.pool].some(p => p.createdAt < windowStart.getTime());
           if (
             cached != null &&
             !supersededByNewPhotos &&
+            !beforeLastPost &&
             Date.now() - cached.cachedAt < STALE_CACHE_MS
           ) {
             const batch = cached.batch.map(cachedPhotoToClassification);
