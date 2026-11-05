@@ -15,10 +15,12 @@ const variant = process.env.EXPO_PUBLIC_APP_VARIANT as string | undefined;
 export const monitoringEnabled =
   Boolean(dsn) && !__DEV__ && (variant === 'staging' || variant === 'production');
 
-const NETWORK_NOISE = /Network request failed|^Request timed out after /;
+// "Not signed in" is SupabasePublisherConfigRepository's name for a settings
+// write that reached the server after the session was gone (issue #239).
+const NETWORK_NOISE = /Network request failed|^Request timed out after |^Not signed in: settings were not saved/;
 
 /**
- * A phone losing signal is not a bug in the app (issues #173, #175, #176, #178,
+ * A phone losing signal (or a debounced save outliving its session) is not a bug in the app (issues #173, #175, #176, #178,
  * #179): fetch is already retried and time-boxed, and what escapes is the
  * connection being genuinely down. Kept as a warning rather than dropped so the
  * frequency stays visible, but below the `error` level that files GitHub issues.
