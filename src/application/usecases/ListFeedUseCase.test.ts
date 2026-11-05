@@ -75,6 +75,18 @@ describe('ListFeedUseCase — grouping by postingId', () => {
     expect(feed[0]?.location).toBeNull();
   });
 
+  it('carries the posting song, or null without one', async (): Promise<void> => {
+    const { useCase, mediaRepo } = makeSut();
+    const song = { title: 'Vienna', artist: 'Billy Joel' };
+    await mediaRepo.save(makeMedia('m1', { postingId: 'post-a', song }));
+    await mediaRepo.save(makeMedia('m2', { postingId: 'post-b', createdAt: new Date('2026-06-01T10:00:00Z') }));
+
+    const { postings } = await useCase.list('user-1');
+
+    expect(postings.find(p => p.id === 'post-a')?.song).toEqual(song);
+    expect(postings.find(p => p.id === 'post-b')?.song).toBeNull();
+  });
+
   it('only returns the requested publisher media', async (): Promise<void> => {
     const { useCase, mediaRepo } = makeSut();
     await mediaRepo.save(makeMedia('mine', { postingId: 'post-a' }));

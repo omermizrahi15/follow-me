@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { AppSupabaseClient } from '../supabase/types';
 import type { IMediaRepository, MediaWindow } from '../../domain/interfaces';
 import { Media } from '../../domain/entities/Media';
+import type { Song } from '../../domain/entities/Song';
 import { validCoordinate } from '../../domain/services/coordinate';
 
 interface Database {
@@ -19,6 +20,7 @@ interface Database {
           longitude: number | null;
           deleted_at: string | null;
           backfilled: boolean | null;
+          song: Song | null;
         };
         Insert: {
           id: string;
@@ -31,6 +33,7 @@ interface Database {
           longitude?: number | null;
           deleted_at?: string | null;
           backfilled?: boolean | null;
+          song?: Song | null;
         };
         Update: {
           id?: string;
@@ -43,6 +46,7 @@ interface Database {
           longitude?: number | null;
           deleted_at?: string | null;
           backfilled?: boolean | null;
+          song?: Song | null;
         };
         Relationships: [];
       };
@@ -74,6 +78,9 @@ function mediaToRow(media: Media): MediaInsert {
     // setPostingDeleted, not here: writes here only ever carry fresh media.
     ...(media.deletedAt != null ? { deleted_at: media.deletedAt.toISOString() } : {}),
     ...(media.backfilled ? { backfilled: true } : {}),
+    // Sent only when set, so a post without music never depends on the song
+    // column (migration 20240042) having landed.
+    ...(media.song != null ? { song: media.song } : {}),
   };
 }
 
@@ -97,6 +104,8 @@ function rowToMedia(row: MediaRow): Media {
     ...(coordinate != null ? { coordinate } : {}),
     ...(row.deleted_at != null ? { deletedAt: new Date(row.deleted_at) } : {}),
     ...(row.backfilled === true ? { backfilled: true } : {}),
+    // Guard the jsonb: a malformed song must not break the feed.
+    ...(row.song?.title && row.song.artist ? { song: row.song } : {}),
   });
 }
 

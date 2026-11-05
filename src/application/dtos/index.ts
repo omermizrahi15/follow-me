@@ -1,4 +1,5 @@
 import type { Coordinate } from '../../domain/interfaces';
+import type { Song } from '../../domain/entities/Song';
 
 export interface MediaDto {
   id: string;
@@ -17,6 +18,8 @@ export interface FeedPostingDto {
   id: string;
   createdAt: string; // ISO string of the newest item in the posting
   location: string | null;
+  /** The posting's song, when the publisher attached one. */
+  song: Song | null;
   /** Where the posting is plotted on the Me-page globe; null when no item has GPS. */
   coordinate: Coordinate | null;
   /** ISO string when the posting sits in the trash; null while it is live. */

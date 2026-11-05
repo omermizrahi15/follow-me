@@ -30,6 +30,7 @@ import { StepBar } from './review/StepBar';
 import { SplitOfferCard, SplitProgress } from './review/SplitOffer';
 import { AddPhotoSlot, gridStyles } from './review/PhotoGrid';
 import { ReviewFooter } from './review/ReviewFooter';
+import type { Song } from '../../domain/entities/Song';
 import { PostedConfirmation } from './review/PostedConfirmation';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -63,6 +64,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
   // sheet where KeyboardAvoidingView mis-measures — see the hook doc).
   const keyboardPadding = useKeyboardBottomPadding();
   const [done, setDone] = useState(false);
+  const [song, setSong] = useState<Song | null>(null);
 
   // Chained, not circular: the grid decides which photos are in the post, the
   // place is resolved from those photos' GPS, and the split offer needs that
@@ -118,7 +120,8 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
       const location = place.locationForPost();
       if (__DEV__) console.log(`[share] place: ${JSON.stringify(location)}`);
       try {
-        await share(items, publisherId, location, place.pickedCoordinate ?? place.gpsCoordinate);
+        await share(items, publisherId, location, place.pickedCoordinate ?? place.gpsCoordinate, song ?? undefined);
+        setSong(null);
         // Posted — this batch is spent; next visit should compute a fresh one.
         void SuggestionCache.clear(publisherId).catch(() => undefined);
 
@@ -134,7 +137,7 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
         /* surfaced via shareError */
       }
     })();
-  }, [kept, share, publisherId, place, split, showLeg]);
+  }, [kept, share, publisherId, place, split, showLeg, song]);
 
   if (done) {
     return (
@@ -312,6 +315,8 @@ export function ReviewSuggestionContent({ onBack, bottomInset = 0 }: Props): Rea
               shareError={shareError}
               shareProgress={shareProgress}
               keyboardPadding={keyboardPadding}
+              song={song}
+              onSongChange={setSong}
               onConfirm={handleConfirm}
             />
           )}

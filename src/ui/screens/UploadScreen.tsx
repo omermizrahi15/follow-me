@@ -26,6 +26,8 @@ import { ErrorState } from '../components/ErrorState';
 import { Photo } from '../components/Photo';
 import { refuseIfOffline } from '../data/writeGuard';
 import { PlaceField } from '../components/PlaceField';
+import { SongField } from '../components/SongField';
+import type { Song } from '../../domain/entities/Song';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
 type Props = {
@@ -47,6 +49,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
   const keyboardPadding = useKeyboardBottomPadding();
   const publisherId = usePublisherId();
   const { subscribers, loading: subscribersLoading } = useSubscribers(publisherId);
+  const [song, setSong] = useState<Song | null>(null);
   const [pickedAssets, setPickedAssets] = useState<ImagePicker.ImagePickerAsset[]>([]);
   /**
    * Identifies this selection across attempts. The media ids used to be built
@@ -165,7 +168,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
           : placeLoading || place === ''
           ? undefined
           : place;
-        await share(items, publisherId, location, pickedCoordinate);
+        await share(items, publisherId, location, pickedCoordinate, song ?? undefined);
         setDone(true);
       } catch (e: unknown) {
         setError(e);
@@ -225,6 +228,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
               setDone(false);
               selectionIdRef.current = Date.now().toString(36);
               setPickedAssets([]);
+              setSong(null);
               setPromptDismissed(false);
               navigation.goBack();
             }}
@@ -339,6 +343,7 @@ export function UploadScreen({ navigation }: Props): React.JSX.Element {
                   setPickedCoordinate(coordinate);
                 }}
               />
+              <SongField testID="upload-add-song" song={song} onChange={setSong} />
               <Text style={styles.followerNote}>
                 {pickedAssets.length > 0 && !hasLocation && !placeLoading
                   ? 'These photos have no location — search for a place above to put this post on your map.'
