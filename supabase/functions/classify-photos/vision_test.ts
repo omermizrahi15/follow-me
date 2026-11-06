@@ -7,7 +7,7 @@ import {
   rateLimitFromHeaders,
   retryAfterHeader,
 } from './vision.ts';
-import { isGroqDailyLimit, parseGroqRetrySeconds } from './groq.ts';
+import { isGroqDailyLimit, MAX_IMAGES_PER_CALL, parseGroqRetrySeconds } from './groq.ts';
 import { geminiQuotaLimits } from './gemini.ts';
 
 Deno.test('entriesFrom — a bare array is what a schema-enforcing provider returns', () => {
@@ -278,4 +278,11 @@ Deno.test('rateLimitFromHeaders — reads Mistral\'s per-minute header names', (
   assertEquals(limits?.tokens?.remaining, 937495);
   assertEquals(limits?.requests?.limit, 30);
   assertEquals(limits?.requests?.remaining, 29);
+});
+
+Deno.test('groq — never asks for more than the 3 images qwen3.8 accepts per call', () => {
+  // Groq answered "Too many images provided. This model supports up to 3
+  // images" with a 400 on every larger call, and the chain silently fell
+  // through to Gemini's 20 requests a day.
+  assert(MAX_IMAGES_PER_CALL <= 3);
 });
