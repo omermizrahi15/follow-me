@@ -269,7 +269,7 @@ function AddPhotoCard({ posting, canAdd, onPress, variant }: {
 
 // ---------- step 2: scanning ----------
 
-function ScanningStep({ current, total, window, classified, of, batch, done, config, onSwap, onAdd, onPublishOne, paused, onTogglePause, bottomInset }: {
+function ScanningStep({ current, total, window, classified, of, batch, done, config, onSwap, onAdd, onRemove, onPublishOne, paused, onTogglePause, bottomInset }: {
   current: number;
   total: number;
   /** Dates of the stretch being scanned, known before any photo is picked. */
@@ -283,6 +283,7 @@ function ScanningStep({ current, total, window, classified, of, batch, done, con
   config: PublisherConfig | null;
   onSwap: (postingId: string, photoId: string) => void;
   onAdd: (postingId: string) => void;
+  onRemove: (postingId: string, photoId: string) => void;
   onPublishOne: (postingId: string) => void;
   paused: boolean;
   onTogglePause: () => void;
@@ -428,6 +429,7 @@ function ScanningStep({ current, total, window, classified, of, batch, done, con
                     width="31%"
                     busy={posting.swappingId === c.candidate.id}
                     onSwap={more ? () => onSwap(posting.id, c.candidate.id) : null}
+                    onRemove={editable && shown.length > 1 ? () => onRemove(posting.id, c.candidate.id) : null}
                   />
                 ))}
                 {editable && hasRoomForMore(posting) && (
@@ -460,7 +462,7 @@ function ScanningStep({ current, total, window, classified, of, batch, done, con
 
 // ---------- step 3: review timeline ----------
 
-function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd, onPublishOne }: {
+function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd, onRemove, onPublishOne }: {
   posting: ReviewablePosting;
   photos: Map<string, PhotoClassification>;
   config: PublisherConfig | null;
@@ -468,6 +470,7 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
   onPlace: (place: string, coordinate?: Coordinate) => void;
   onSwap: (photoId: string) => void;
   onAdd: () => void;
+  onRemove: (photoId: string) => void;
   onPublishOne: () => void;
 }): React.JSX.Element {
   const { dropped } = posting;
@@ -509,8 +512,8 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
           if (photo == null) return null;
           const busy = posting.swappingId === id;
           return (
+            <View key={id}>
             <TouchableOpacity
-              key={id}
               onPress={() => onSwap(id)}
               disabled={dropped || busy || !more}
               activeOpacity={0.7}
@@ -534,6 +537,19 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
                 </View>
               )}
             </TouchableOpacity>
+            {!dropped && editable && posting.slots.length > 1 && (
+              <TouchableOpacity
+                style={styles.photoRemove}
+                onPress={() => onRemove(id)}
+                activeOpacity={0.7}
+                accessibilityRole="button"
+                accessibilityLabel="Remove this photo"
+                hitSlop={8}
+              >
+                <Ionicons name="close" size={14} color={colors.ink} />
+              </TouchableOpacity>
+            )}
+            </View>
           );
         })}
         {!dropped && editable && hasRoomForMore(posting) && (
@@ -556,7 +572,7 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
   );
 }
 
-function ReviewStep({ postings, quotaExhausted, scanError, onRetry, config, onToggle, onPlace, onSwap, onAdd, onPublishOne, onPublish, publishing, published, bottomInset }: {
+function ReviewStep({ postings, quotaExhausted, scanError, onRetry, config, onToggle, onPlace, onSwap, onAdd, onRemove, onPublishOne, onPublish, publishing, published, bottomInset }: {
   postings: ReviewablePosting[];
   quotaExhausted: boolean;
   /** The scan stopped partway. The timeline below it is still real work. */
@@ -567,6 +583,7 @@ function ReviewStep({ postings, quotaExhausted, scanError, onRetry, config, onTo
   onPlace: (id: string, place: string, coordinate?: Coordinate) => void;
   onSwap: (id: string, photoId: string) => void;
   onAdd: (id: string) => void;
+  onRemove: (id: string, photoId: string) => void;
   onPublishOne: (id: string) => void;
   onPublish: () => void;
   publishing: boolean;
@@ -656,6 +673,7 @@ function ReviewStep({ postings, quotaExhausted, scanError, onRetry, config, onTo
             onPlace={(place, coordinate) => onPlace(p.id, place, coordinate)}
             onSwap={photoId => onSwap(p.id, photoId)}
             onAdd={() => onAdd(p.id)}
+            onRemove={photoId => onRemove(p.id, photoId)}
             onPublishOne={() => onPublishOne(p.id)}
           />
         ))}
@@ -737,7 +755,7 @@ export function HistoryBackfillContent({ backfill, onDone, initialStartDate = nu
   const {
     phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error, scanError, config,
     scanClassified, scanOf, scanBatch, scanWindow, paused, togglePause, publishOne,
-    run, toggleDropped, setPlace, swapPhoto, addPhoto, publish, reset, retry,
+    run, toggleDropped, setPlace, swapPhoto, addPhoto, removePhoto, publish, reset, retry,
   } = backfill;
 
   /**
@@ -804,6 +822,7 @@ export function HistoryBackfillContent({ backfill, onDone, initialStartDate = nu
           config={config}
           onSwap={swapPhoto}
           onAdd={addPhoto}
+          onRemove={removePhoto}
           onPublishOne={id => void publishOne(id)}
           bottomInset={bottomInset}
         />
@@ -820,6 +839,7 @@ export function HistoryBackfillContent({ backfill, onDone, initialStartDate = nu
           onPlace={setPlace}
           onSwap={swapPhoto}
           onAdd={addPhoto}
+          onRemove={removePhoto}
           onPublishOne={id => void publishOne(id)}
           onPublish={handlePublish}
           publishing={phase === 'publishing'}
@@ -1004,6 +1024,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     borderRadius: radius.sm,
     backgroundColor: 'rgba(0,0,0,0.45)',
+  },
+  photoRemove: {
+    position: 'absolute',
+    top: spacing.xs,
+    right: spacing.xs,
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: colors.frosted,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   doneCard: {
     backgroundColor: colors.surface,
