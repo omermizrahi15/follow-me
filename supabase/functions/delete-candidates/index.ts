@@ -11,13 +11,12 @@
  * are removed and the orphaned assets age out via Cloudinary's own tooling.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { ageCutoffIso, cloudinaryDestroySignature, publicIdFromUrl } from './logic.ts';
+import { ageCutoffIso, publicIdFromUrl } from './logic.ts';
+import { cloudinaryCredsFromEnv, destroyCloudinaryAsset } from '../_shared/cloudinary.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
-const CLOUDINARY_CLOUD = Deno.env.get('CLOUDINARY_CLOUD_NAME') ?? '';
-const CLOUDINARY_KEY = Deno.env.get('CLOUDINARY_API_KEY') ?? '';
-const CLOUDINARY_SECRET = Deno.env.get('CLOUDINARY_API_SECRET') ?? '';
+const CLOUDINARY = cloudinaryCredsFromEnv(Deno.env);
 
 const admin = createClient(SUPABASE_URL, SERVICE_KEY, { auth: { persistSession: false } });
 
@@ -48,26 +47,6 @@ async function ageCutoff(req: Request): Promise<string | null> {
   }
 }
 
-/** Signed Cloudinary destroy — returns true when the asset was deleted. */
-async function destroyCloudinaryAsset(publicId: string): Promise<boolean> {
-  const timestamp = Math.floor(Date.now() / 1000);
-  const signature = await cloudinaryDestroySignature(publicId, timestamp, CLOUDINARY_SECRET);
-  const form = new URLSearchParams({
-    public_id: publicId,
-    timestamp: String(timestamp),
-    api_key: CLOUDINARY_KEY,
-    signature,
-  });
-  const res = await fetch(`https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/image/destroy`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: form.toString(),
-  });
-  if (!res.ok) return false;
-  const data = (await res.json()) as { result?: string };
-  return data.result === 'ok' || data.result === 'not found';
-}
-
 Deno.serve(async (req: Request) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
@@ -92,13 +71,13 @@ Deno.serve(async (req: Request) => {
 
   // Best-effort asset cleanup — DB rows are already gone either way.
   let assetsDeleted = 0;
-  const cloudinaryConfigured = CLOUDINARY_CLOUD !== '' && CLOUDINARY_KEY !== '' && CLOUDINARY_SECRET !== '';
-  if (cloudinaryConfigured) {
+  const cloudinaryConfigured = CLOUDINARY != null;
+  if (CLOUDINARY != null) {
     for (const row of (rows ?? []) as { url: string }[]) {
       const publicId = publicIdFromUrl(row.url);
       if (publicId == null) continue;
       try {
-        if (await destroyCloudinaryAsset(publicId)) assetsDeleted++;
+        if (await destroyCloudinaryAsset(CLOUDINARY, publicId)) assetsDeleted++;
       } catch (err) {
         console.error(`cloudinary destroy failed for ${publicId}:`, err);
       }
