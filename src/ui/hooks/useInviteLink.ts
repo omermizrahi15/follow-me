@@ -2,9 +2,10 @@ import { Share } from 'react-native';
 import { Directory, File, Paths } from 'expo-file-system';
 import { useAuth } from '../context/AuthContext';
 import { useProfile } from './useProfile';
+import { siteUrls } from '../../domain/services/siteUrls';
 
-// Public subscribe page (GitHub Pages); the publisher id travels as the `?p=` param.
-const JOIN_BASE_URL = 'https://omermizrahi15.github.io/follow-me/join/';
+// Public subscribe page; the publisher id travels as the `?p=` param.
+const JOIN_BASE_URL = siteUrls(process.env.EXPO_PUBLIC_SITE_URL as string | undefined).join;
 
 // Staging publishers only exist in the staging Supabase project, so their links
 // must tell the join page which environment to subscribe against (the page

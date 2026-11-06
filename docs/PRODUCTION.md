@@ -17,7 +17,7 @@ public launch.
 | `TWILIO_API_KEY_SID` / `TWILIO_API_KEY_SECRET` | optional Edge Function secrets | **Private** — when set, sends authenticate with this revocable API key instead of the account auth token (preferred; see issue #24 notes) |
 | `TWILIO_STATUS_CALLBACK_URL` | optional Edge Function secret | Public URL of the `twilio-status` function; enables delivery tracking |
 | `CRON_SECRET` | Edge Function secret + pg_cron header | **Private** — gates `auto-post` invocation |
-| `GALLERY_BASE_URL` | optional Edge Function secret | Public URL; override when moving off github.io |
+| `SITE_BASE_URL` / `EXPO_PUBLIC_SITE_URL` | Edge Function secret / app build var | Public site root (default GitHub Pages). Set both to the custom domain at launch; `GALLERY_BASE_URL` still overrides the gallery page alone |
 
 ## RLS hardening (issue #9) — applied in migration 20240031
 

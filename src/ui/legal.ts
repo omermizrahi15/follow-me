@@ -1,4 +1,5 @@
 import { Alert, Linking } from 'react-native';
+import { siteUrls } from '../domain/services/siteUrls';
 
 /**
  * The hosted legal documents (issue #7).
@@ -8,8 +9,10 @@ import { Alert, Linking } from 'react-native';
  * why the policy is a web page rather than a screen bundled with the app: a
  * correction ships by merging a PR, not by waiting for review.
  */
-export const PRIVACY_POLICY_URL = 'https://omermizrahi15.github.io/follow-me/privacy/';
-export const TERMS_OF_SERVICE_URL = 'https://omermizrahi15.github.io/follow-me/terms/';
+// The host comes from EXPO_PUBLIC_SITE_URL (see siteUrls) so a custom domain is a build var, not a code change.
+const SITE = siteUrls(process.env.EXPO_PUBLIC_SITE_URL as string | undefined);
+export const PRIVACY_POLICY_URL = SITE.privacy;
+export const TERMS_OF_SERVICE_URL = SITE.terms;
 
 /**
  * Opens a legal document in the system browser.

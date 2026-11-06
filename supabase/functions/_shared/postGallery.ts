@@ -4,7 +4,9 @@
 // Storage HTML as text/plain (anti-phishing), so it can't host pages itself
 // (same constraint that made /join a redirect).
 
-const DEFAULT_GALLERY_BASE_URL = 'https://omermizrahi15.github.io/follow-me/gallery.html';
+import { siteUrls } from '../../../src/domain/services/siteUrls.ts';
+
+const DEFAULT_GALLERY_BASE_URL = siteUrls(undefined).gallery;
 
 /**
  * Override with the GALLERY_BASE_URL secret (e.g. after moving to a custom
@@ -14,7 +16,12 @@ const DEFAULT_GALLERY_BASE_URL = 'https://omermizrahi15.github.io/follow-me/gall
  */
 function galleryBaseUrl(): string {
   try {
-    return Deno.env.get('GALLERY_BASE_URL') ?? DEFAULT_GALLERY_BASE_URL;
+    // GALLERY_BASE_URL (full page URL) wins for back-compat; SITE_BASE_URL is
+    // the site root shared with every other public link.
+    const explicit = Deno.env.get('GALLERY_BASE_URL');
+    if (explicit) return explicit;
+    const site = Deno.env.get('SITE_BASE_URL');
+    return site ? siteUrls(site).gallery : DEFAULT_GALLERY_BASE_URL;
   } catch {
     // Reading it is what needs the permission, so the catch is the unit-test
     // path, not an error case — the default is what production uses anyway.

@@ -110,7 +110,7 @@ A follower subscribes through a **static web page** plus one **Supabase Edge
 Function** — no Twilio, no WhatsApp round-trip:
 
 1. **The page** — `docs/join/index.html`, hosted on **GitHub Pages**. The app's
-   invite link is `https://<user>.github.io/follow-me/join/?p=<publisherId>`. It
+   invite link is `<site>/join/?p=<publisherId>`. It
    asks for the follower's WhatsApp number and POSTs it to the `subscribe`
    function. (It's a static HTML file because Supabase Edge Functions can't serve
    HTML — they force every response to `text/plain`.)
