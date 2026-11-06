@@ -15,7 +15,8 @@
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
 import { cloudinaryCredsFromEnv, destroyCloudinaryAsset } from '../_shared/cloudinary.ts';
-import { cloudinaryIdsToDestroy, USER_DATA_TABLES } from './logic.ts';
+import { publicIdFromUrl } from '../delete-candidates/logic.ts';
+import { type AdminDb, runAccountDeletion } from '../../../src/infrastructure/server/accountDeletion.ts';
 
 const SUPABASE_URL = Deno.env.get('SUPABASE_URL') ?? '';
 const SERVICE_KEY = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '';
@@ -44,44 +45,14 @@ Deno.serve(async (req: Request) => {
   const userId = await authenticatedUserId(req);
   if (userId == null) return json({ error: 'Authentication required' }, 401);
 
-  // 1. Remember which Cloudinary assets are theirs before the rows disappear.
-  const [media, candidates, posts, avatars] = await Promise.all([
-    admin.from('media').select('url').eq('owner_id', userId),
-    admin.from('candidate_photos').select('url').eq('publisher_id', userId),
-    admin.from('posts').select('media_urls').eq('publisher_id', userId),
-    admin.from('publisher_profile').select('avatar_url').eq('publisher_id', userId),
-  ]);
-  const readError = [media, candidates, posts, avatars].find((r) => r.error != null)?.error;
-  if (readError != null) return json({ error: readError.message }, 500);
-  const assetIds = cloudinaryIdsToDestroy({
-    media: media.data ?? [],
-    candidates: candidates.data ?? [],
-    posts: posts.data ?? [],
-    avatars: avatars.data ?? [],
-  });
-
-  // 2. Wipe every table.
-  for (const { table, column } of USER_DATA_TABLES) {
-    const { error } = await admin.from(table).delete().eq(column, userId);
-    if (error != null) return json({ error: `${table}: ${error.message}` }, 500);
+  try {
+    const result = await runAccountDeletion(admin as unknown as AdminDb, userId, {
+      publicIdFromUrl,
+      destroyAsset: CLOUDINARY != null ? (id) => destroyCloudinaryAsset(CLOUDINARY, id) : null,
+    });
+    console.log(`delete-account: user ${userId} deleted — ${result.assetsDeleted}/${result.assetsFound} assets destroyed`);
+    return json({ deleted: true, ...result, cloudinaryConfigured: CLOUDINARY != null });
+  } catch (err) {
+    return json({ error: err instanceof Error ? err.message : String(err) }, 500);
   }
-
-  // 3. Best-effort asset cleanup; the rows are gone either way.
-  let assetsDeleted = 0;
-  if (CLOUDINARY != null) {
-    for (const id of assetIds) {
-      try {
-        if (await destroyCloudinaryAsset(CLOUDINARY, id)) assetsDeleted++;
-      } catch (err) {
-        console.error(`cloudinary destroy failed for ${id}:`, err);
-      }
-    }
-  }
-
-  // 4. The account itself, last.
-  const { error: authError } = await admin.auth.admin.deleteUser(userId);
-  if (authError != null) return json({ error: authError.message }, 500);
-
-  console.log(`delete-account: user ${userId} deleted — ${assetsDeleted}/${assetIds.length} assets destroyed`);
-  return json({ deleted: true, assetsDeleted, assetsFound: assetIds.length, cloudinaryConfigured: CLOUDINARY != null });
 });
