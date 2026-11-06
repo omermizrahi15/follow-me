@@ -275,4 +275,26 @@ describe('createQueryCache', () => {
       expect(cache.read('feed:p1')).toBeUndefined();
     });
   });
+
+  describe('update', () => {
+    it('rewrites held data immediately and returns a rollback to the previous value', async () => {
+      const cache = createQueryCache();
+      await cache.fetch('feed:p1', () => Promise.resolve(['a', 'b']));
+
+      const rollback = cache.update<string[]>('feed:p1', rows => rows.filter(r => r !== 'a'));
+      expect(cache.read<string[]>('feed:p1')?.data).toEqual(['b']);
+
+      rollback();
+      expect(cache.read<string[]>('feed:p1')?.data).toEqual(['a', 'b']);
+    });
+
+    it('does nothing, and rolls back to nothing, when the key holds no data', () => {
+      const cache = createQueryCache();
+
+      const rollback = cache.update<string[]>('feed:p1', rows => rows.slice(1));
+      rollback();
+
+      expect(cache.read('feed:p1')).toBeUndefined();
+    });
+  });
 });
