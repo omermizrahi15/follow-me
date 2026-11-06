@@ -354,7 +354,7 @@ unit suite only.
 
 ## Paid subscriptions (issue #252)
 
-Free / Plus plans. Limits live in one table, `src/domain/services/plans.ts`. The server decides; the app only displays.
+No free tier: a user is on `none` (no access) or `plus`. Limits live in one table, `src/domain/services/plans.ts`. The server decides; the app only displays.
 
 Flow: App Store → RevenueCat → `revenuecat-webhook` Edge Function → `subscriptions` table (migration 20240043) → `loadPlan()` in each cost-driving function.
 

@@ -6,7 +6,7 @@
  * place (issue #252) rather than scattered across functions. The server is the
  * source of truth — the app only displays these.
  */
-export type PlanId = 'free' | 'plus';
+export type PlanId = 'none' | 'plus';
 
 export interface PlanLimits {
   /** Photos sent to the AI grader per day. */
@@ -18,7 +18,7 @@ export interface PlanLimits {
 }
 
 export const PLANS: Readonly<Record<PlanId, PlanLimits>> = {
-  free: { aiPhotosPerDay: 50, whatsappPostsPerMonth: 10, followers: 5 },
+  none: { aiPhotosPerDay: 0, whatsappPostsPerMonth: 0, followers: 0 },
   plus: { aiPhotosPerDay: 500, whatsappPostsPerMonth: 100, followers: 50 },
 };
 
@@ -47,11 +47,11 @@ function laterThan(iso: string | null, now: Date): boolean {
 /**
  * Which plan a user is on right now.
  *
- * Fails CLOSED: anything unknown, missing or unparseable is Free. Cancelling
+ * Fails CLOSED: anything unknown, missing or unparseable is `none`. Cancelling
  * only stops renewal, so a cancelled subscription stays Plus until its paid
  * period ends; a billing problem keeps Plus through the store's grace window.
  */
 export function planFromSubscription(sub: SubscriptionFacts | null, now: Date): PlanId {
-  if (sub == null || sub.entitlement !== PLUS_ENTITLEMENT) return 'free';
-  return laterThan(sub.expiresAt, now) || laterThan(sub.graceExpiresAt, now) ? 'plus' : 'free';
+  if (sub == null || sub.entitlement !== PLUS_ENTITLEMENT) return 'none';
+  return laterThan(sub.expiresAt, now) || laterThan(sub.graceExpiresAt, now) ? 'plus' : 'none';
 }

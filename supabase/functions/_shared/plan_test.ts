@@ -11,8 +11,8 @@ function db(result: { data: Row | null; error: { message: string } | null }): Pl
 
 const NOW = new Date('2026-11-06T12:00:00Z');
 
-Deno.test('loadPlan: no row is free', async () => {
-  assertEquals(await loadPlan(db({ data: null, error: null }), 'u', NOW), 'free');
+Deno.test('loadPlan: no row is none', async () => {
+  assertEquals(await loadPlan(db({ data: null, error: null }), 'u', NOW), 'none');
 });
 
 Deno.test('loadPlan: a live plus row is plus', async () => {
@@ -20,11 +20,11 @@ Deno.test('loadPlan: a live plus row is plus', async () => {
   assertEquals(await loadPlan(db({ data, error: null }), 'u', NOW), 'plus');
 });
 
-Deno.test('loadPlan: an expired row is free', async () => {
+Deno.test('loadPlan: an expired row is none', async () => {
   const data = { entitlement: 'plus', expires_at: '2026-10-01T00:00:00Z', grace_expires_at: null };
-  assertEquals(await loadPlan(db({ data, error: null }), 'u', NOW), 'free');
+  assertEquals(await loadPlan(db({ data, error: null }), 'u', NOW), 'none');
 });
 
-Deno.test('loadPlan: a failed read fails closed to free', async () => {
-  assertEquals(await loadPlan(db({ data: null, error: { message: 'boom' } }), 'u', NOW), 'free');
+Deno.test('loadPlan: a failed read fails closed to none', async () => {
+  assertEquals(await loadPlan(db({ data: null, error: { message: 'boom' } }), 'u', NOW), 'none');
 });

@@ -18,8 +18,8 @@ export interface PlanDb {
 }
 
 /**
- * The plan a user is on right now. Fails CLOSED to Free: a failed read must
- * never be able to grant Plus (and so never spend more than a Free user may).
+ * The plan a user is on right now. Fails CLOSED to none (no access): a failed read must
+ * never be able to grant Plus (and so never spend anything).
  */
 export async function loadPlan(db: PlanDb, userId: string, now: Date = new Date()): Promise<PlanId> {
   const { data, error } = await db
@@ -29,9 +29,9 @@ export async function loadPlan(db: PlanDb, userId: string, now: Date = new Date(
     .maybeSingle();
   if (error != null) {
     console.error('plan lookup failed, treating as free:', error.message);
-    return 'free';
+    return 'none';
   }
-  if (data == null) return 'free';
+  if (data == null) return 'none';
   return planFromSubscription(
     { entitlement: data.entitlement, expiresAt: data.expires_at, graceExpiresAt: data.grace_expires_at },
     now,
