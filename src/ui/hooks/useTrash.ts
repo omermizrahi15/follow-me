@@ -4,7 +4,7 @@ import { useFocusEffect } from '@react-navigation/native';
 import { listFeed, trashPosting } from '../../composition/container';
 import { toFeedPosting, type FeedPosting } from '../data/feed';
 import { alertFailure, refuseIfOffline } from '../data/writeGuard';
-import { invalidateFeed } from '../data/queries';
+import { invalidateFeed, removePostingFromFeed } from '../data/queries';
 
 interface TrashState {
   postings: FeedPosting[];
@@ -72,6 +72,30 @@ export function useTrashedPostings(publisherId: string | null): UseTrashedPostin
 }
 
 /**
+ * The post leaves the cached feed on the tap, not when the server answers —
+ * waiting for the write plus a full feed refetch left a deleted post sitting on
+ * screen until the publisher navigated away and back. A failed write puts it
+ * back and says so.
+ */
+function trashOptimistically(
+  publisherId: string,
+  posting: FeedPosting,
+  onTrashed?: () => void,
+): void {
+  const rollback = removePostingFromFeed(publisherId, posting.id);
+  void trashPosting
+    .trash({ publisherId, postingId: posting.id })
+    .then(() => {
+      invalidateFeed(publisherId);
+      onTrashed?.();
+    })
+    .catch((e: unknown) => {
+      rollback();
+      alertFailure(e, 'Couldn’t delete this post');
+    });
+}
+
+/**
  * Deletes straight away, no dialog — for the feed's swipe-to-delete, where the
  * swipe plus a deliberate tap on a red Delete button already is the
  * confirmation, exactly as an iOS list row behaves. Safe to do without asking
@@ -90,13 +114,7 @@ export function moveToTrash(
   // remove a post the publisher had since decided to keep, with no prompt and
   // no trace of why (issue #145).
   if (refuseIfOffline('Deleting a post')) return;
-  void trashPosting
-    .trash({ publisherId, postingId: posting.id })
-    .then(() => {
-      invalidateFeed(publisherId);
-      onTrashed?.();
-    })
-    .catch((e: unknown) => alertFailure(e, 'Couldn’t delete this post'));
+  trashOptimistically(publisherId, posting, onTrashed);
 }
 
 /**
@@ -121,13 +139,7 @@ export function confirmMoveToTrash(
         text: 'Delete',
         style: 'destructive',
         onPress: () => {
-          void trashPosting
-            .trash({ publisherId, postingId: posting.id })
-            .then(() => {
-              invalidateFeed(publisherId);
-              onTrashed();
-            })
-            .catch((e: unknown) => alertFailure(e, 'Couldn’t delete this post'));
+          trashOptimistically(publisherId, posting, onTrashed);
         },
       },
     ],

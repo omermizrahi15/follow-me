@@ -28,6 +28,20 @@ export function invalidateFeed(publisherId: string | null): void {
 }
 
 /**
+ * A post is being deleted: drop it from the cached feed right now, so the Me
+ * list and the map update on the tap rather than after the server round trip
+ * and a full feed refetch. Returns the rollback for a failed write.
+ */
+export function removePostingFromFeed(
+  publisherId: string,
+  postingId: string,
+): () => void {
+  return queryCache.update<{ id: string }[]>(feedKey(publisherId), feed =>
+    feed.filter(p => p.id !== postingId),
+  );
+}
+
+/**
  * The auto-posting config changed. Home reads the cadence from it to decide
  * which stretches of the trip are missing a posting, so a publisher who
  * switches from weekly to every three days must not keep seeing gaps measured
