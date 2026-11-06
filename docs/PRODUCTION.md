@@ -361,6 +361,6 @@ Flow: App Store → RevenueCat → `revenuecat-webhook` Edge Function → `subsc
 | Secret | Where | Purpose |
 |---|---|---|
 | `REVENUECAT_WEBHOOK_SECRET` | Edge Function secrets | Must equal the `Bearer …` Authorization header configured on the RevenueCat webhook |
-| `ENFORCE_PLAN_LIMITS` | classify-photos secrets | `true` turns on per-plan AI limits. **Off by default** so the server can ship before the paywall; flip it together with the paywall release. `CLASSIFY_DAILY_QUOTA`, if set, still overrides. |
+| `ENFORCE_PLAN_LIMITS` | classify-photos, send-post, auto-post, post-batch secrets | `true` turns on per-plan limits for AI photos (daily) and WhatsApp messages (monthly, counted from `message_logs`). **Off by default** so the server can ship before the paywall; flip it together with the paywall release. `CLASSIFY_DAILY_QUOTA`, if set, still overrides. |
 
 RevenueCat setup: `app_user_id` must be the Supabase user id, entitlement id `plus`, webhook URL `https://<project>.supabase.co/functions/v1/revenuecat-webhook`.

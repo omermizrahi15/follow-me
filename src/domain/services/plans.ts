@@ -11,15 +11,18 @@ export type PlanId = 'none' | 'plus';
 export interface PlanLimits {
   /** Photos sent to the AI grader per day. */
   readonly aiPhotosPerDay: number;
-  /** WhatsApp post messages sent per calendar month. */
-  readonly whatsappPostsPerMonth: number;
+  /**
+   * WhatsApp messages sent per calendar month. Counts MESSAGES, not posts: one
+   * post costs one message per follower, and the message is what Twilio bills.
+   */
+  readonly whatsappMessagesPerMonth: number;
   /** Active followers a publisher may have. */
   readonly followers: number;
 }
 
 export const PLANS: Readonly<Record<PlanId, PlanLimits>> = {
-  none: { aiPhotosPerDay: 0, whatsappPostsPerMonth: 0, followers: 0 },
-  plus: { aiPhotosPerDay: 500, whatsappPostsPerMonth: 100, followers: 50 },
+  none: { aiPhotosPerDay: 0, whatsappMessagesPerMonth: 0, followers: 0 },
+  plus: { aiPhotosPerDay: 500, whatsappMessagesPerMonth: 2000, followers: 50 },
 };
 
 /** The entitlement id configured in RevenueCat that unlocks {@link PlanId} `plus`. */
@@ -54,4 +57,22 @@ function laterThan(iso: string | null, now: Date): boolean {
 export function planFromSubscription(sub: SubscriptionFacts | null, now: Date): PlanId {
   if (sub == null || sub.entitlement !== PLUS_ENTITLEMENT) return 'none';
   return laterThan(sub.expiresAt, now) || laterThan(sub.graceExpiresAt, now) ? 'plus' : 'none';
+}
+
+/**
+ * How many of `recipients` a send may reach without exceeding the month's
+ * message budget.
+ *
+ * `remaining` null means no budget applies (enforcement off) — everyone gets it.
+ * `messagesEach` is how many messages one recipient costs (a collage is 1, the
+ * per-photo fallback is one per photo), so a recipient is never half-served.
+ */
+export function recipientsWithinBudget(
+  remaining: number | null,
+  recipients: number,
+  messagesEach: number,
+): number {
+  if (remaining == null) return recipients;
+  const each = Math.max(1, messagesEach);
+  return Math.max(0, Math.min(recipients, Math.floor(remaining / each)));
 }

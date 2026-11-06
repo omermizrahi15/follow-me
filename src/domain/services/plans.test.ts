@@ -1,4 +1,4 @@
-import { PLANS, PLUS_ENTITLEMENT, limitsFor, planFromSubscription } from './plans';
+import { PLANS, PLUS_ENTITLEMENT, limitsFor, planFromSubscription, recipientsWithinBudget } from './plans';
 
 const NOW = new Date('2026-11-06T12:00:00Z');
 const FUTURE = '2026-12-06T12:00:00Z';
@@ -6,12 +6,12 @@ const PAST = '2026-10-06T12:00:00Z';
 
 describe('PLANS', () => {
   it('has no free tier: without a subscription nothing that costs money is allowed', () => {
-    expect(PLANS.none).toEqual({ aiPhotosPerDay: 0, whatsappPostsPerMonth: 0, followers: 0 });
+    expect(PLANS.none).toEqual({ aiPhotosPerDay: 0, whatsappMessagesPerMonth: 0, followers: 0 });
   });
 
   it('Plus allows something on every limit', () => {
     expect(PLANS.plus.aiPhotosPerDay).toBeGreaterThan(0);
-    expect(PLANS.plus.whatsappPostsPerMonth).toBeGreaterThan(0);
+    expect(PLANS.plus.whatsappMessagesPerMonth).toBeGreaterThan(0);
     expect(PLANS.plus.followers).toBeGreaterThan(0);
   });
 
@@ -59,4 +59,25 @@ import path from 'path';
 it('repeats the entitlement id in revenueCatEvents.ts (dual-runtime: cannot import it)', () => {
   const source = fs.readFileSync(path.join(__dirname, 'revenueCatEvents.ts'), 'utf8');
   expect(source).toContain(`const ENTITLEMENT = '${PLUS_ENTITLEMENT}'`);
+});
+
+describe('recipientsWithinBudget', () => {
+  it('serves everyone when no budget applies', () => {
+    expect(recipientsWithinBudget(null, 30, 1)).toBe(30);
+  });
+
+  it('serves nobody when the budget is spent', () => {
+    expect(recipientsWithinBudget(0, 30, 1)).toBe(0);
+    expect(recipientsWithinBudget(-5, 30, 1)).toBe(0);
+  });
+
+  it('trims to what is left, never above the recipient count', () => {
+    expect(recipientsWithinBudget(12, 30, 1)).toBe(12);
+    expect(recipientsWithinBudget(100, 30, 1)).toBe(30);
+  });
+
+  it('never half-serves a recipient who costs several messages', () => {
+    expect(recipientsWithinBudget(10, 30, 4)).toBe(2);
+    expect(recipientsWithinBudget(3, 30, 4)).toBe(0);
+  });
 });
