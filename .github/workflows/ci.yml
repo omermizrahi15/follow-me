@@ -26,26 +26,68 @@ on:
   pull_request:
     branches: [main]
 
+# A newer push to the same PR makes the older run pointless. Only PRs cancel;
+# main pushes always run to completion.
+concurrency:
+  group: ci-app-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
+  typecheck:
+    name: typecheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+
+  test:
+    name: test (${{ matrix.shard }}/4)
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm test -- --shard=${{ matrix.shard }}/4
+
   # Named `validate`, not something prettier: main's branch protection requires a
   # status check by that exact name, and GitHub matches on the job's display
   # name. Renaming this job silently un-protects main — every PR then reports a
   # context nothing requires, and the required one never arrives at all.
+  # It is the single gate over the parallel jobs above; `if: always()` so a
+  # failed/cancelled dependency reports red instead of leaving it "skipped"
+  # (which branch protection would treat as passing).
   validate:
     name: validate
     runs-on: ubuntu-latest
-
+    needs: [typecheck, lint, test]
+    if: always()
     steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 20
-          cache: npm
-
-      - name: Install dependencies
-        run: npm ci
-
-      - name: Run validate
-        run: npm run validate
+      - name: Require all checks to pass
+        run: |
+          [ "${{ needs.typecheck.result }}" = success ] &&
+          [ "${{ needs.lint.result }}" = success ] &&
+          [ "${{ needs.test.result }}" = success ]
