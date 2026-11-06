@@ -19,10 +19,11 @@ import { PlaceField } from '../components/PlaceField';
 import { ErrorState } from '../components/ErrorState';
 import { Photo } from '../components/Photo';
 import { SuggestionPhotoCard } from '../components/SuggestionPhotoCard';
-import type { ReviewablePosting, HistoryBackfill } from '../hooks/useHistoryBackfill';
+import type { ReviewablePosting, HistoryBackfill, SkippedWindow } from '../hooks/useHistoryBackfill';
 import { useKeyboardBottomPadding } from '../hooks/useKeyboardBottomPadding';
 import { planHistoryWindows } from '../../domain/services/historyWindows';
 import type { HistoryWindow } from '../../domain/services/historyWindows';
+import { groupSkippedWindows, skippedReasonCopy } from '../../domain/services/skippedWindows';
 import { FREQUENCY_DAYS } from '../../domain/entities/PublisherConfig';
 import type { Frequency, PublisherConfig } from '../../domain/entities/PublisherConfig';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
@@ -572,8 +573,40 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
   );
 }
 
-function ReviewStep({ postings, quotaExhausted, scanError, onRetry, config, onToggle, onPlace, onSwap, onAdd, onRemove, onPublishOne, onPublish, publishing, published, bottomInset }: {
+/**
+ * The stretches the rebuild walked and found nothing to post, and why. Without
+ * it a rebuild that "starts in August" gives no clue whether March was empty,
+ * already posted, or unreadable.
+ */
+function SkippedStretches({ skipped }: { skipped: SkippedWindow[] }): React.JSX.Element | null {
+  const groups = useMemo(() => groupSkippedWindows(skipped), [skipped]);
+  const [open, setOpen] = useState(false);
+  if (groups.length === 0) return null;
+  const photos = groups.reduce((n, g) => n + g.found, 0);
+  return (
+    <View style={styles.noticeCard} testID="backfill-skipped">
+      <Ionicons name="information-circle-outline" size={18} color={colors.accent} />
+      <View style={{ flex: 1 }}>
+        <TouchableOpacity onPress={() => setOpen(o => !o)} accessibilityRole="button">
+          <Text style={styles.previewText}>
+            {groups.length} {groups.length === 1 ? 'stretch' : 'stretches'} had no post
+            {photos > 0 ? ` (${photos} photos looked at)` : ''}. {open ? 'Hide' : 'Why?'}
+          </Text>
+        </TouchableOpacity>
+        {open && groups.map(g => (
+          <Text key={g.start.getTime()} style={styles.previewText}>
+            {`\n${fullDateLabel(g.start)} – ${fullDateLabel(g.end)}${g.found > 0 ? ` · ${g.found} photos` : ''}\n${skippedReasonCopy(g.reason)}`}
+          </Text>
+        ))}
+      </View>
+    </View>
+  );
+}
+
+function ReviewStep({ postings, skipped, quotaExhausted, scanError, onRetry, config, onToggle, onPlace, onSwap, onAdd, onRemove, onPublishOne, onPublish, publishing, published, bottomInset }: {
   postings: ReviewablePosting[];
+  /** Stretches walked that produced no post, so a late start can explain itself. */
+  skipped: SkippedWindow[];
   quotaExhausted: boolean;
   /** The scan stopped partway. The timeline below it is still real work. */
   scanError: unknown;
@@ -627,6 +660,7 @@ function ReviewStep({ postings, quotaExhausted, scanError, onRetry, config, onTo
             ? 'We’ve hit the limit on how many photos can be analysed. Your travels are still there — nothing was lost. Try again later, and if it keeps happening the photo-analysis model may need updating.'
             : 'We found no photos in that stretch of your library. Try an earlier start date.'}
         </Text>
+        <SkippedStretches skipped={skipped} />
       </View>
     );
   }
@@ -659,6 +693,7 @@ function ReviewStep({ postings, quotaExhausted, scanError, onRetry, config, onTo
             </Text>
           </View>
         )}
+        <SkippedStretches skipped={skipped} />
         <Text style={styles.lead}>
           Your travel story, newest first. Untick anything you’d rather not share, tap a
           photo to swap it, tap + to add one more, and fix any place that looks off.
@@ -753,7 +788,7 @@ interface ContentProps {
  */
 export function HistoryBackfillContent({ backfill, onDone, initialStartDate = null, gaps, gapsFor, bottomInset = 0 }: ContentProps): React.JSX.Element {
   const {
-    phase, postings, scanningWindow, totalWindows, quotaExhausted, published, error, scanError, config,
+    phase, postings, skipped, scanningWindow, totalWindows, quotaExhausted, published, error, scanError, config,
     scanClassified, scanOf, scanBatch, scanWindow, paused, togglePause, publishOne,
     run, toggleDropped, setPlace, swapPhoto, addPhoto, removePhoto, publish, reset, retry,
   } = backfill;
@@ -831,6 +866,7 @@ export function HistoryBackfillContent({ backfill, onDone, initialStartDate = nu
       {(phase === 'review' || phase === 'publishing' || phase === 'done') && (
         <ReviewStep
           postings={postings}
+          skipped={skipped}
           quotaExhausted={quotaExhausted}
           scanError={scanError}
           onRetry={retry}
