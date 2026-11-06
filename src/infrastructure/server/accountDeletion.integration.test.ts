@@ -24,6 +24,10 @@ const describeIf = (cond: unknown): jest.Describe => (cond ? describe : describe
 const asset = (id: string): string => `https://res.cloudinary.com/demo/image/upload/v1/it-delete/${id}.jpg`;
 
 describeIf(RUN)('account deletion (integration)', () => {
+  // Dozens of sequential round trips to staging (seed 11 tables, delete, verify
+  // 11 tables) — well past jest's 5s default, and slower still on a cold runner.
+  jest.setTimeout(60_000);
+
   const admin = RUN ? serviceRoleClient(supabaseUrl, serviceKey) : (null as never);
   let userId: string;
 
