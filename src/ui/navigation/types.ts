@@ -17,6 +17,8 @@ export type RootStackParamList = {
    */
   Home: { section?: HomeSection; suggestionRequest?: number } | undefined;
   Settings: undefined;
+  /** The Plus paywall (issue #252) — from Settings. */
+  Paywall: undefined;
   /** Edit the full publisher profile (name, photo), from Settings. */
   EditProfile: undefined;
   /** Deleted posts, restorable one by one — from Settings. */
