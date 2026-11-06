@@ -5,6 +5,7 @@ import { clearUploads, rememberUploads, resumableUploads } from '../data/shareCh
 import type { MediaDto } from '../../application/dtos';
 import type { ShareProgress } from '../../application/usecases/ShareMediaUseCase';
 import type { Coordinate } from '../../domain/interfaces';
+import type { Song } from '../../domain/entities/Song';
 
 interface MediaItem {
   mediaId: string;
@@ -28,6 +29,7 @@ export function useShareMedia(): ShareMediaState & {
     ownerId: string,
     location?: string | null,
     coordinate?: Coordinate,
+    song?: Song,
   ) => Promise<void>;
 } {
   const [state, setState] = useState<ShareMediaState>({
@@ -42,6 +44,7 @@ export function useShareMedia(): ShareMediaState & {
     ownerId: string,
     location?: string | null,
     coordinate?: Coordinate,
+    song?: Song,
   ): Promise<void> {
     setState({ loading: true, error: null, result: null, progress: null });
     try {
@@ -59,6 +62,7 @@ export function useShareMedia(): ShareMediaState & {
           // Only set when the publisher picked a place because the batch had
           // no GPS; per-photo fixes still win inside the use case.
           ...(coordinate != null ? { coordinate } : {}),
+          ...(song != null ? { song } : {}),
         },
         progress => {
           setState(s => ({ ...s, progress }));

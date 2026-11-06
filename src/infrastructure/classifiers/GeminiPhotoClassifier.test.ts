@@ -97,6 +97,29 @@ function respondRateLimited(retryAfterSeconds = 0): void {
   });
 }
 
+describe('GeminiPhotoClassifier.classify — throughput', () => {
+  it('fills a provider call: seven photos a request, so the reference makes eight', async () => {
+    respondWithDelay(() => 1);
+    await makeSut().classify(Array.from({ length: 21 }, (_, i) => candidate(`p${i}`)));
+    const sizes = mockFetch.mock.calls.map(([, init]) => requestedIds((init as { body: string }).body).length);
+    expect(sizes).toEqual([7, 7, 7]);
+  });
+
+  it('keeps several requests in flight at once rather than one at a time', async () => {
+    let live = 0;
+    let peak = 0;
+    mockFetch.mockImplementation((_url: string, init: { body: string }) => {
+      const ids = requestedIds(init.body);
+      live++;
+      peak = Math.max(peak, live);
+      return new Promise(resolve =>
+        setTimeout(() => { live--; resolve(okResponse(ids)); }, 10));
+    });
+    await makeSut().classify(Array.from({ length: 70 }, (_, i) => candidate(`p${i}`)));
+    expect(peak).toBe(3);
+  });
+});
+
 describe('GeminiPhotoClassifier.classify — settles', () => {
   it('resolves with all results for a batch larger than the concurrency window', async () => {
     respondWithDelay(() => 1);

@@ -131,6 +131,7 @@ export class ListFeedUseCase {
       location: group.find(m => m.location != null)?.location ?? null,
       // One point per posting — the batch is a single stop on the route, so the
       // first item with a fix represents it. Items in a batch are metres apart.
+      song: group.find(m => m.song != null)?.song ?? null,
       coordinate: group.find(m => m.coordinate != null)?.coordinate ?? null,
       deletedAt: group.find(m => m.deletedAt != null)?.deletedAt?.toISOString() ?? null,
       media: group.map(m => ({ id: m.id, url: m.url })),

@@ -1,4 +1,3 @@
-import { planHistoryWindows } from './historyWindows';
 import type { HistoryWindow } from './historyWindows';
 
 /**
@@ -47,30 +46,42 @@ export function findHistoryGaps(input: HistoryGapInput): HistoryGapPlan {
   const { tripStartDate, endDate, intervalDays, postingDates } = input;
   if (endDate.getTime() <= tripStartDate.getTime()) return EMPTY;
 
-  const plan = planHistoryWindows(
-    { startDate: tripStartDate, endDate, intervalDays },
-    MAX_WINDOWS_EXAMINED,
-  );
+  // The grid is anchored to the trip start and cut FORWARDS, so a window's
+  // edges never move as days pass. Cut backwards from `endDate` (as the live
+  // planner does), the whole grid slid every day: a stretch posted yesterday no
+  // longer lined up with any window, the oldest window became a sliver of
+  // already-posted days, and the rescan started at the beginning of the trip.
+  // The short partial window, if there is one, sits at the newest end.
+  const startMs = tripStartDate.getTime();
+  const endMs = endDate.getTime();
+  const stepMs = intervalDays * 24 * 60 * 60 * 1000;
+  if (!Number.isInteger(intervalDays) || intervalDays <= 0) {
+    throw new Error('findHistoryGaps intervalDays must be a positive integer');
+  }
+  const total = Math.min(Math.ceil((endMs - startMs) / stepMs), MAX_WINDOWS_EXAMINED);
+  const oldestFirst: HistoryWindow[] = [];
+  for (let i = 0; i < total; i++) {
+    oldestFirst.push({
+      start: new Date(startMs + i * stepMs),
+      end: new Date(Math.min(startMs + (i + 1) * stepMs, endMs)),
+    });
+  }
+  const plan = { windows: [...oldestFirst].reverse() }; // newest first
   if (plan.windows.length === 0) return EMPTY;
 
-  const stepMs = intervalDays * 24 * 60 * 60 * 1000;
-  const endMs = endDate.getTime();
   const lastIndex = plan.windows.length - 1;
   const covered = new Set<number>();
 
   for (const posting of postingDates) {
     const t = posting.getTime();
-    if (Number.isNaN(t) || t >= endMs || t < tripStartDate.getTime()) continue;
+    if (Number.isNaN(t) || t >= endMs || t < startMs) continue;
 
-    // Windows are cut backwards from `endDate`, so a posting's window index
-    // falls straight out of the elapsed time. The `- 1` keeps a posting landing
-    // exactly on a boundary in the newer window, matching the half-open
-    // [start, end) shape the scanner uses.
-    const index = Math.min(Math.floor((endMs - t - 1) / stepMs), lastIndex);
+    // Forward grid: the oldest-first index falls straight out of the elapsed
+    // time, then flips to the newest-first order `plan.windows` is in. Half-open
+    // [start, end), so a posting on a boundary belongs to the newer window.
+    const forward = Math.min(Math.floor((t - startMs) / stepMs), lastIndex);
+    const index = lastIndex - forward;
     const window = plan.windows[index];
-    // Re-check containment rather than trusting the arithmetic: the oldest
-    // window is clamped to the trip start and so can be shorter than a full
-    // interval, which the division alone doesn't know about.
     if (window != null && t >= window.start.getTime() && t < window.end.getTime()) {
       covered.add(index);
     }

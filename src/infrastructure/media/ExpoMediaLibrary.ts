@@ -61,7 +61,7 @@ const DESCRIBE_BATCH_SIZE = 8;
  * full res that is hundreds of MB of JS strings, which is how the iOS watchdog
  * ends up killing the app (issue #77). 1024px @ 0.7 lands around 100–200KB.
  */
-const CLASSIFY_MAX_DIMENSION = 1024;
+const CLASSIFY_MAX_DIMENSION = 768;
 const CLASSIFY_JPEG_QUALITY = 0.7;
 
 /**

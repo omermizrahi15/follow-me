@@ -1,4 +1,5 @@
 import { Media } from '../../domain/entities/Media';
+import type { Song } from '../../domain/entities/Song';
 import type {
   Coordinate,
   IGeocoder,
@@ -30,6 +31,8 @@ export interface ShareMediaInput {
    * from the items' GPS coordinates.
    */
   location?: string | null;
+  /** The posting's song, when the publisher picked one. */
+  song?: Song;
   /**
    * Where the publisher said the posting happened, when they picked a place
    * because their photos carried no GPS. Used only for items that have no fix
@@ -138,6 +141,7 @@ export class ShareMediaUseCase {
         createdAt,
         postingId,
         ...(location != null ? { location } : {}),
+        ...(input.song != null ? { song: input.song } : {}),
         // Keep the per-item fix, not just the reverse-geocoded label — the
         // Me-page globe plots the posting at this coordinate (issue #78).
         // Falls back to the place the publisher picked, so a batch of photos

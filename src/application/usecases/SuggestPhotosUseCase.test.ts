@@ -90,6 +90,17 @@ describe('SuggestPhotosUseCase', () => {
     expect(daysAgo(library.requestedWindows[0]!.start)).toBe(7);
   });
 
+  it('says where the live window starts, so a cached batch can be checked against it', async () => {
+    const lastPost = new Date(Date.now() - 2 * 24 * 60 * 60 * 1000);
+    const useCase = new SuggestPhotosUseCase(
+      new FakeMediaLibrary([]),
+      new FakePhotoClassifier(new Map()),
+      new FakeSentPhotoTracker(new Set(), lastPost),
+    );
+
+    expect((await useCase.windowStart(config())).getTime()).toBe(lastPost.getTime());
+  });
+
   it('reaches back to the last post when the publisher is overdue', async () => {
     // Weekly cadence, but they last posted nine days ago — the reminder went
     // unanswered for two days. Anchoring to now would have quietly dropped

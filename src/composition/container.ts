@@ -3,6 +3,7 @@ import { PreGradePhotosUseCase } from '../application/usecases/PreGradePhotosUse
 import { GradingCoordinator } from '../application/services/GradingCoordinator';
 import { withLiveGrading } from '../application/services/withLiveGrading';
 import { PrepareUploadsUseCase } from '../application/usecases/PrepareUploadsUseCase';
+import { SearchSongsUseCase } from '../application/usecases/SearchSongsUseCase';
 import { ListFeedUseCase } from '../application/usecases/ListFeedUseCase';
 import { TrashPostingUseCase } from '../application/usecases/TrashPostingUseCase';
 import { SubscribeUseCase } from '../application/usecases/SubscribeUseCase';
@@ -44,6 +45,7 @@ import { SupabaseCandidatePhotoRepository } from '../infrastructure/repositories
 import { SupabasePublisherProfileRepository } from '../infrastructure/repositories/SupabasePublisherProfileRepository';
 import { SupabaseApprovalBatchRepository, type ApprovalBatch } from '../infrastructure/repositories/SupabaseApprovalBatchRepository';
 import { CloudinaryStorageService } from '../infrastructure/storage/CloudinaryStorageService';
+import { ITunesMusicCatalog } from '../infrastructure/music/ITunesMusicCatalog';
 import { BigDataCloudGeocoder } from '../infrastructure/geocoding/BigDataCloudGeocoder';
 import { MapTilerPlaceSearch } from '../infrastructure/geocoding/MapTilerPlaceSearch';
 import { monitored, reportError, reportMessage } from '../infrastructure/monitoring/sentry';
@@ -167,6 +169,7 @@ export const resolvePlaceForCoordinates = (coordinates: Coordinate[]): Promise<s
 // Sentry tagged `operation: <name>` (then rethrows — UI error handling is
 // untouched). Tags make "which flow broke" filterable in Sentry (issue #10).
 export const shareMedia = monitored('share_photo', new ShareMediaUseCase(mediaRepo, subscriberRepo, notifier, storageService, geocoder, deliveryLog));
+export const searchSongs = monitored('search_songs', new SearchSongsUseCase(new ITunesMusicCatalog()));
 export const listFeed = monitored('list_feed', new ListFeedUseCase(mediaRepo));
 export const trashPosting = monitored('trash_posting', new TrashPostingUseCase(mediaRepo, postGalleryRepo));
 export const subscribe = monitored('subscribe', new SubscribeUseCase(subscriberRepo, confirmationSender));

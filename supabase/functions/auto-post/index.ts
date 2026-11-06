@@ -25,6 +25,7 @@ import {
   type PhotosOfMeMode,
 } from '../../../src/domain/services/photoSelection.ts';
 import { isAutoPostDue } from '../../../src/domain/services/autoPostSchedule.ts';
+import { windowStartMs } from '../../../src/domain/services/suggestionWindow.ts';
 import { credsFromEnv } from '../../../src/infrastructure/notifiers/twilioClient.ts';
 import { postingIdFor, publishBatch } from '../_shared/publishBatch.ts';
 import { galleryUrls, saveApprovalBatch } from '../_shared/approvalBatch.ts';
@@ -127,6 +128,29 @@ function parseDate(value: string | null): Date | null {
 
 async function updateConfig(publisherId: string, patch: Record<string, string | null>): Promise<void> {
   await supabase.from('publisher_config').update(patch).eq('publisher_id', publisherId);
+}
+
+/**
+ * Where this publisher's next post starts looking: after their last post, by
+ * any route — a manual one counts. The configured lookback is only the fallback
+ * for someone who has never posted, and the same clamp as the app applies, so
+ * the server and the phone offer the same stretch of photos.
+ */
+async function candidateCutoff(config: ConfigRow, now: Date): Promise<string> {
+  const { data } = await supabase
+    .from('media')
+    .select('created_at')
+    .eq('owner_id', config.publisher_id)
+    .order('created_at', { ascending: false })
+    .limit(1);
+  const newest = (data as { created_at: string }[] | null)?.[0]?.created_at;
+  return new Date(
+    windowStartMs({
+      now: now.getTime(),
+      lookbackDays: config.lookback_days,
+      newestPostedPhotoAt: newest != null ? Date.parse(newest) : null,
+    }),
+  ).toISOString();
 }
 
 /** Whether the publisher published anything (by any route) since the given moment. */
@@ -268,35 +292,23 @@ function classifiedCandidates(
  * Photos per classify-photos request. Must stay at or below that function's own
  * MAX_PHOTOS_PER_REQUEST, which answers 400 above it.
  *
- * Was 12 — the function's cap — on the reasoning that a request is a single
- * model call, so asking for fewer photos would spend more rate-limit slots to
- * do the same work. That reasoning held while the binding limit was REQUESTS
- * per minute. It is tokens now: Groq's free tier allows 8,000 a minute and an
- * image costs about a thousand, so twelve photos is half as much again as a
- * whole minute's budget and classify-photos has to split it into three
- * provider calls to send it at all.
- *
- * Five is one provider call and ~5,000 tokens, inside the window. It does not
- * grade fewer photos per minute — the token budget was always the divisor —
- * it stops each request being refused before it starts. classify-photos also
- * paces itself against the window now (see pacingWaitSeconds); this keeps the
- * common request from ever needing to.
+ * Seven fills one Mistral call (eight images, one of them the reference
+ * portrait). It was five, sized for Groq's 8,000 tokens a minute; with the
+ * chain leading on Mistral the scarce thing is requests, so each should carry a
+ * full call. classify-photos splits and paces for a fallback provider.
  */
-const CLASSIFY_PHOTOS_PER_REQUEST = 5;
+const CLASSIFY_PHOTOS_PER_REQUEST = 7;
 
 /**
  * Requests in flight at once.
  *
- * This was 3, which combined with 3 photos per request put 9 Gemini calls in
- * the air per wave — against a free tier that allows 5 per MINUTE. Every run
- * 429'd on its first wave. Concurrency of 1 is not a throughput loss here: the
- * upstream rate limit was always the binding constraint, and parallelism only
- * decided how fast we reached it. Worse, it decided how much work was in flight
- * when the wall was hit, and everything in flight was lost. Progress now comes
- * from the grade cache (migration 20240036) instead of from firing more
- * requests at a closed door.
+ * It was 1 because tokens-per-minute (Groq) and requests-per-minute (Gemini)
+ * were both so small that parallelism only decided how much work was lost when
+ * the wall was hit. Mistral allows ~937k tokens and 30 requests a minute, so two
+ * at a time is well inside it and roughly halves the grading time. A refusal
+ * still stops the tick (see below), and progress is kept by the grade cache.
  */
-const CLASSIFY_CONCURRENCY = 1;
+const CLASSIFY_CONCURRENCY = 2;
 
 /**
  * Grades one chunk, or returns null if the request was refused.
@@ -646,7 +658,7 @@ async function processApprovalPublisher(config: ConfigRow, now: Date): Promise<s
     return 'skipped (no push token)';
   }
 
-  const cutoff = new Date(now.getTime() - config.lookback_days * MS_PER_DAY).toISOString();
+  const cutoff = await candidateCutoff(config, now);
   const { data: candidates } = await supabase
     .from('candidate_photos')
     .select(CANDIDATE_COLUMNS)
@@ -768,7 +780,7 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
   // See processApprovalPublisher: a pending slot outlives the due window.
   if (!due && !(await pendingSlotStillOpen(config, now))) return 'not-due';
 
-  const cutoff = new Date(now.getTime() - config.lookback_days * MS_PER_DAY).toISOString();
+  const cutoff = await candidateCutoff(config, now);
   const { data: candidates } = await supabase
     .from('candidate_photos')
     .select(CANDIDATE_COLUMNS)

@@ -6,7 +6,7 @@
  *
  * Two things differ from Gemini and both shape the code below:
  *
- * - Five images per call, not twelve. The caller chunks to `maxImagesPerCall`,
+ * - Three images per call, not twelve. The caller chunks to `maxImagesPerCall`,
  *   so this is a number here rather than a rule anyone has to remember.
  * - JSON mode, not a schema. Groq guarantees the reply parses, not that it has
  *   the fields we asked for, so the shape is spelled out in the prompt and every
@@ -41,8 +41,10 @@ const ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_GROQ_MODEL = 'qwen/qwen3.8-27b';
 
 /**
- * Documented ceiling for this model. The reference portrait counts towards it,
- * which is why the caller subtracts it rather than assuming five photos fit.
+ * Documented ceiling for this model: Groq 400s "Too many images provided. This
+ * model supports up to 3 images" above it, and the 5 we used to send did exactly
+ * that on every full chunk (2026-11-06). The reference portrait counts towards
+ * it, which is why the caller subtracts it rather than assuming three photos fit.
  *
  * Note that images per call is NOT what bounds this provider in practice.
  * Measured free-tier limits for its predecessor qwen3.6-27b were 30 requests/minute and 1000/day
@@ -50,7 +52,7 @@ const DEFAULT_GROQ_MODEL = 'qwen/qwen3.8-27b';
  * a thousand of. Tokens are the ceiling; the per-call image count only decides
  * how lumpily they are spent. See the usage logging in classify().
  */
-const MAX_IMAGES_PER_CALL = 5;
+export const MAX_IMAGES_PER_CALL = 3;
 
 /**
  * Appended when the provider cannot enforce a schema.
@@ -94,11 +96,34 @@ export function parseGroqRetrySeconds(body: string): number | null {
 }
 
 export function groqProvider(apiKey: string): VisionProvider {
-  const model = Deno.env.get('GROQ_MODEL') ?? DEFAULT_GROQ_MODEL;
-  return {
+  return openAiCompatibleProvider({
     name: 'groq',
-    model,
+    endpoint: ENDPOINT,
+    apiKey,
+    model: Deno.env.get('GROQ_MODEL') ?? DEFAULT_GROQ_MODEL,
     maxImagesPerCall: MAX_IMAGES_PER_CALL,
+  });
+}
+
+export interface OpenAiCompatibleOptions {
+  name: string;
+  endpoint: string;
+  apiKey: string;
+  model: string;
+  maxImagesPerCall: number;
+}
+
+/**
+ * Any vendor that speaks OpenAI's chat-completions shape with image_url parts
+ * and JSON mode (Groq, Mistral, ...). Adding one is an entry in index.ts, not a
+ * copy of this file.
+ */
+export function openAiCompatibleProvider(opts: OpenAiCompatibleOptions): VisionProvider {
+  const { name, endpoint, apiKey, model } = opts;
+  return {
+    name,
+    model,
+    maxImagesPerCall: opts.maxImagesPerCall,
     enforcesSchema: false,
 
     async classify({ prompt, reference, images }: VisionRequest): Promise<VisionResult> {
@@ -125,7 +150,7 @@ export function groqProvider(apiKey: string): VisionProvider {
 
       let res: Response;
       try {
-        res = await fetch(ENDPOINT, {
+        res = await fetch(endpoint, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -145,7 +170,7 @@ export function groqProvider(apiKey: string): VisionProvider {
           limits: null,
           failure: {
             status: 0,
-            body: `groq unreachable: ${String(err)}`,
+            body: `${name} unreachable: ${String(err)}`,
             retryAfterSeconds: null,
             dailyQuota: false,
           },
@@ -157,7 +182,7 @@ export function groqProvider(apiKey: string): VisionProvider {
       // learning the limit only from a 429 means only ever learning it too
       // late, which is how an invented 500-a-day number survived for months as
       // the only figure the app could show.
-      const limits = rateLimitFromHeaders(res.headers, 'groq', model, Date.now());
+      const limits = rateLimitFromHeaders(res.headers, name, model, Date.now());
 
       const text = await res.text().catch(() => '<unreadable body>');
       if (!res.ok) {
@@ -190,7 +215,7 @@ export function groqProvider(apiKey: string): VisionProvider {
         const total = payload.usage?.total_tokens;
         if (typeof total === 'number' && images.length > 0) {
           console.log(
-            `groq usage: ${total} tokens for ${images.length} image(s)` +
+            `${name} usage: ${total} tokens for ${images.length} image(s)` +
               `${reference == null ? '' : ' + reference'}` +
               ` (~${Math.round(total / images.length)}/image)`,
           );
@@ -203,7 +228,7 @@ export function groqProvider(apiKey: string): VisionProvider {
             limits,
             failure: {
               status: res.status,
-              body: `groq returned no message content: ${text.slice(0, 300)}`,
+              body: `${name} returned no message content: ${text.slice(0, 300)}`,
               retryAfterSeconds: null,
               dailyQuota: false,
             },
@@ -216,7 +241,7 @@ export function groqProvider(apiKey: string): VisionProvider {
           limits,
           failure: {
             status: res.status,
-            body: `groq returned unparseable JSON (${String(err)}): ${text.slice(0, 300)}`,
+            body: `${name} returned unparseable JSON (${String(err)}): ${text.slice(0, 300)}`,
             retryAfterSeconds: null,
             dailyQuota: false,
           },

@@ -7,7 +7,7 @@ import {
   rateLimitFromHeaders,
   retryAfterHeader,
 } from './vision.ts';
-import { isGroqDailyLimit, parseGroqRetrySeconds } from './groq.ts';
+import { isGroqDailyLimit, MAX_IMAGES_PER_CALL, parseGroqRetrySeconds } from './groq.ts';
 import { geminiQuotaLimits } from './gemini.ts';
 
 Deno.test('entriesFrom — a bare array is what a schema-enforcing provider returns', () => {
@@ -115,6 +115,14 @@ Deno.test('isProviderFault — separates a broken provider from a spent or busy 
   // Spent for the day and busy for the minute are normal operation, not faults.
   assertEquals(isProviderFault(failure({ status: 429, dailyQuota: true })), false);
   assertEquals(isProviderFault(failure({ status: 429, retryAfterSeconds: 20 })), false);
+});
+
+Deno.test('isProviderExhausted — an oversize request hands over, but is not a fault (issue #234)', () => {
+  // Groq answers 413 when one request alone exceeds its per-minute token limit.
+  // A single photo that still does not fit is for another vendor to try; it says
+  // nothing about Groq being broken, so it must not be recorded as a fault.
+  assert(isProviderExhausted(failure({ status: 413 })));
+  assertEquals(isProviderFault(failure({ status: 413 })), false);
 });
 
 Deno.test('isProviderExhausted — anything unrecognised stays put', () => {
@@ -256,4 +264,25 @@ Deno.test('geminiQuotaLimits — a per-minute violation keeps its own reset', ()
 Deno.test('geminiQuotaLimits — anything that is not a quota refusal says nothing', () => {
   assertEquals(geminiQuotaLimits('not json', 'm', 1), null);
   assertEquals(geminiQuotaLimits(JSON.stringify({ error: { code: 500 } }), 'm', 1), null);
+});
+
+Deno.test('rateLimitFromHeaders — reads Mistral\'s per-minute header names', () => {
+  const headers = new Headers({
+    'x-ratelimit-limit-tokens-minute': '937500',
+    'x-ratelimit-remaining-tokens-minute': '937495',
+    'x-ratelimit-limit-req-minute': '30',
+    'x-ratelimit-remaining-req-minute': '29',
+  });
+  const limits = rateLimitFromHeaders(headers, 'mistral', 'ministral-14b-latest', 0);
+  assertEquals(limits?.tokens?.limit, 937500);
+  assertEquals(limits?.tokens?.remaining, 937495);
+  assertEquals(limits?.requests?.limit, 30);
+  assertEquals(limits?.requests?.remaining, 29);
+});
+
+Deno.test('groq — never asks for more than the 3 images qwen3.8 accepts per call', () => {
+  // Groq answered "Too many images provided. This model supports up to 3
+  // images" with a 400 on every larger call, and the chain silently fell
+  // through to Gemini's 20 requests a day.
+  assert(MAX_IMAGES_PER_CALL <= 3);
 });
