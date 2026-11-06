@@ -16,6 +16,14 @@ const VARIANTS = {
     bundleIdentifier: 'com.urishiber.followme.staging',
     scheme: 'followmestaging',
   },
+  // PR preview build: a regular build on the "pr" channel that runs the latest PR
+  // EAS Update (see .github/workflows/pr-preview.yml). Own bundle id so it sits beside
+  // the staging and production apps, and talks to the staging backend.
+  pr: {
+    name: 'Follow Me (PR)',
+    bundleIdentifier: 'com.urishiber.followme.pr',
+    scheme: 'followmepr',
+  },
   // Local development builds. Its own bundle id so a dev build never lands on
   // top of the production or staging app — before this existed the
   // `development` EAS profile set no APP_VARIANT and silently built the

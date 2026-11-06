@@ -1,0 +1,113 @@
+name: PR preview (EAS Update)
+
+# Publishes each PR's JS as an EAS Update on the moving "pr" branch, which the
+# "Follow Me (PR)" build (eas.json → pr-preview, channel pr) fetches on launch —
+# exactly how the staging build picks up merges, so a PR can be looked at on your
+# phone without checking out the branch. The app runs the most recently
+# published PR; "Run workflow" with a PR number republishes that one to switch.
+#
+# It uses the staging backend. A PR that changes native code or dependencies
+# changes the fingerprint runtimeVersion, so the installed build won't accept its
+# update — the comment shows the runtime version to compare.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    paths: ['src/**', 'assets/**', 'app.json', 'app.config.js', 'App.js', 'package.json', 'eas.json']
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        description: PR to show in the preview app
+        required: true
+
+# One shared branch, so publishes are serialised: the last one to finish is what
+# the app loads, and it should be the most recent push.
+concurrency:
+  group: pr-preview
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  pull-requests: write
+
+jobs:
+  preview:
+    name: Publish preview update
+    # Fork PRs get no secrets, so there is nothing to publish with.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    env:
+      PR_NUMBER: ${{ github.event.pull_request.number || github.event.inputs.pr_number }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - name: Resolve the PR head
+        run: |
+          # Same-repo PRs only, also for a manual run: a fork's code must not get
+          # the EXPO_TOKEN.
+          gh api "repos/${{ github.repository }}/pulls/$PR_NUMBER" \
+            --jq '"HEAD_SHA=" + .head.sha, "HEAD_REPO=" + .head.repo.full_name' >> "$GITHUB_ENV"
+      - name: Refuse forks
+        run: |
+          [ "$HEAD_REPO" = "${{ github.repository }}" ] || { echo "::error::PR #$PR_NUMBER is from a fork"; exit 1; }
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ env.HEAD_SHA }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - uses: expo/expo-github-action@v8
+        with:
+          eas-version: ^22.0.0
+          token: ${{ secrets.EXPO_TOKEN }}
+      - name: Load bundle-time env from the pr-preview profile
+        run: |
+          node -e "const e=require('./eas.json').build['pr-preview'].env; for (const [k,v] of Object.entries(e)) console.log(k+'='+v)" >> "$GITHUB_ENV"
+      - name: Publish update
+        # --environment preview: the same server-side env (Sentry org/project) the
+        # staging builds use, so the fingerprint matches the installed PR build.
+        run: |
+          eas update --branch pr --message "PR #$PR_NUMBER @ ${HEAD_SHA:0:7}" \
+            --platform ios --environment preview --json --non-interactive > "$RUNNER_TEMP/update.json"
+          node -e "
+            const raw = require('fs').readFileSync(process.env.RUNNER_TEMP + '/update.json', 'utf8');
+            const groups = JSON.parse(raw.slice(raw.search(/[[{]/)));
+            const u = (Array.isArray(groups) ? groups : [groups])[0];
+            const rv = u.runtimeVersion ?? u.runtime?.version;
+            if (!rv) throw new Error('no runtimeVersion in eas update output');
+            console.log('RUNTIME_VERSION=' + rv);
+          " >> "$GITHUB_ENV"
+      - name: Can an installed PR build load it?
+        # An update only reaches builds with the same fingerprint. A native or
+        # dependency change publishes fine and reaches nobody, so ask EAS whether
+        # a finished pr-preview build shares this runtimeVersion. A failed lookup
+        # is 'unknown', never a guess.
+        run: |
+          if eas build:list --platform ios --channel pr --limit 50 --json --non-interactive > "$RUNNER_TEMP/builds.json"; then
+            node -e "
+              const { reachability } = require('./.github/scripts/prPreview.js');
+              const raw = require('fs').readFileSync(process.env.RUNNER_TEMP + '/builds.json', 'utf8');
+              const builds = JSON.parse(raw.slice(raw.search(/[[{]/)));
+              console.log('REACHABILITY=' + reachability(builds, process.env.RUNTIME_VERSION));
+            " >> "$GITHUB_ENV" || echo "REACHABILITY=unknown" >> "$GITHUB_ENV"
+          else
+            echo "REACHABILITY=unknown" >> "$GITHUB_ENV"
+          fi
+      - name: Comment on the PR
+        run: |
+          node -e "
+            const { renderComment } = require('./.github/scripts/prPreview.js');
+            process.stdout.write(renderComment({
+              prNumber: Number(process.env.PR_NUMBER),
+              sha: process.env.HEAD_SHA,
+              runtimeVersion: process.env.RUNTIME_VERSION,
+              reachability: process.env.REACHABILITY,
+            }));
+          " > "$RUNNER_TEMP/comment.md"
+          ID=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --paginate \
+            --jq '[.[] | select(.body | startswith("<!-- pr-preview -->"))][0].id // empty')
+          if [ -n "$ID" ]; then
+            gh api -X PATCH "repos/${{ github.repository }}/issues/comments/$ID" -F body=@"$RUNNER_TEMP/comment.md"
+          else
+            gh api -X POST "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" -F body=@"$RUNNER_TEMP/comment.md"
+          fi

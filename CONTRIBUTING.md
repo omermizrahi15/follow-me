@@ -191,12 +191,27 @@ A required check on main that fails blocks all merges. Here's what runs and when
 | `ci-services.yml` (functions) | Edge Function code changes on main or any PR | Yes | Deno tests for changed functions (`deno task test`) |
 | `integration.yml` | on main merge only | Yes | Hit the staging Supabase project with integration tests |
 | `native-build-check.yml` | any PR | No (informational) | Warns if you need a native rebuild (`eas build`) |
+| `pr-preview.yml` | app code changes on a same-repo PR | No (informational) | Publish the PR's JS to the `pr` EAS channel that the Follow Me (PR) app loads on launch |
 | `deploy-app.yml` (OTA) | app merge to main | No (informational) | Ship JS bundle to staging EAS channel; promote to prod manually |
 | `deploy-db.yml` (migrations) | migration merge to main | Yes (staging only) | Apply pending migrations to staging; production requires manual workflow run |
 | `deploy-services.yml` (functions) | function merge to main | No (informational) | Deploy changed Edge Functions to staging; production requires manual run |
 | `e2e-ui.yml` | manual workflow run only | No | Build native iOS binary + run Maestro E2E suite |
 | `sentry-to-issue.yml` | runs every 6 hours | No | File GitHub bugs for critical Sentry crashes |
 | `web-e2e.yml` | web pages (docs/join/, docs/gallery.html) change | No | Playwright tests on the subscribe page and post gallery |
+
+## Previewing a PR on your phone
+
+Open the **Follow Me (PR)** app. It works like the staging build: every push to a same-repo PR publishes that PR's JS to the `pr` channel (`pr-preview.yml`), and the app fetches it on launch (force-quit and reopen once if you don't see it yet). It talks to the staging backend, and the PR gets a comment when the update is live.
+
+The app shows the **most recently published** PR. To switch to another open PR, run the "PR preview" workflow from the Actions tab with its number.
+
+One-time setup: build and install the app.
+
+```bash
+eas build --profile pr-preview --platform ios
+```
+
+(The first build needs an interactive Apple login to register `com.urishiber.followme.pr`.) Rebuild it only when a PR changes native code or dependencies; its update then carries a different runtime version and the installed build won't load it.
 
 ## Environment variables
 
