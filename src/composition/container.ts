@@ -379,6 +379,21 @@ export const pruneUploadedPhotos = monitored(
   async (olderThanDays: number): Promise<{ deletedRows: number }> => deleteCandidates({ olderThanDays }),
 );
 
+/**
+ * "Delete my account" — server-side removal of the signed-in user's data, their
+ * Cloudinary assets and the login itself (issue #253). The caller signs out
+ * locally afterwards; see `deleteAccountAndSignOut`.
+ */
+export const deleteAccount = monitored('delete_account', async (): Promise<void> => {
+  const token = (await authService.getSession())?.access_token;
+  if (token == null) throw new Error('Not signed in');
+  const res = await slowFetch(`${supabaseUrl}/functions/v1/delete-account`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${token}`, apikey: supabaseAnonKey, 'Content-Type': 'application/json' },
+  });
+  if (!res.ok) throw new Error(`Delete failed (${res.status}): ${await res.text()}`);
+});
+
 async function deleteCandidates(body: { olderThanDays?: number }): Promise<{ deletedRows: number }> {
   const token = (await authService.getSession())?.access_token;
   if (token == null) throw new Error('Not signed in');

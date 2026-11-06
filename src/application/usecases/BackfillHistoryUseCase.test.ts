@@ -475,3 +475,62 @@ describe('BackfillHistoryUseCase — cutting by place', () => {
     expect(result.drafts).toHaveLength(3);
   });
 });
+
+describe('BackfillHistoryUseCase — windows that produced nothing', () => {
+  it('names a window with no photos in it, so a quiet stretch is not a mystery', async () => {
+    // Only the newest week holds a photo; the two older ones are empty.
+    const { useCase } = makeSut([weeklyPhotos[0]!]);
+
+    const { skipped } = await useCase.execute(input);
+
+    expect(skipped.map(s => s.reason)).toEqual(['no_photos', 'no_photos']);
+    // Oldest first, like the scan.
+    expect(skipped[0]!.window.start.getTime()).toBeLessThan(skipped[1]!.window.start.getTime());
+    expect(skipped.every(s => s.found === 0)).toBe(true);
+  });
+
+  it('says photos were found but none could be read, with the counts', async () => {
+    const photos = [candidate('week1', '2026-06-04T12:00:00Z')];
+    const library = new FakeMediaLibrary(photos);
+    // The classifier returns nothing for the photo, as an iCloud original that never came down.
+    const classifier = new FakePhotoClassifier(new Map());
+    const suggest = new SuggestPhotosUseCase(library, classifier, new FakeSentPhotoTracker());
+    const useCase = new BackfillHistoryUseCase(suggest, classifier);
+
+    const { skipped, drafts } = await useCase.execute(input);
+
+    expect(drafts).toHaveLength(0);
+    const first = skipped[0]!;
+    expect(first.reason).toBe('unreadable');
+    expect(first.found).toBe(1);
+  });
+
+  it('says photos were graded but none were kept when they all fall below the bar', async () => {
+    const photo = candidate('week1', '2026-06-04T12:00:00Z');
+    const library = new FakeMediaLibrary([photo]);
+    const classifier = new FakePhotoClassifier(new Map([[photo.id, { ...classification(photo), quality: 0.01 }]]));
+    const suggest = new SuggestPhotosUseCase(library, classifier, new FakeSentPhotoTracker());
+    const useCase = new BackfillHistoryUseCase(suggest, classifier);
+
+    const { skipped } = await useCase.execute(input);
+
+    expect(skipped[0]).toMatchObject({ reason: 'none_kept', found: 1, graded: 1 });
+  });
+
+  it('does not list a window that produced a post', async () => {
+    const { useCase } = makeSut();
+
+    const { skipped } = await useCase.execute(input);
+
+    expect(skipped).toEqual([]);
+  });
+
+  it('reports each skipped window through the progress callback', async () => {
+    const { useCase } = makeSut([weeklyPhotos[0]!]);
+    const seen: string[] = [];
+
+    await useCase.execute(input, { onWindowSkipped: s => seen.push(s.reason) });
+
+    expect(seen).toEqual(['no_photos', 'no_photos']);
+  });
+});

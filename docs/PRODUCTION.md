@@ -351,3 +351,12 @@ publisher string is now rejected by the policy's `WITH CHECK`.
 Each `*.integration.test.ts` self-skips when its env vars are absent, so CI
 stays green without secrets; `npm run validate` runs typecheck + lint + the
 unit suite only.
+
+## Account deletion (issue #253)
+
+Settings → **Delete my account** calls the `delete-account` Edge Function with the
+user's JWT. It records the user's Cloudinary assets, wipes every table listed in
+`USER_DATA_TABLES` (`supabase/functions/delete-account/logic.ts`), destroys the
+assets best-effort, and deletes the auth user last so a failed run can be
+retried. **A new table with per-user rows must be added to that list** — the
+unit test pins it.

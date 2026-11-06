@@ -58,6 +58,8 @@
         "npm:eslint-import-resolver-typescript@3.6.1",
         "npm:eslint-plugin-import@^2.29.0",
         "npm:eslint@8",
+        "npm:expo-asset@~12.0.13",
+        "npm:expo-audio@~1.1.1",
         "npm:expo-background-task@~1.0.10",
         "npm:expo-blur@~15.0.8",
         "npm:expo-constants@~18.0.14",

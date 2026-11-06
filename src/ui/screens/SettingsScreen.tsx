@@ -10,6 +10,7 @@ import { AiUsageCard } from '../components/AiUsageCard';
 import { PhotoGradeInspectorCard } from '../dev/PhotoGradeInspector';
 import { usePhotoSyncSetting } from '../hooks/usePhotoSyncSetting';
 import { confirmCloudPhotoWipe } from '../data/cloudPhotoWipe';
+import { confirmAccountDeletion } from '../data/accountDeletion';
 import { openLegalDocument, PRIVACY_POLICY_URL, TERMS_OF_SERVICE_URL } from '../legal';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -182,6 +183,18 @@ export function SettingsScreen(): React.JSX.Element {
         <TouchableOpacity testID="settings-sign-out" style={styles.signOutButton} onPress={() => void signOut()}>
           <Ionicons name="log-out-outline" size={18} color={colors.danger} />
           <Text style={styles.signOutText}>Sign out</Text>
+        </TouchableOpacity>
+
+        <TouchableOpacity
+          testID="settings-delete-account"
+          style={styles.signOutButton}
+          onPress={() => confirmAccountDeletion(signOut)}
+          accessibilityRole="button"
+          accessibilityLabel="Delete my account"
+          accessibilityHint="Permanently deletes your account and all your data"
+        >
+          <Ionicons name="trash-outline" size={18} color={colors.danger} />
+          <Text style={styles.signOutText}>Delete my account</Text>
         </TouchableOpacity>
       </ScrollView>
     </SafeAreaView>
