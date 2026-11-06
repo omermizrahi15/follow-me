@@ -351,3 +351,16 @@ publisher string is now rejected by the policy's `WITH CHECK`.
 Each `*.integration.test.ts` self-skips when its env vars are absent, so CI
 stays green without secrets; `npm run validate` runs typecheck + lint + the
 unit suite only.
+
+## Paid subscriptions (issue #252)
+
+Free / Plus plans. Limits live in one table, `src/domain/services/plans.ts`. The server decides; the app only displays.
+
+Flow: App Store → RevenueCat → `revenuecat-webhook` Edge Function → `subscriptions` table (migration 20240043) → `loadPlan()` in each cost-driving function.
+
+| Secret | Where | Purpose |
+|---|---|---|
+| `REVENUECAT_WEBHOOK_SECRET` | Edge Function secrets | Must equal the `Bearer …` Authorization header configured on the RevenueCat webhook |
+| `ENFORCE_PLAN_LIMITS` | classify-photos secrets | `true` turns on per-plan AI limits. **Off by default** so the server can ship before the paywall; flip it together with the paywall release. `CLASSIFY_DAILY_QUOTA`, if set, still overrides. |
+
+RevenueCat setup: `app_user_id` must be the Supabase user id, entitlement id `plus`, webhook URL `https://<project>.supabase.co/functions/v1/revenuecat-webhook`.

@@ -627,3 +627,15 @@ Deno.test('pacingWaitSeconds — counts every image in the call, reference inclu
   assertEquals(pacingWaitSeconds(tokenLimits(5500, 30), 5), 0);
   assertEquals(pacingWaitSeconds(tokenLimits(5500, 30), 6), 30);
 });
+
+import { effectiveDailyLimit } from './logic.ts';
+
+Deno.test('effectiveDailyLimit: explicit override wins and is a cost brake', () => {
+  assertEquals(effectiveDailyLimit(10, 500, true), { limit: 10, source: 'override' });
+  assertEquals(effectiveDailyLimit(10, 500, false), { limit: 10, source: 'override' });
+});
+
+Deno.test('effectiveDailyLimit: plan limit applies only when enforcement is on', () => {
+  assertEquals(effectiveDailyLimit(null, 50, true), { limit: 50, source: 'plan' });
+  assertEquals(effectiveDailyLimit(null, 50, false), { limit: null, source: 'none' });
+});

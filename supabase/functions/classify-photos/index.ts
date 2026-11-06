@@ -71,6 +71,7 @@ import {
   classifyCaller,
   dailyQuotaFrom,
   downscaledUrl,
+  effectiveDailyLimit,
   isTransientUpstream,
   pairBatchResults,
   parseClassification,
@@ -79,6 +80,8 @@ import {
   type RefusalReason,
   requestedProviders,
 } from './logic.ts';
+import { loadPlan, type PlanDb } from '../_shared/plan.ts';
+import { limitsFor } from '../../../src/domain/services/plans.ts';
 import { geminiProvider } from './gemini.ts';
 import { groqProvider } from './groq.ts';
 import { mistralProvider } from './mistral.ts';
@@ -152,6 +155,18 @@ const MAX_INLINE_PACING_SECONDS = 20;
  * device, so a scan stopped here resumes where it left off.
  */
 const DAILY_QUOTA = dailyQuotaFrom(Deno.env.get('CLASSIFY_DAILY_QUOTA'));
+
+/**
+ * Per-plan daily limits (issue #252). Off until `ENFORCE_PLAN_LIMITS=true`, so
+ * the server can ship before the paywall and be switched on together with it.
+ */
+const ENFORCE_PLAN_LIMITS = Deno.env.get('ENFORCE_PLAN_LIMITS') === 'true';
+
+/** The ceiling this user is judged against today, and who set it. */
+async function dailyLimitFor(userId: string) {
+  const plan = await loadPlan(admin as unknown as PlanDb, userId);
+  return { plan, ...effectiveDailyLimit(DAILY_QUOTA, limitsFor(plan).aiPhotosPerDay, ENFORCE_PLAN_LIMITS) };
+}
 
 /**
  * Resolves the id whose quota this request spends, or null when the caller is
@@ -813,8 +828,10 @@ async function usageResponse(userId: string): Promise<Response> {
   // `provider` is the singular field older app builds read. Kept as the chain's
   // LEADER rather than the last speaker, so even an un-updated build stops
   // naming the fallback as the thing doing the grading.
+  const ceiling = await dailyLimitFor(userId);
   return json({
-    ...quotaSnapshot(quota.data, DAILY_QUOTA, day),
+    ...quotaSnapshot(quota.data, ceiling.limit, day),
+    plan: ceiling.plan,
     provider: providers[0] ?? null,
     providers,
   });
@@ -858,10 +875,18 @@ Deno.serve(async (req: Request) => {
   const quota = await admin.rpc('increment_classify_quota', { p_user: userId, p_inc: photos.length });
   if (quota.error != null) {
     console.error('classify quota check failed:', quota.error.message);
-  } else if (DAILY_QUOTA != null && typeof quota.data === 'number' && quota.data > DAILY_QUOTA) {
-    console.warn(`classify quota exceeded: user ${userId} at ${quota.data}/${DAILY_QUOTA}`);
-    const reason: RefusalReason = 'daily_quota';
-    return json({ error: 'Daily classification quota exceeded', reason }, 429);
+  } else {
+    const ceiling = await dailyLimitFor(userId);
+    if (ceiling.limit != null && typeof quota.data === 'number' && quota.data > ceiling.limit) {
+      console.warn(`classify quota exceeded: user ${userId} (${ceiling.plan}) at ${quota.data}/${ceiling.limit}`);
+      // A plan limit is the one refusal the user can do something about, so it
+      // gets its own reason and the app can offer the upgrade.
+      const reason: RefusalReason = ceiling.source === 'plan' ? 'plan_limit' : 'daily_quota';
+      return json(
+        { error: 'Daily classification quota exceeded', reason, plan: ceiling.plan, limit: ceiling.limit },
+        429,
+      );
+    }
   }
 
   // The publisher's profile photo, when they asked for the face preference.
