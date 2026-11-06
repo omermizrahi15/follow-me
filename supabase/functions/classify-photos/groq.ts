@@ -6,7 +6,7 @@
  *
  * Two things differ from Gemini and both shape the code below:
  *
- * - Five images per call, not twelve. The caller chunks to `maxImagesPerCall`,
+ * - Three images per call, not twelve. The caller chunks to `maxImagesPerCall`,
  *   so this is a number here rather than a rule anyone has to remember.
  * - JSON mode, not a schema. Groq guarantees the reply parses, not that it has
  *   the fields we asked for, so the shape is spelled out in the prompt and every
@@ -41,8 +41,10 @@ const ENDPOINT = 'https://api.groq.com/openai/v1/chat/completions';
 const DEFAULT_GROQ_MODEL = 'qwen/qwen3.8-27b';
 
 /**
- * Documented ceiling for this model. The reference portrait counts towards it,
- * which is why the caller subtracts it rather than assuming five photos fit.
+ * Documented ceiling for this model: Groq 400s "Too many images provided. This
+ * model supports up to 3 images" above it, and the 5 we used to send did exactly
+ * that on every full chunk (2026-11-06). The reference portrait counts towards
+ * it, which is why the caller subtracts it rather than assuming three photos fit.
  *
  * Note that images per call is NOT what bounds this provider in practice.
  * Measured free-tier limits for its predecessor qwen3.6-27b were 30 requests/minute and 1000/day
@@ -50,7 +52,7 @@ const DEFAULT_GROQ_MODEL = 'qwen/qwen3.8-27b';
  * a thousand of. Tokens are the ceiling; the per-call image count only decides
  * how lumpily they are spent. See the usage logging in classify().
  */
-const MAX_IMAGES_PER_CALL = 5;
+export const MAX_IMAGES_PER_CALL = 3;
 
 /**
  * Appended when the provider cannot enforce a schema.

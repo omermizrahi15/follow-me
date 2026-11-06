@@ -50,6 +50,12 @@ export interface QueryCache {
   isStale: (key: string, staleTime: number) => boolean;
   /** Put a value in directly — an optimistic update, not a request. */
   write: <T>(key: string, data: T) => void;
+  /**
+   * Rewrite the held value in place — an optimistic edit. Returns a rollback
+   * that restores the value as it was, for when the write behind the edit
+   * fails. No-op (and a no-op rollback) when the key holds no data.
+   */
+  update: <T>(key: string, transform: (data: T) => T) => () => void;
   /** Mark every key starting with `prefix` stale, keeping its data. */
   invalidate: (prefix: string) => void;
   /** Listen for changes to one key. Returns the unsubscribe. */
@@ -106,6 +112,13 @@ export function createQueryCache(now: () => number = () => Date.now()): QueryCac
 
     write<T>(key: string, data: T): void {
       set(key, { data, error: undefined, fetchedAt: entries.get(key)?.fetchedAt ?? now() });
+    },
+
+    update<T>(key: string, transform: (data: T) => T): () => void {
+      const before = entries.get(key);
+      if (before?.data === undefined) return () => undefined;
+      set(key, { ...before, data: transform(before.data as T), error: undefined });
+      return () => set(key, { ...before });
     },
 
     invalidate(prefix: string): void {
