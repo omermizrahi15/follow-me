@@ -22,7 +22,7 @@ export interface PlanLimits {
 
 export const PLANS: Readonly<Record<PlanId, PlanLimits>> = {
   none: { aiPhotosPerDay: 0, whatsappMessagesPerMonth: 0, followers: 0 },
-  plus: { aiPhotosPerDay: 500, whatsappMessagesPerMonth: 2000, followers: 50 },
+  plus: { aiPhotosPerDay: 200, whatsappMessagesPerMonth: 1000, followers: 50 },
 };
 
 /** The entitlement id configured in RevenueCat that unlocks {@link PlanId} `plus`. */

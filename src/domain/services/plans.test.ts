@@ -9,6 +9,11 @@ describe('PLANS', () => {
     expect(PLANS.none).toEqual({ aiPhotosPerDay: 0, whatsappMessagesPerMonth: 0, followers: 0 });
   });
 
+  it('Plus matches the costed numbers (issue #252): 200 AI photos/day, 1000 messages/month', () => {
+    expect(PLANS.plus.aiPhotosPerDay).toBe(200);
+    expect(PLANS.plus.whatsappMessagesPerMonth).toBe(1000);
+  });
+
   it('Plus allows something on every limit', () => {
     expect(PLANS.plus.aiPhotosPerDay).toBeGreaterThan(0);
     expect(PLANS.plus.whatsappMessagesPerMonth).toBeGreaterThan(0);
