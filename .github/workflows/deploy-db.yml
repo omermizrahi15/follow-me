@@ -93,8 +93,11 @@ jobs:
       - name: Push migrations
         run: |
           ENV="${{ github.event.inputs.environment || 'staging' }}"
-          FLAGS=""
-          [ "${{ github.event.inputs.include_all }}" = "true" ] && FLAGS="--include-all"
+          # --yes: `version: latest` CLI now asks "Apply N migrations?" and exits 1
+          # when stdout isn't a terminal, which silently stalled staging at
+          # 20240041 from 2026-11-05 (the deploy went red, nothing applied).
+          FLAGS="--yes"
+          [ "${{ github.event.inputs.include_all }}" = "true" ] && FLAGS="--yes --include-all"
           if [ "$ENV" = "production" ]; then
             supabase db push $FLAGS --db-url "${{ secrets.PROD_DB_URL }}"
           else
