@@ -475,6 +475,8 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
   onPublishOne: () => void;
 }): React.JSX.Element {
   const { dropped } = posting;
+  // One row of photos by default; open, every photo at once in a wrapped grid.
+  const [open, setOpen] = useState(false);
   // A stretch already on its way out is settled — swapping a photo into it
   // would change nothing in the feed while looking like it did.
   const editable = posting.status !== 'published' && posting.status !== 'publishing';
@@ -492,6 +494,16 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
           <Text style={styles.scanSummary}>{scanSummary(posting.draft.scanned)}</Text>
         </View>
         <TouchableOpacity
+          testID={`backfill-fold-${posting.id}`}
+          onPress={() => setOpen(o => !o)}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          accessibilityLabel={open ? 'Show one row of photos' : 'Show all photos'}
+          hitSlop={8}
+        >
+          <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={22} color={colors.textSecondary} />
+        </TouchableOpacity>
+        <TouchableOpacity
           testID={`backfill-toggle-${posting.id}`}
           onPress={onToggle}
           accessibilityRole="checkbox"
@@ -507,7 +519,7 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
         </TouchableOpacity>
       </View>
 
-      <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
+      <PhotoLayout open={open}>
         {posting.slots.map(id => {
           const photo = photos.get(id);
           if (photo == null) return null;
@@ -556,7 +568,7 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
         {!dropped && editable && hasRoomForMore(posting) && (
           <AddPhotoCard posting={posting} canAdd={more} onPress={onAdd} variant="row" />
         )}
-      </ScrollView>
+      </PhotoLayout>
 
       {/* Same field the live review screen uses: with photo GPS it's just an
           editable label, and without it the search is how this stretch of the
@@ -570,6 +582,17 @@ function PostingCard({ posting, photos, config, onToggle, onPlace, onSwap, onAdd
 
       <PublishOne posting={posting} onPublish={onPublishOne} />
     </View>
+  );
+}
+
+/** A post's photos: a scrolling row when folded, a wrapped grid of all of them when open. */
+function PhotoLayout({ open, children }: { open: boolean; children: React.ReactNode }): React.JSX.Element {
+  return open ? (
+    <View style={styles.previewGrid}>{children}</View>
+  ) : (
+    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.photoRow}>
+      {children}
+    </ScrollView>
   );
 }
 
