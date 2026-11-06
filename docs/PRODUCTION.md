@@ -373,3 +373,12 @@ RevenueCat setup: `app_user_id` must be the Supabase user id, entitlement id `pl
 | `EXPO_PUBLIC_REQUIRE_PLUS` | `true` → a signed-in user without active Plus sees only the paywall. Off by default; flip together with the server's `ENFORCE_PLAN_LIMITS`. Fails open on any store error — the server is what really enforces. |
 
 Needs a **native rebuild** (`react-native-purchases`). Enable the In-App Purchase capability on the App ID, create the products in App Store Connect, and attach them to a RevenueCat offering with `$rc_monthly` / `$rc_annual` packages and the `plus` entitlement.
+
+## Account deletion (issue #253)
+
+Settings → **Delete my account** calls the `delete-account` Edge Function with the
+user's JWT. It records the user's Cloudinary assets, wipes every table listed in
+`USER_DATA_TABLES` (`supabase/functions/delete-account/logic.ts`), destroys the
+assets best-effort, and deletes the auth user last so a failed run can be
+retried. **A new table with per-user rows must be added to that list** — the
+unit test pins it.
