@@ -111,19 +111,42 @@ describe('findHistoryGaps — window boundaries', () => {
     ]);
   });
 
-  it('covers a short clamped oldest window', () => {
-    // 17 days at a weekly cadence: the oldest window is only 3 days long.
+  it('covers a short clamped newest window', () => {
+    // 17 days at a weekly cadence: the newest window is only 3 days long.
     const input: HistoryGapInput = {
       tripStartDate: at('2026-06-01T00:00:00Z'),
       endDate: at('2026-06-18T00:00:00Z'),
       intervalDays: 7,
-      postingDates: [at('2026-06-02T10:00:00Z')],
+      postingDates: [at('2026-06-16T10:00:00Z')],
     };
 
     const plan = findHistoryGaps(input);
     expect(plan.totalWindows).toBe(3);
     expect(plan.coveredWindows).toBe(1);
-    expect(plan.gaps.every(g => g.start.getTime() >= at('2026-06-04T00:00:00Z').getTime())).toBe(true);
+    expect(plan.gaps.every(g => g.end.getTime() <= at('2026-06-15T00:00:00Z').getTime())).toBe(true);
+  });
+});
+
+describe('findHistoryGaps — a grid that does not move with the clock', () => {
+  // The bug: windows were cut backwards from "now", so every day the whole grid
+  // slid and a stretch posted yesterday no longer lined up with any window. The
+  // oldest window became a sliver of already-posted days, and the rescan began
+  // at the very start of the trip instead of after the first post.
+  it('keeps a posted first stretch covered, and starts the next gap after it, as days pass', () => {
+    const postedOn = at('2026-06-07T10:00:00Z'); // end of the first week
+    for (const today of ['2026-06-22T00:00:00Z', '2026-06-23T12:00:00Z', '2026-06-26T00:00:00Z']) {
+      const { gaps } = findHistoryGaps({
+        ...base, endDate: at(today), postingDates: [postedOn],
+      });
+      const oldest = gaps[gaps.length - 1];
+      expect(oldest?.start.toISOString()).toBe('2026-06-08T00:00:00.000Z');
+    }
+  });
+
+  it('puts the short partial window at the newest end', () => {
+    const { gaps } = findHistoryGaps({ ...base, endDate: at('2026-06-25T00:00:00Z'), postingDates: [] });
+    expect(gaps[0]?.start.toISOString()).toBe('2026-06-22T00:00:00.000Z');
+    expect(gaps[0]?.end.toISOString()).toBe('2026-06-25T00:00:00.000Z');
   });
 });
 
