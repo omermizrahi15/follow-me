@@ -356,7 +356,7 @@ unit suite only.
 
 No free tier: a user is on `none` (no access) or `plus`. Limits live in one table, `src/domain/services/plans.ts`. The server decides; the app only displays.
 
-Flow: App Store → RevenueCat → `revenuecat-webhook` Edge Function → `subscriptions` table (migration 20240043) → `loadPlan()` in each cost-driving function.
+Flow: App Store → RevenueCat → `revenuecat-webhook` Edge Function → `subscriptions` table (migration 20240044) → `loadPlan()` in each cost-driving function.
 
 | Secret | Where | Purpose |
 |---|---|---|

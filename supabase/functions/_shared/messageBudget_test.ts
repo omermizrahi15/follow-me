@@ -41,7 +41,7 @@ Deno.test('remainingMessages: no subscription allows nothing', async () => {
 });
 
 Deno.test('remainingMessages: plus gets the limit minus this month\'s sends', async () => {
-  assertEquals(await remainingMessages(fake(PLUS, 500), 'u', NOW, true), 1500);
+  assertEquals(await remainingMessages(fake(PLUS, 400), 'u', NOW, true), 600);
   assertEquals(await remainingMessages(fake(PLUS, 5000), 'u', NOW, true), 0);
 });
 
