@@ -14,6 +14,7 @@ import type { PhotoClassification } from '../../domain/entities/PhotoClassificat
 import type { PublisherConfig } from '../../domain/entities/PublisherConfig';
 import { MAX_PHOTOS_PER_POST } from '../../domain/entities/PublisherConfig';
 import { isSuggestablePhoto } from '../../domain/services/PhotoSelectionService';
+import { removeSlot } from '../../domain/services/photoSlots';
 import type { Coordinate } from '../../domain/interfaces';
 import { coordinateFor, coordinatesFor } from '../data/photoCoordinates';
 import { invalidateFeed } from '../data/queries';
@@ -231,6 +232,8 @@ export type HistoryBackfill = State & {
   setPlace: (id: string, place: string, coordinate?: Coordinate) => void;
   swapPhoto: (id: string, photoId: string) => void;
   addPhoto: (id: string) => void;
+  /** Takes one photo out of a stretch's post; the last one stays. */
+  removePhoto: (id: string, photoId: string) => void;
   publish: () => Promise<PublishOutcome>;
   publishOne: (id: string) => Promise<void>;
   togglePause: () => void;
@@ -380,6 +383,13 @@ export function useHistoryBackfill(publisherId: string): HistoryBackfill {
     setState(s => ({
       ...s,
       postings: s.postings.map(p => (p.id === id ? { ...p, dropped: !p.dropped } : p)),
+    }));
+  }, []);
+
+  const removePhoto = useCallback((id: string, photoId: string): void => {
+    setState(s => ({
+      ...s,
+      postings: s.postings.map(p => (p.id === id ? { ...p, slots: removeSlot(p.slots, photoId) } : p)),
     }));
   }, []);
 
@@ -669,7 +679,7 @@ export function useHistoryBackfill(publisherId: string): HistoryBackfill {
 
   return {
     ...state,
-    run, toggleDropped, setPlace, swapPhoto, addPhoto, publish, publishOne, togglePause, reset, retry,
+    run, toggleDropped, setPlace, swapPhoto, addPhoto, removePhoto, publish, publishOne, togglePause, reset, retry,
   };
 }
 
