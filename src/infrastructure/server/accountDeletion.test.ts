@@ -17,6 +17,7 @@ describe('USER_DATA_TABLES', () => {
       publisher_config: 'publisher_id',
       publisher_profile: 'publisher_id',
       classify_quota: 'user_id',
+      subscriptions: 'user_id',
     });
   });
 });

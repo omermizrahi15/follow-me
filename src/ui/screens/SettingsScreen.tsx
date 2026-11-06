@@ -59,6 +59,25 @@ export function SettingsScreen(): React.JSX.Element {
           </View>
         </View>
 
+        <Text style={styles.sectionLabel}>Subscription</Text>
+        <View style={styles.card}>
+          <TouchableOpacity
+            testID="settings-plus"
+            style={styles.row}
+            onPress={() => navigation.navigate('Paywall')}
+            activeOpacity={0.7}
+          >
+            <View style={styles.iconWrap}>
+              <Ionicons name="sparkles-outline" size={20} color={colors.accent} />
+            </View>
+            <View style={styles.rowText}>
+              <Text style={styles.rowTitle}>Follow Me Plus</Text>
+              <Text style={styles.rowValue}>Plans, restore purchases</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={18} color={colors.textMuted} />
+          </TouchableOpacity>
+        </View>
+
         <Text style={styles.sectionLabel}>Posts</Text>
         <View style={styles.card}>
           <TouchableOpacity

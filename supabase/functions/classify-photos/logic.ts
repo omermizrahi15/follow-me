@@ -67,7 +67,7 @@ export function classifyCaller(
  * budget — it is the same request being worth making again in a few seconds —
  * so it must not reach the app as a broken classifier (issue #189).
  */
-export type RefusalReason = 'daily_quota' | 'rate_limited' | 'upstream_busy';
+export type RefusalReason = 'daily_quota' | 'plan_limit' | 'rate_limited' | 'upstream_busy';
 
 /**
  * True when an upstream status is a moment rather than a verdict.
@@ -631,4 +631,23 @@ export function pacingWaitSeconds(
   // anyway buys a 429, and a 429 is what sends the scan down the chain to a
   // provider with a twentieth of the budget — waiting is strictly cheaper.
   return tokens.resetSeconds ?? TOKEN_WINDOW_SECONDS;
+}
+
+/**
+ * The per-user daily ceiling a request is judged against, and where it came from.
+ *
+ * An explicit `CLASSIFY_DAILY_QUOTA` override always wins (a deliberate cost
+ * brake). Otherwise the user's plan limit applies — but only once plan
+ * enforcement is switched on (`ENFORCE_PLAN_LIMITS`), so the limits can ship
+ * dark and be enabled together with the paywall rather than capping users who
+ * have no way to upgrade yet (issue #252).
+ */
+export function effectiveDailyLimit(
+  override: number | null,
+  planLimit: number,
+  enforcePlans: boolean,
+): { limit: number | null; source: 'override' | 'plan' | 'none' } {
+  if (override != null) return { limit: override, source: 'override' };
+  if (enforcePlans) return { limit: planLimit, source: 'plan' };
+  return { limit: null, source: 'none' };
 }

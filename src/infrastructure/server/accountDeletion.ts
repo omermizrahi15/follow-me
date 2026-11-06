@@ -22,6 +22,9 @@ export const USER_DATA_TABLES: readonly { table: string; column: string }[] = [
   { table: 'publisher_config', column: 'publisher_id' },
   { table: 'publisher_profile', column: 'publisher_id' },
   { table: 'classify_quota', column: 'user_id' },
+  // Paid-plan record (issue #252). Deleting the account does not cancel the store
+  // subscription — that is Apple's, and the user ends it in their Apple ID settings.
+  { table: 'subscriptions', column: 'user_id' },
 ];
 
 interface DbResult {

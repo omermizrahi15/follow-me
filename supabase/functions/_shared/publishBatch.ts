@@ -14,6 +14,8 @@ import { credsFromEnv, sendBatch, sendWhatsApp, sendWhatsAppTemplate, TwilioSend
 import { logAcceptedSend, logRejectedSend, markSubscriberUnreachable } from './messageLog.ts';
 import { buildPostTemplate } from './postTemplate.ts';
 import { collageUrl } from './collage.ts';
+import { remainingMessages } from './messageBudget.ts';
+import { recipientsWithinBudget } from '../../../src/domain/services/plans.ts';
 import { savePostGallery } from './postGallery.ts';
 import { composeAutoPostBody } from '../../../src/domain/services/notificationBody.ts';
 import { publisherIdentity } from './publisher.ts';
@@ -35,7 +37,10 @@ export interface PublishablePhoto {
 export interface PublishResult {
   postingId: string;
   photoCount: number;
+  /** Followers the message actually went to. */
   subscriberCount: number;
+  /** Followers left out because the publisher's plan has no messages left this month (issue #252). */
+  skippedByPlan: number;
 }
 
 /**
@@ -98,7 +103,7 @@ export async function publishBatch(
     .select('contact_handle')
     .eq('publisher_id', publisherId)
     .eq('status', 'active');
-  const subscribers = (subs ?? []) as { contact_handle: string }[];
+  const allSubscribers = (subs ?? []) as { contact_handle: string }[];
 
   const recordAccepted = async (contactHandle: string, sid: string | null): Promise<void> => {
     if (sid != null) await logAcceptedSend(supabase, { sid, publisherId, contactHandle });
@@ -109,6 +114,18 @@ export async function publishBatch(
   };
 
   const collage = collageUrl(urls);
+
+  // The month's message budget (issue #252). A collage costs one message per
+  // follower, the per-photo fallback one per photo; a follower is never
+  // half-served. Null budget = enforcement off, everyone is sent to.
+  const remaining = await remainingMessages(supabase, publisherId, now);
+  const reachable = recipientsWithinBudget(remaining, allSubscribers.length, collage != null ? 1 : urls.length);
+  const subscribers = allSubscribers.slice(0, reachable);
+  const skippedByPlan = allSubscribers.length - subscribers.length;
+  if (skippedByPlan > 0) {
+    console.warn(`publishBatch: ${publisherId} out of plan messages — skipping ${skippedByPlan}/${allSubscribers.length} followers`);
+  }
+
   // Approved template (works out-of-session); same for every subscriber since
   // the variables don't depend on the recipient. Null → free-form fallback.
   const template = collage != null
@@ -163,5 +180,5 @@ export async function publishBatch(
   console.log(
     `publishBatch: ${publisherId} — ${photos.length} photos to ${subscribers.length} subscribers as ${postingId} (${now.toISOString()})`,
   );
-  return { postingId, photoCount: photos.length, subscriberCount: subscribers.length };
+  return { postingId, photoCount: photos.length, subscriberCount: subscribers.length, skippedByPlan };
 }
