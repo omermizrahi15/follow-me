@@ -10,7 +10,8 @@ import { planHistoryWindows, MAX_HISTORY_WINDOWS } from '../../domain/services/h
  */
 const MAX_WINDOWS_WALKED = 2000;
 import type { HistoryWindow, HistoryWindowPlan } from '../../domain/services/historyWindows';
-import type { SuggestPhotosUseCase } from './SuggestPhotosUseCase';
+import type { SkipReason } from '../../domain/services/skippedWindows';
+import type { SuggestPhotosUseCase, SuggestStats } from './SuggestPhotosUseCase';
 
 export interface BackfillHistoryInput {
   config: PublisherConfig;
@@ -61,7 +62,23 @@ export interface BackfillDraft {
   pool: PhotoClassification[];
 }
 
+/**
+ * A stretch that produced no post, and why. These used to vanish without a
+ * trace, so a publisher who knew they had photos from a month could only see
+ * that the rebuild "started" later than it should.
+ */
+export interface SkippedWindow {
+  window: HistoryWindow;
+  reason: SkipReason;
+  /** Photos the library returned for the window. */
+  found: number;
+  /** Photos the AI graded. */
+  graded: number;
+}
+
 export interface BackfillProgress {
+  /** Fires when a window ends without a post, with the reason. */
+  onWindowSkipped?(skipped: SkippedWindow): void;
   /** Fires once, before any scanning, so the UI can show the window count. */
   onPlanned?(plan: HistoryWindowPlan): void;
   /** Fires as each window starts. `index` is 1-based. */
@@ -85,6 +102,8 @@ export interface BackfillProgress {
 export interface BackfillHistoryResult {
   /** Windows that produced photos, newest first. Empty windows are dropped. */
   drafts: BackfillDraft[];
+  /** The windows that were walked and produced nothing, oldest first, with why. */
+  skipped: SkippedWindow[];
   plan: HistoryWindowPlan;
   /** How many windows actually ran (< plan.windows.length if the quota ran out). */
   scannedWindows: number;
@@ -184,6 +203,7 @@ export class BackfillHistoryUseCase {
     progress?.onPlanned?.(plan);
 
     const drafts: BackfillDraft[] = [];
+    const skipped: SkippedWindow[] = [];
     // Grows as windows are cut by place: a stretch is only known to hold two
     // cities once its photos have been looked at.
     let total = plan.windows.length;
@@ -210,8 +230,9 @@ export class BackfillHistoryUseCase {
 
         let batch: PhotoClassification[];
         let pool: PhotoClassification[];
+        let stats: SuggestStats;
         try {
-          ({ batch, pool } = await this.suggestPhotos.execute(
+          ({ batch, pool, stats } = await this.suggestPhotos.execute(
             input.config,
             {
               onScanning: () => undefined,
@@ -236,7 +257,21 @@ export class BackfillHistoryUseCase {
         // A window with nothing in it is normal — weeks at home between trips.
         // Dropping it keeps the review timeline about places the publisher went.
         const draft = batch.length > 0 ? { window, scanned, batch, pool } : null;
-        if (draft != null) drafts.push(draft);
+        if (draft != null) {
+          drafts.push(draft);
+        } else {
+          const miss: SkippedWindow = {
+            window,
+            found: scanned.found,
+            graded: stats.graded,
+            reason:
+              scanned.found === 0 ? 'no_photos'
+                : stats.unreadable > 0 && stats.graded === 0 ? 'unreadable'
+                  : 'none_kept',
+          };
+          skipped.push(miss);
+          progress?.onWindowSkipped?.(miss);
+        }
         progress?.onWindowDone?.(i + 1, total, draft);
 
         // Enough reconstructed for one sitting. Quiet windows walked along the
@@ -271,7 +306,7 @@ export class BackfillHistoryUseCase {
       }
     }
 
-    return { drafts, plan, scannedWindows, quotaExhausted, rateLimited, timedOut, failure };
+    return { drafts, skipped, plan, scannedWindows, quotaExhausted, rateLimited, timedOut, failure };
   }
 
   /** The cadence window as one or more place-sized stretches; whole on any failure. */

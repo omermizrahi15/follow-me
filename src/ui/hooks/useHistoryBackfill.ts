@@ -7,7 +7,9 @@ import {
   resolvePlaceForCoordinates,
   expoResolveLocalUri,
 } from '../../composition/container';
-import type { BackfillDraft } from '../../application/usecases/BackfillHistoryUseCase';
+import type { BackfillDraft, SkippedWindow } from '../../application/usecases/BackfillHistoryUseCase';
+
+export type { SkippedWindow };
 import type { HistoryWindow, HistoryWindowPlan } from '../../domain/services/historyWindows';
 import type { PhotoCandidate } from '../../domain/entities/PhotoCandidate';
 import type { PhotoClassification } from '../../domain/entities/PhotoClassification';
@@ -103,6 +105,8 @@ interface State {
   scanBatch: PhotoClassification[];
   /** True when the day's AI budget cut the scan short. */
   quotaExhausted: boolean;
+  /** Stretches that were walked and produced no post, with why. */
+  skipped: SkippedWindow[];
   /** Publisher has paused the scan; it stops at the next window boundary. */
   paused: boolean;
   /** How many postings have been written during publishing. */
@@ -138,6 +142,7 @@ const INITIAL: State = {
   scanOf: 0,
   scanBatch: [],
   quotaExhausted: false,
+  skipped: [],
   paused: false,
   published: 0,
   failedCount: 0,
@@ -369,6 +374,7 @@ export function useHistoryBackfill(publisherId: string): HistoryBackfill {
           phase: 'review',
           plan: result.plan,
           quotaExhausted: result.quotaExhausted,
+          skipped: result.skipped,
           scanError: result.failure,
           error: null,
         }));
