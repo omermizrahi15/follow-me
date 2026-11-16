@@ -13,6 +13,8 @@ import { UploadScreen } from '../screens/UploadScreen';
 import { PostingDetailScreen } from '../screens/PostingDetailScreen';
 import { EditProfileScreen } from '../screens/EditProfileScreen';
 import { TrashScreen } from '../screens/TrashScreen';
+import { PaywallScreen } from '../screens/PaywallScreen';
+import { usePlus } from '../hooks/usePlus';
 import { OnboardingScreen } from '../screens/OnboardingScreen';
 import { SetupRequiredScreen } from '../screens/SetupRequiredScreen';
 import { envSetupMessage } from '../../composition/env';
@@ -92,6 +94,9 @@ function RootNavigator(): React.JSX.Element {
   // reaches for the native module at all.
   useEffect(() => startConnectivityWatch(), []);
   const { completed: onboardingDone, loading: onboardingLoading, complete } = useOnboarding();
+  // With EXPO_PUBLIC_REQUIRE_PLUS on, a signed-in user without Plus sees only the
+  // paywall (issue #252). Fails open: the server is what actually enforces.
+  const plus = usePlus(publisherId);
 
   if (loading || onboardingLoading) {
     return (
@@ -105,6 +110,10 @@ function RootNavigator(): React.JSX.Element {
     return <OnboardingScreen onDone={() => void complete()} />;
   }
 
+  if (publisherId != null && plus.locked) {
+    return <PaywallScreen locked />;
+  }
+
   return (
     <NavigationContainer ref={navigationRef}>
       <Stack.Navigator screenOptions={{ headerShown: false }}>
@@ -116,6 +125,7 @@ function RootNavigator(): React.JSX.Element {
             <Stack.Screen name="Settings" component={SettingsScreen} />
             <Stack.Screen name="EditProfile" component={EditProfileScreen} />
             <Stack.Screen name="Trash" component={TrashScreen} />
+            <Stack.Screen name="Paywall" component={PaywallScreen} />
             <Stack.Screen name="Upload" component={UploadScreen} options={{ presentation: 'modal' }} />
             {/* No ReviewSuggestion / HistoryBackfill routes: both screens render
                 inline in the Me sheet, which is the only way the publisher

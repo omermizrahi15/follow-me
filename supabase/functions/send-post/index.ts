@@ -24,6 +24,7 @@ import {
   whatsappSafeMediaUrl,
   TwilioSendError,
 } from '../../../src/infrastructure/notifiers/twilioClient.ts';
+import { remainingMessages } from '../_shared/messageBudget.ts';
 import { logAcceptedSend, logRejectedSend, markSubscriberUnreachable } from '../_shared/messageLog.ts';
 import { buildPostTemplate } from '../_shared/postTemplate.ts';
 import { composeAutoPostBody } from '../../../src/domain/services/notificationBody.ts';
@@ -58,6 +59,15 @@ Deno.serve(async req => {
   const validation = validateSendPost(body);
   if (!validation.ok) return json({ error: validation.error }, 400);
   const { publisherId, to, mediaUrls, place, postingId } = validation.value;
+
+  // The month's message budget (issue #252): refuse BEFORE anything is spent.
+  // Costs one message for a collage, one per photo otherwise. The app can offer
+  // the upgrade off the `plan_limit` reason.
+  const remaining = await remainingMessages(supabase, publisherId);
+  const cost = collageUrl(mediaUrls) != null ? 1 : mediaUrls.length;
+  if (remaining != null && remaining < cost) {
+    return json({ error: 'Monthly message limit reached', reason: 'plan_limit' }, 429);
+  }
 
   const { name, phone } = await publisherIdentity(supabase, publisherId);
   // One posts row per batch (the id is a hash of publisher + urls), so the

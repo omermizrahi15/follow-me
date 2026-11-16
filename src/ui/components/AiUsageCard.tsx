@@ -3,6 +3,8 @@ import { ActivityIndicator, StyleSheet, Text, TouchableOpacity, View } from 'rea
 import Ionicons from '@expo/vector-icons/Ionicons';
 import type { AiUsageLevel, AiUsageSummary } from '../../domain/entities/AiUsage';
 import { aiUsageCopy, providerChainCopy } from '../../domain/services/aiUsage';
+import { useNavigation } from '@react-navigation/native';
+import type { RootNavigationProp } from '../navigation/types';
 import { useAiUsage } from '../hooks/useAiUsage';
 import { colors, radius, spacing, typography } from '../theme/theme';
 
@@ -30,6 +32,7 @@ import { colors, radius, spacing, typography } from '../theme/theme';
  */
 export function AiUsageCard({ publisherId }: { publisherId: string }): React.JSX.Element | null {
   const usage = useAiUsage(publisherId);
+  const navigation = useNavigation<RootNavigationProp>();
 
   return (
     <View testID="ai-usage-bar">
@@ -45,6 +48,18 @@ export function AiUsageCard({ publisherId }: { publisherId: string }): React.JSX
           </View>
           <Body usage={usage} />
         </View>
+        {/* No subscription: say so, and offer the way out (issue #252). */}
+        {usage.data?.plan === 'none' && (
+          <TouchableOpacity
+            testID="ai-usage-upgrade"
+            style={styles.upgrade}
+            onPress={() => navigation.navigate('Paywall')}
+            activeOpacity={0.8}
+          >
+            <Text style={styles.upgradeText}>AI photo picks need Follow Me Plus</Text>
+            <Text style={styles.upgradeAction}>See plans</Text>
+          </TouchableOpacity>
+        )}
         <ProviderChain summary={usage.data ?? null} />
       </View>
     </View>
@@ -160,6 +175,18 @@ const LEVEL_COLOR: Record<AiUsageLevel, string> = {
 };
 
 const styles = StyleSheet.create({
+  upgrade: {
+    marginTop: spacing.md,
+    padding: spacing.md,
+    borderRadius: radius.md,
+    backgroundColor: colors.accentSoft,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: spacing.sm,
+  },
+  upgradeText: { ...typography.caption, color: colors.text, flex: 1 },
+  upgradeAction: { ...typography.button, color: colors.accent },
   sectionLabel: {
     ...typography.caption,
     color: colors.textMuted,

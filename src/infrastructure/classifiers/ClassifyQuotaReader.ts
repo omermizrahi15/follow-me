@@ -43,6 +43,7 @@ export class ClassifyQuotaReader implements IAiUsageReader {
       day?: unknown;
       provider?: unknown;
       providers?: unknown;
+      plan?: unknown;
     } | null;
 
     // A deployment that predates the GET handler answers 405 with its own JSON,
@@ -72,6 +73,7 @@ export class ClassifyQuotaReader implements IAiUsageReader {
       used: Number(body?.used),
       limit: Number.isFinite(body?.limit) ? Number(body?.limit) : null,
       day: typeof body?.day === 'string' ? body.day : '',
+      ...(body?.plan === 'none' || body?.plan === 'plus' ? { plan: body.plan } : {}),
       provider,
       providers,
     };

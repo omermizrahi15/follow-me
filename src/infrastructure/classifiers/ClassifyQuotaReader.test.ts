@@ -29,6 +29,15 @@ describe('ClassifyQuotaReader', () => {
     expect(init.headers.apikey).toBe('anon-key');
   });
 
+  it('reads the plan the server says the user is on, and ignores anything else', async () => {
+    mockFetch.mockResolvedValue(jsonResponse({ used: 0, limit: 0, day: '2026-11-06', plan: 'none' }));
+    expect((await makeSut(() => Promise.resolve('jwt')).read()).plan).toBe('none');
+    mockFetch.mockResolvedValue(jsonResponse({ used: 0, limit: 200, day: '2026-11-06', plan: 'plus' }));
+    expect((await makeSut(() => Promise.resolve('jwt')).read()).plan).toBe('plus');
+    mockFetch.mockResolvedValue(jsonResponse({ used: 0, limit: 200, day: '2026-11-06', plan: 'gold' }));
+    expect((await makeSut(() => Promise.resolve('jwt')).read()).plan).toBeUndefined();
+  });
+
   it('falls back to the anon key when no session provider is wired', async () => {
     mockFetch.mockResolvedValue(jsonResponse({ used: 0, limit: 500, day: '2026-08-28' }));
 

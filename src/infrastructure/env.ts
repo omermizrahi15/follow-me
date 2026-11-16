@@ -123,6 +123,17 @@ export const env = {
   classifyFnUrl:
     (process.env.EXPO_PUBLIC_CLASSIFY_FN_URL as string | undefined) ??
     `${PLACEHOLDER_URL}/classify-photos`,
+  /**
+   * Optional — RevenueCat's public iOS SDK key. Unset means this build cannot
+   * sell anything (dev, CI) and the paywall says so (issue #252).
+   */
+  revenueCatIosKey: (process.env.EXPO_PUBLIC_REVENUECAT_IOS_KEY as string | undefined) ?? '',
+  /**
+   * Optional — `true` makes the app show only the paywall until Plus is active.
+   * Off by default so the purchase flow can ship before the requirement does;
+   * turn it on together with the server's ENFORCE_PLAN_LIMITS.
+   */
+  requirePlus: process.env.EXPO_PUBLIC_REQUIRE_PLUS === 'true',
   /** Optional — unset falls back to MapLibre's free demo tiles (issue #78). */
   maptilerKey: (process.env.EXPO_PUBLIC_MAPTILER_KEY as string | undefined) ?? '',
 } as const;

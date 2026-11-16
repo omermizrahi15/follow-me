@@ -352,6 +352,28 @@ Each `*.integration.test.ts` self-skips when its env vars are absent, so CI
 stays green without secrets; `npm run validate` runs typecheck + lint + the
 unit suite only.
 
+## Paid subscriptions (issue #252)
+
+No free tier: a user is on `none` (no access) or `plus`. Limits live in one table, `src/domain/services/plans.ts`. The server decides; the app only displays.
+
+Flow: App Store → RevenueCat → `revenuecat-webhook` Edge Function → `subscriptions` table (migration 20240044) → `loadPlan()` in each cost-driving function.
+
+| Secret | Where | Purpose |
+|---|---|---|
+| `REVENUECAT_WEBHOOK_SECRET` | Edge Function secrets | Must equal the `Bearer …` Authorization header configured on the RevenueCat webhook |
+| `ENFORCE_PLAN_LIMITS` | classify-photos, send-post, auto-post, post-batch secrets | `true` turns on per-plan limits for AI photos (daily) and WhatsApp messages (monthly, counted from `message_logs`). **Off by default** so the server can ship before the paywall; flip it together with the paywall release. `CLASSIFY_DAILY_QUOTA`, if set, still overrides. |
+
+RevenueCat setup: `app_user_id` must be the Supabase user id, entitlement id `plus`, webhook URL `https://<project>.supabase.co/functions/v1/revenuecat-webhook`.
+
+### App-side purchase variables (issue #252)
+
+| Variable | Purpose |
+|---|---|
+| `EXPO_PUBLIC_REVENUECAT_IOS_KEY` | RevenueCat **public** iOS SDK key (not secret). Unset → the build cannot sell anything and the paywall says so. |
+| `EXPO_PUBLIC_REQUIRE_PLUS` | `true` → a signed-in user without active Plus sees only the paywall. Off by default; flip together with the server's `ENFORCE_PLAN_LIMITS`. Fails open on any store error — the server is what really enforces. |
+
+Needs a **native rebuild** (`react-native-purchases`). Enable the In-App Purchase capability on the App ID, create the products in App Store Connect, and attach them to a RevenueCat offering with `$rc_monthly` / `$rc_annual` packages and the `plus` entitlement.
+
 ## Account deletion (issue #253)
 
 Settings → **Delete my account** calls the `delete-account` Edge Function with the

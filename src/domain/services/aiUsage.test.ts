@@ -258,3 +258,10 @@ describe('providerLimitCopy — a broken provider says so (issue #202)', () => {
     expect(providerLimitCopy(base)?.warning).toBeUndefined();
   });
 });
+
+describe('summarizeAiUsage plan', () => {
+  it('carries the plan through with and without a ceiling', () => {
+    expect(summarizeAiUsage({ used: 0, limit: null, day: 'd', plan: 'none' }).plan).toBe('none');
+    expect(summarizeAiUsage({ used: 3, limit: 200, day: 'd', plan: 'plus' }).plan).toBe('plus');
+  });
+});

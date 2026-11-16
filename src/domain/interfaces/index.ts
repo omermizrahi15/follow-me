@@ -36,3 +36,4 @@ export type {
   PhotoSyncState,
 } from './publisher';
 export type { IAiUsageReader } from './aiUsage';
+export type { IPurchaseService } from './purchases';

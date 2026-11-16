@@ -867,7 +867,7 @@ async function processAutoPublisher(config: ConfigRow, now: Date): Promise<strin
     now,
   });
   await stamp();
-  return `posted ${result.photoCount} to ${result.subscriberCount} subscribers`;
+  return `posted ${result.photoCount} to ${result.subscriberCount} subscribers${result.skippedByPlan > 0 ? ` (${result.skippedByPlan} skipped: plan message limit)` : ''}`;
 }
 
 Deno.serve(async (req: Request) => {

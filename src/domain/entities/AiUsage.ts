@@ -54,6 +54,11 @@ export interface AiUsageSnapshot {
    * their "AI limit". The real wall is {@link provider}.
    */
   readonly limit: number | null;
+  /**
+   * The plan the server judged this user by (issue #252), when it said. `none` is
+   * no subscription — what the app turns into an upgrade offer.
+   */
+  readonly plan?: 'none' | 'plus';
   /** The server's date for the count, ISO `YYYY-MM-DD`, so the reset time is legible. */
   readonly day: string;
   /**

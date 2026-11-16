@@ -14,6 +14,13 @@ import { SaveConfigUseCase } from '../application/usecases/SaveConfigUseCase';
 import { LoadConfigUseCase } from '../application/usecases/LoadConfigUseCase';
 import { SuggestPhotosUseCase } from '../application/usecases/SuggestPhotosUseCase';
 import { GetAiUsageUseCase } from '../application/usecases/GetAiUsageUseCase';
+import {
+  GetPlusOfferingUseCase,
+  PurchasePlusUseCase,
+  RestorePurchasesUseCase,
+} from '../application/usecases/PurchaseUseCases';
+import { RevenueCatPurchaseService } from '../infrastructure/purchases/RevenueCatPurchaseService';
+import { purchasesSdk } from '../infrastructure/purchases/purchasesSdk';
 import { InspectGradesUseCase } from '../application/usecases/InspectGradesUseCase';
 import { PhotoSelectionService } from '../domain/services/PhotoSelectionService';
 import { ClassificationCache } from '../infrastructure/cache/ClassificationCache';
@@ -139,6 +146,16 @@ const aiUsageReader = new ClassifyQuotaReader(
   async () => (await authService.getSession())?.access_token ?? null,
 );
 export const getAiUsage = monitored('get_ai_usage', new GetAiUsageUseCase(aiUsageReader));
+
+// Plus purchases (issue #252). With no EXPO_PUBLIC_REVENUECAT_IOS_KEY the service
+// reports itself unavailable and the paywall says so — dev and CI never touch
+// the native module.
+const purchaseService = new RevenueCatPurchaseService(purchasesSdk(), env.revenueCatIosKey);
+/** Whether the app shows only the paywall until Plus is active (EXPO_PUBLIC_REQUIRE_PLUS). */
+export const requirePlus = env.requirePlus;
+export const getPlusOffering = monitored('get_plus_offering', new GetPlusOfferingUseCase(purchaseService));
+export const purchasePlus = monitored('purchase_plus', new PurchasePlusUseCase(purchaseService));
+export const restorePurchases = monitored('restore_purchases', new RestorePurchasesUseCase(purchaseService));
 
 const notificationScheduler = new ExpoNotificationScheduler();
 // Already-sent = anything recorded in `media` for this publisher (id == asset id).
