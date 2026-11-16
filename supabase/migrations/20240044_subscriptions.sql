@@ -5,7 +5,12 @@
 -- user is on is decided in src/domain/services/plans.ts (planFromSubscription),
 -- shared by every Edge Function, so the rule exists once.
 create table if not exists subscriptions (
-  user_id uuid primary key,
+  -- Cascades from the login: deleting an account (delete-account, issue #253)
+  -- removes the auth user LAST, which takes this row with it. It is deliberately
+  -- NOT in USER_DATA_TABLES, so account deletion works whether or not this
+  -- migration has reached a given project yet. Deleting the account does not
+  -- cancel the store subscription — that is Apple's, ended in Apple ID settings.
+  user_id uuid primary key references auth.users (id) on delete cascade,
   entitlement text not null default 'plus',
   -- End of the paid period. Cancelling does not move this; only the store does.
   expires_at timestamptz,

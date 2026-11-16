@@ -651,3 +651,14 @@ export function effectiveDailyLimit(
   if (enforcePlans) return { limit: planLimit, source: 'plan' };
   return { limit: null, source: 'none' };
 }
+
+/**
+ * How many photos of a request went OVER the day's ceiling and so need credits.
+ *
+ * The counter is incremented before the request is judged, so `count` already
+ * includes `photos`: the overage is however much of this request sits above the
+ * ceiling, never more than the request itself. Zero when the request fits.
+ */
+export function creditOverage(count: number, limit: number, photos: number): number {
+  return Math.max(0, Math.min(photos, count - limit));
+}

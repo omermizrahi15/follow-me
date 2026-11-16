@@ -628,7 +628,7 @@ Deno.test('pacingWaitSeconds — counts every image in the call, reference inclu
   assertEquals(pacingWaitSeconds(tokenLimits(5500, 30), 6), 30);
 });
 
-import { effectiveDailyLimit } from './logic.ts';
+import { creditOverage, effectiveDailyLimit } from './logic.ts';
 
 Deno.test('effectiveDailyLimit: explicit override wins and is a cost brake', () => {
   assertEquals(effectiveDailyLimit(10, 500, true), { limit: 10, source: 'override' });
@@ -638,4 +638,16 @@ Deno.test('effectiveDailyLimit: explicit override wins and is a cost brake', () 
 Deno.test('effectiveDailyLimit: plan limit applies only when enforcement is on', () => {
   assertEquals(effectiveDailyLimit(null, 50, true), { limit: 50, source: 'plan' });
   assertEquals(effectiveDailyLimit(null, 50, false), { limit: null, source: 'none' });
+});
+
+Deno.test('creditOverage: nothing when the request fits under the ceiling', () => {
+  assertEquals(creditOverage(40, 50, 5), 0);
+  assertEquals(creditOverage(50, 50, 5), 0);
+});
+
+Deno.test('creditOverage: only the part above the ceiling, never more than the request', () => {
+  assertEquals(creditOverage(53, 50, 5), 3);
+  assertEquals(creditOverage(55, 50, 5), 5);
+  assertEquals(creditOverage(200, 50, 5), 5);
+  assertEquals(creditOverage(5, 0, 5), 5);
 });

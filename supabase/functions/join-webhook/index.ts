@@ -27,6 +27,7 @@ import {
   composeWelcomeMessage,
 } from '../../../src/domain/services/optOutMessages.ts';
 import { verifyTwilioSignature } from '../../../src/infrastructure/notifiers/twilioSignature.ts';
+import { followerSlotsLeft } from '../_shared/followerBudget.ts';
 import { publisherGalleryUrl } from '../_shared/postGallery.ts';
 import { resolvePublisherName } from '../_shared/publisher.ts';
 import { contactHandleFromWhatsApp, twiml } from './logic.ts';
@@ -174,6 +175,21 @@ async function handleJoin(
   const publisher = await lookupPublisher(publisherId);
   if (!publisher) {
     return twiml('Sorry, that join link is no longer valid.');
+  }
+
+  // Plan follower cap (issue #252). Someone already following is not a new
+  // follower, so a repeat JOIN is never refused for lack of a slot.
+  const { data: already } = await supabase
+    .from('subscribers')
+    .select('status')
+    .eq('publisher_id', publisherId)
+    .eq('contact_handle', contactHandle)
+    .maybeSingle();
+  if (already?.status !== 'active') {
+    const slots = await followerSlotsLeft(supabase, publisherId);
+    if (slots != null && slots < 1) {
+      return twiml(`${publisher.name} isn't accepting new followers right now.`);
+    }
   }
 
   const { error } = await supabase.from('subscribers').upsert(

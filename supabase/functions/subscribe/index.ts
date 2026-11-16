@@ -36,6 +36,7 @@ import {
   sendWhatsApp,
   sendWhatsAppTemplate,
 } from '../../../src/infrastructure/notifiers/twilioClient.ts';
+import { followerSlotsLeft } from '../_shared/followerBudget.ts';
 import { logAcceptedSend } from '../_shared/messageLog.ts';
 import { publisherGalleryUrl } from '../_shared/postGallery.ts';
 import { resolvePublisherName } from '../_shared/publisher.ts';
@@ -149,6 +150,13 @@ Deno.serve(async (req: Request) => {
   // success so the page can reassure them they're subscribed rather than show
   // an error for something they did nothing wrong to hit.
   if (action === 'already-active') return json({ ok: true, alreadySubscribed: true });
+
+  // The publisher's plan caps their followers (issue #252). Said gently: the
+  // follower did nothing wrong, and the reason is the publisher's to resolve.
+  const slots = await followerSlotsLeft(supabase, publisherId);
+  if (slots != null && slots < 1) {
+    return json({ ok: false, error: "This person isn't accepting new followers right now." }, 403);
+  }
 
   const write = action === 'reactivate'
     ? supabase.from('subscribers').update({ status: 'active' }).eq('id', existing!.id)

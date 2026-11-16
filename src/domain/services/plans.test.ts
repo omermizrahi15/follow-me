@@ -1,4 +1,4 @@
-import { PLANS, PLUS_ENTITLEMENT, limitsFor, planFromSubscription, recipientsWithinBudget } from './plans';
+import { BACKFILL_PACK_PHOTOS, BACKFILL_PACK_PRODUCT_ID, PLANS, PLUS_ENTITLEMENT, limitsFor, planFromSubscription, recipientsWithinBudget } from './plans';
 
 const NOW = new Date('2026-11-06T12:00:00Z');
 const FUTURE = '2026-12-06T12:00:00Z';
@@ -85,4 +85,10 @@ describe('recipientsWithinBudget', () => {
     expect(recipientsWithinBudget(10, 30, 4)).toBe(2);
     expect(recipientsWithinBudget(3, 30, 4)).toBe(0);
   });
+});
+
+it('repeats the backfill pack constants in revenueCatEvents.ts (dual-runtime: cannot import them)', () => {
+  const source = fs.readFileSync(path.join(__dirname, 'revenueCatEvents.ts'), 'utf8');
+  expect(source).toContain(`const BACKFILL_PACK_PRODUCT_ID = '${BACKFILL_PACK_PRODUCT_ID}'`);
+  expect(source).toContain(`const BACKFILL_PACK_PHOTOS = ${BACKFILL_PACK_PHOTOS}`);
 });

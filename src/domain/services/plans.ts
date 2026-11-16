@@ -28,6 +28,10 @@ export const PLANS: Readonly<Record<PlanId, PlanLimits>> = {
 /** The entitlement id configured in RevenueCat that unlocks {@link PlanId} `plus`. */
 export const PLUS_ENTITLEMENT = 'plus';
 
+/** The one-time history-backfill pack: its App Store product id and the AI photos it adds. */
+export const BACKFILL_PACK_PRODUCT_ID = 'follow_me_backfill_pack';
+export const BACKFILL_PACK_PHOTOS = 3000;
+
 export function limitsFor(plan: PlanId): PlanLimits {
   return PLANS[plan];
 }

@@ -9,6 +9,8 @@
 
 export interface RevenueCatEvent {
   readonly type: string;
+  readonly id?: string | null;
+  readonly product_id?: string | null;
   readonly app_user_id?: string | null;
   readonly entitlement_ids?: readonly string[] | null;
   readonly event_timestamp_ms?: number | null;
@@ -33,7 +35,11 @@ export interface SubscriptionUpdate {
 }
 
 const ENTITLEMENT = 'plus';
-const GRANTING = new Set(['INITIAL_PURCHASE', 'RENEWAL', 'PRODUCT_CHANGE', 'UNCANCELLATION', 'NON_RENEWING_PURCHASE']);
+/** App Store product id and size of the one-time history-backfill pack (mirrors plans.ts). */
+const BACKFILL_PACK_PRODUCT_ID = 'follow_me_backfill_pack';
+const BACKFILL_PACK_PHOTOS = 3000;
+// A one-time purchase is NOT a subscription: it must never grant Plus.
+const GRANTING = new Set(['INITIAL_PURCHASE', 'RENEWAL', 'PRODUCT_CHANGE', 'UNCANCELLATION']);
 const HANDLED = new Set([...GRANTING, 'CANCELLATION', 'BILLING_ISSUE', 'EXPIRATION']);
 
 function iso(ms: number | null | undefined): string | null {
@@ -66,6 +72,22 @@ export function applyRevenueCatEvent(
     case 'EXPIRATION':
       return { ...common, graceExpiresAt: null, autoRenew: false };
     default:
-      return { ...common, graceExpiresAt: null, autoRenew: event.type !== 'NON_RENEWING_PURCHASE' };
+      return { ...common, graceExpiresAt: null, autoRenew: true };
   }
+}
+
+export interface CreditGrant {
+  readonly userId: string;
+  /** RevenueCat's event id: the idempotency key, so a redelivered event grants once. */
+  readonly eventId: string;
+  readonly photos: number;
+}
+
+/** AI credits a backfill-pack purchase grants, or null when the event is not one. */
+export function creditGrantFromEvent(event: RevenueCatEvent): CreditGrant | null {
+  if (event.type !== 'NON_RENEWING_PURCHASE' || event.product_id !== BACKFILL_PACK_PRODUCT_ID) return null;
+  const userId = event.app_user_id;
+  if (userId == null || userId === '' || userId.startsWith('$RCAnonymousID')) return null;
+  if (event.id == null || event.id === '') return null;
+  return { userId, eventId: event.id, photos: BACKFILL_PACK_PHOTOS };
 }

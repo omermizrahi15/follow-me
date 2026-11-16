@@ -1,4 +1,4 @@
-import { applyRevenueCatEvent, type StoredSubscription } from './revenueCatEvents';
+import { applyRevenueCatEvent, creditGrantFromEvent, type StoredSubscription } from './revenueCatEvents';
 
 const T = (iso: string): number => Date.parse(iso);
 const base = {
@@ -9,7 +9,7 @@ const base = {
 };
 
 describe('applyRevenueCatEvent', () => {
-  it.each(['INITIAL_PURCHASE', 'RENEWAL', 'PRODUCT_CHANGE', 'UNCANCELLATION', 'NON_RENEWING_PURCHASE'])(
+  it.each(['INITIAL_PURCHASE', 'RENEWAL', 'PRODUCT_CHANGE', 'UNCANCELLATION'])(
     '%s grants plus until the stated expiry and clears grace',
     type => {
       const result = applyRevenueCatEvent({ ...base, type }, null);
@@ -18,7 +18,7 @@ describe('applyRevenueCatEvent', () => {
         entitlement: 'plus',
         expiresAt: '2026-12-06T12:00:00.000Z',
         graceExpiresAt: null,
-        autoRenew: type !== 'NON_RENEWING_PURCHASE',
+        autoRenew: true,
         lastEventMs: base.event_timestamp_ms,
       });
     },
@@ -62,5 +62,30 @@ describe('applyRevenueCatEvent', () => {
 
   it('ignores a grant with no usable expiry rather than granting forever', () => {
     expect(applyRevenueCatEvent({ ...base, type: 'RENEWAL', expiration_at_ms: null }, null)).toBeNull();
+  });
+});
+
+describe('backfill pack (one-time purchase)', () => {
+  const pack = {
+    type: 'NON_RENEWING_PURCHASE',
+    app_user_id: 'user-1',
+    id: 'evt-1',
+    product_id: 'follow_me_backfill_pack',
+    event_timestamp_ms: T('2026-11-06T12:00:00Z'),
+  };
+
+  it('never grants Plus', () => {
+    expect(applyRevenueCatEvent({ ...pack, entitlement_ids: ['plus'], expiration_at_ms: base.expiration_at_ms }, null)).toBeNull();
+  });
+
+  it('grants AI credits, keyed by the event id so a retry cannot double-grant', () => {
+    expect(creditGrantFromEvent(pack)).toEqual({ userId: 'user-1', eventId: 'evt-1', photos: 3000 });
+  });
+
+  it('grants nothing for other products, event types, anonymous users or a missing event id', () => {
+    expect(creditGrantFromEvent({ ...pack, product_id: 'plus_monthly' })).toBeNull();
+    expect(creditGrantFromEvent({ ...pack, type: 'RENEWAL' })).toBeNull();
+    expect(creditGrantFromEvent({ ...pack, app_user_id: '$RCAnonymousID:x' })).toBeNull();
+    expect(creditGrantFromEvent({ ...pack, id: '' })).toBeNull();
   });
 });

@@ -69,6 +69,7 @@ import {
   CATEGORIES,
   type Classification,
   classifyCaller,
+  creditOverage,
   dailyQuotaFrom,
   downscaledUrl,
   effectiveDailyLimit,
@@ -878,6 +879,13 @@ Deno.serve(async (req: Request) => {
   } else {
     const ceiling = await dailyLimitFor(userId);
     if (ceiling.limit != null && typeof quota.data === 'number' && quota.data > ceiling.limit) {
+      // Over the day's ceiling: a backfill pack's credits can cover the overage
+      // (issue #252). All or nothing for this request.
+      const overage = creditOverage(quota.data, ceiling.limit, photos.length);
+      const spent = await admin.rpc('spend_ai_credits', { p_user: userId, p_n: overage });
+      if (spent.error == null && spent.data === true) {
+        console.log(`classify: user ${userId} spent ${overage} backfill credits`);
+      } else {
       console.warn(`classify quota exceeded: user ${userId} (${ceiling.plan}) at ${quota.data}/${ceiling.limit}`);
       // A plan limit is the one refusal the user can do something about, so it
       // gets its own reason and the app can offer the upgrade.
@@ -886,6 +894,7 @@ Deno.serve(async (req: Request) => {
         { error: 'Daily classification quota exceeded', reason, plan: ceiling.plan, limit: ceiling.limit },
         429,
       );
+      }
     }
   }
 

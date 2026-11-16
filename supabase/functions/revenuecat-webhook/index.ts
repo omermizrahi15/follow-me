@@ -13,7 +13,7 @@
  * Env: SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY (auto-injected), REVENUECAT_WEBHOOK_SECRET.
  */
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2';
-import { applyRevenueCatEvent, type RevenueCatEvent } from '../../../src/domain/services/revenueCatEvents.ts';
+import { applyRevenueCatEvent, creditGrantFromEvent, type RevenueCatEvent } from '../../../src/domain/services/revenueCatEvents.ts';
 import { isAuthorized } from './logic.ts';
 
 const SECRET = Deno.env.get('REVENUECAT_WEBHOOK_SECRET') ?? '';
@@ -34,6 +34,25 @@ Deno.serve(async (req: Request) => {
     return new Response('Invalid JSON', { status: 400 });
   }
   if (event == null || typeof event.type !== 'string') return new Response('Missing event', { status: 400 });
+
+  // A one-time backfill pack adds AI credits and never touches the subscription.
+  const grant = creditGrantFromEvent(event);
+  if (grant != null) {
+    const { error: grantError } = await admin.rpc('grant_ai_credits', {
+      p_event: grant.eventId,
+      p_user: grant.userId,
+      p_photos: grant.photos,
+    });
+    if (grantError != null && (grantError as { code?: string }).code === '23503') {
+      console.warn(`revenuecat-webhook: no such user ${grant.userId}, ignoring credit grant`);
+      return new Response('ignored', { status: 200 });
+    }
+    if (grantError != null) {
+      console.error('credit grant failed:', grantError.message);
+      return new Response('Failed', { status: 500 });
+    }
+    return new Response('ok', { status: 200 });
+  }
 
   const userId = event.app_user_id;
   const existing = userId == null
@@ -63,6 +82,12 @@ Deno.serve(async (req: Request) => {
     last_event_ms: update.lastEventMs,
     updated_at: new Date().toISOString(),
   });
+  // 23503: the app_user_id is not one of our users (a test event, a deleted
+  // account). Acknowledge it — a retry can never succeed.
+  if (error != null && (error as { code?: string }).code === '23503') {
+    console.warn(`revenuecat-webhook: no such user ${update.userId}, ignoring`);
+    return new Response('ignored', { status: 200 });
+  }
   if (error != null) {
     console.error('subscription upsert failed:', error.message);
     // 500 makes RevenueCat retry, which is what we want for a transient DB error.
